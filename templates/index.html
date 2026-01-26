@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Audit Tag Manager – Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f9f9fb; margin: 0; padding: 20px; }
+        .container { max-width: 850px; margin: 30px auto; background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 2px 12px #0001;}
+        h1 { color: #333; }
+        .form-row { margin-bottom: 20px; }
+        input[type="text"] { width: 75%; padding: 10px; border-radius: 6px; border: 1px solid #bbb; font-size: 16px;}
+        input[type="submit"] { padding: 10px 24px; border: none; background: #2196f3; color: #fff; border-radius: 6px; font-weight: bold; cursor: pointer;}
+        table { width: 100%; border-collapse: collapse; margin: 16px 0;}
+        th, td { border: 1px solid #e2e2e2; padding: 7px 10px; text-align: left;}
+        th { background: #fafbfc; }
+        .score { font-size: 24px; color: #43a047; }
+        .problem { color: #d32f2f; font-weight: bold;}
+        .msg { margin-bottom: 12px; font-weight: bold; color: #2196f3;}
+        .history { margin-top: 28px;}
+        .card { background: #f5f5f7; padding: 14px; margin-bottom: 12px; border-radius: 7px;}
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Audit Tag Manager – Dashboard</h1>
+    <form method="post" action="/analyze">
+        <div class="form-row">
+            <input type="text" name="url" placeholder="Cole ou digite a URL para análise" required />
+            <input type="submit" value="Analisar">
+        </div>
+    </form>
+    {% if msg %}
+        <div class="msg">{{msg}}</div>
+    {% endif %}
+    {% if result %}
+        <div class="card">
+            <h2>Resultado da Análise</h2>
+            <strong>URL:</strong> {{result.url}}<br>
+            <span class="score">Score: {{result.score}} / 100</span>
+            <p>Total de Tags/Scripts: {{result.total_tags}}</p>
+            <ul>
+                {% for p in result.problems %}
+                    <li class="problem">{{p}}</li>
+                {% endfor %}
+            </ul>
+            <h3>Tags/Scripts Detectadas:</h3>
+            <table>
+                <tr>
+                    <th>#</th>
+                    <th>Fonte</th>
+                    <th>Inline size</th>
+                    <th>Duplicada?</th>
+                </tr>
+                {% for tag in result.tags_info %}
+                <tr>
+                    <td>{{loop.index}}</td>
+                    <td>{{tag.src}}</td>
+                    <td>{% if tag.inline_length %}{{tag.inline_length}}{% else %}-{% endif %}</td>
+                    <td>{% if tag.is_duplicate %}Sim{% else %}Não{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+    {% endif %}
+    <div class="history">
+        <h2>Histórico de Análises</h2>
+        {% for h in history %}
+            <div class="card">
+                <strong>{{h.timestamp}} – <span style="color:#2196f3">{{h.url}}</span></strong><br>
+                Score: {{h.score}} / 100 | Tags: {{h.total_tags}}
+                {% if h.problems %}
+                    <ul>
+                        {% for p in h.problems %}
+                            <li class="problem">{{p}}</li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+            </div>
+        {% else %}
+            <p>Nenhuma análise ainda.</p>
+        {% endfor %}
+    </div>
+</div>
+</body>
+</html>
