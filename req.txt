@@ -4,3 +4,6 @@ jinja2
 requests
 beautifulsoup4
 python-multipart
+python-dotenv
+google-genai
+

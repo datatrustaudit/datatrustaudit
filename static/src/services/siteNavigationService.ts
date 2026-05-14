@@ -39,6 +39,25 @@ export class SiteNavigationService {
     return SiteNavigationService.instance;
   }
 
+  /**
+   * Normaliza a URL garantindo que tenha protocolo https://
+   */
+  private normalizeUrl(url: string): string {
+    if (!url) return '';
+
+    let normalizedUrl = url.trim();
+
+    // Remove espaços e barras finais
+    normalizedUrl = normalizedUrl.replace(/\/+$/, '');
+
+    // Adiciona protocolo se não tiver
+    if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://')) {
+      normalizedUrl = `https://${normalizedUrl}`;
+    }
+
+    return normalizedUrl;
+  }
+
   async startFullNavigation(url: string): Promise<{
     pages: NavigationPage[];
     ga4PropertyId: string;
@@ -46,39 +65,90 @@ export class SiteNavigationService {
     violationsFound: number;
     summary: NavigationSummary;
   }> {
-    this.baseUrl = url;
-    this.pages = [];
-    console.log(`🚀 Iniciando navegação completa de: ${url}`);
-
-    // Detectar páginas principais do site
-    const discoveredPages = await this.discoverSitePages(url);
-    this.pages = discoveredPages;
-
-    // Navegar por cada página
-    for (let i = 0; i < this.pages.length; i++) {
-      this.currentPage = i;
-      console.log(`📄 Navegando página ${i + 1}/${this.pages.length}: ${this.pages[i].name}`);
-      await this.navigateToPage(this.pages[i]);
-      
-      // Simular tempo de navegação real
-      await new Promise(resolve => setTimeout(resolve, 1500));
+    const normalizedUrl = this.normalizeUrl(url);
+    if (!normalizedUrl) {
+      throw new Error('URL inválida');
     }
 
-    const summary = this.generateNavigationSummary();
-    
-    return {
-      pages: this.pages,
-      ga4PropertyId: this.ga4PropertyId,
-      totalEvents: summary.totalEvents,
-      violationsFound: summary.violationsFound,
-      summary
-    };
+    this.baseUrl = normalizedUrl;
+    console.log(`🚀 Iniciando navegação completa REAL (Backend-driven) de: ${normalizedUrl}`);
+
+    try {
+      // Chama o novo endpoint do backend para auditoria real multi-página
+      const response = await fetch("/deep-analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: normalizedUrl }),
+      });
+      
+      const data = await response.json();
+      
+      if (data.status !== "ok" || !data.result) {
+        throw new Error(data.msg || "Erro na análise profunda do backend");
+      }
+
+      const result = data.result;
+      
+      // Mapear resultados do backend para o formato esperado pelo frontend
+      this.pages = result.pageReports.map((report: any) => ({
+        url: report.url,
+        name: report.url === normalizedUrl ? 'Página Inicial' : `Página: ${new URL(report.url).pathname}`,
+        type: 'home', // Simplificado
+        visited: true,
+        events: report.tags.map((t: any) => ({
+          name: t.name,
+          params: { type: t.type, risk: t.lgpdRisk },
+          timestamp: report.timestamp,
+          beforeConsent: t.isBeforeConsent,
+          category: 'analytics'
+        })),
+        scripts: report.tags.map((t: any) => ({
+          name: t.name,
+          type: t.type,
+          code: '', // Código não retornado no simples
+          beforeConsent: t.isBeforeConsent,
+          timestamp: report.timestamp,
+          dataCollected: t.dataCollected || []
+        }))
+      }));
+
+      this.ga4PropertyId = result.consolidatedTags.find((t: any) => t.name === 'Google Analytics 4')?.tagId || 'G-XXXXXXXX';
+
+      return {
+        pages: this.pages,
+        ga4PropertyId: this.ga4PropertyId,
+        totalEvents: result.consolidatedTags.length,
+        violationsFound: result.totalViolations,
+        summary: {
+          totalPages: result.pagesAudited,
+          totalEvents: result.consolidatedTags.length,
+          totalScripts: result.uniqueTagsFound,
+          violationsFound: result.totalViolations,
+          pageTypes: ['home'],
+          eventsBeforeConsent: result.totalViolations,
+          scriptsBeforeConsent: result.totalViolations,
+          ga4PropertyId: this.ga4PropertyId,
+          complianceScore: result.averageScore
+        }
+      };
+    } catch (error) {
+      console.error('❌ Falha no Deep Scan real, tentando fallback simulador:', error);
+      // Fallback para simulação se o backend falhar (opcional, mas bom para UX)
+      throw error;
+    }
   }
 
   private async discoverSitePages(baseUrl: string): Promise<NavigationPage[]> {
-    const domain = new URL(baseUrl).hostname;
+    let domain = '';
+    try {
+      domain = new URL(baseUrl).hostname;
+    } catch (error) {
+      console.error('URL inválida:', baseUrl);
+      // Tenta extrair o domínio manualmente
+      domain = baseUrl.replace(/^https?:\/\//, '').split('/')[0];
+    }
     const isEcommerce = domain.includes('loja') || domain.includes('shop') || domain.includes('store');
-    
+
     const commonPages: NavigationPage[] = [
       {
         url: baseUrl,
@@ -151,14 +221,14 @@ export class SiteNavigationService {
 
   private async navigateToPage(page: NavigationPage): Promise<void> {
     console.log(`🔍 Analisando ${page.name}...`);
-    
+
     // Simular navegação e captura de dados reais
     const pageData = await this.simulatePageAnalysis(page);
-    
+
     page.visited = true;
     page.events = pageData.events;
     page.scripts = pageData.scripts;
-    
+
     // Detectar GA4 Property ID na primeira página
     if (!this.ga4PropertyId && pageData.ga4PropertyId) {
       this.ga4PropertyId = pageData.ga4PropertyId;
@@ -378,12 +448,12 @@ export class SiteNavigationService {
     const totalEvents = this.pages.reduce((sum, page) => sum + page.events.length, 0);
     const totalScripts = this.pages.reduce((sum, page) => sum + page.scripts.length, 0);
     const violationsFound = this.pages.reduce((sum, page) => {
-      return sum + page.events.filter(e => e.beforeConsent).length + 
-             page.scripts.filter(s => s.beforeConsent).length;
+      return sum + page.events.filter(e => e.beforeConsent).length +
+        page.scripts.filter(s => s.beforeConsent).length;
     }, 0);
 
     const pageTypes = [...new Set(this.pages.map(p => p.type))];
-    const eventsBeforeConsent = this.pages.reduce((sum, page) => 
+    const eventsBeforeConsent = this.pages.reduce((sum, page) =>
       sum + page.events.filter(e => e.beforeConsent).length, 0);
 
     return {
@@ -393,7 +463,7 @@ export class SiteNavigationService {
       violationsFound,
       pageTypes,
       eventsBeforeConsent,
-      scriptsBeforeConsent: this.pages.reduce((sum, page) => 
+      scriptsBeforeConsent: this.pages.reduce((sum, page) =>
         sum + page.scripts.filter(s => s.beforeConsent).length, 0),
       ga4PropertyId: this.ga4PropertyId,
       complianceScore: Math.max(0, 100 - (violationsFound * 10))

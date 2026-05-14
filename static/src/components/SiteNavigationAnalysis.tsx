@@ -41,7 +41,7 @@ const SiteNavigationAnalysis = ({ url, onComplete }: SiteNavigationAnalysisProps
 
     try {
       const navigationService = SiteNavigationService.getInstance();
-      
+
       // Monitorar progresso
       const progressInterval = setInterval(() => {
         const progressData = navigationService.getCurrentProgress();
@@ -50,7 +50,7 @@ const SiteNavigationAnalysis = ({ url, onComplete }: SiteNavigationAnalysisProps
       }, 500);
 
       const results = await navigationService.startFullNavigation(url);
-      
+
       clearInterval(progressInterval);
       setProgress(100);
       setPages(results.pages);
@@ -81,7 +81,7 @@ const SiteNavigationAnalysis = ({ url, onComplete }: SiteNavigationAnalysisProps
   const getPageIcon = (type: string) => {
     switch (type) {
       case 'home': return <Globe className="h-4 w-4" />;
-      case 'category': 
+      case 'category':
       case 'product': return <Search className="h-4 w-4" />;
       case 'cart':
       case 'checkout': return <ShoppingCart className="h-4 w-4" />;
@@ -116,8 +116,8 @@ const SiteNavigationAnalysis = ({ url, onComplete }: SiteNavigationAnalysisProps
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            <Button 
-              onClick={startNavigation} 
+            <Button
+              onClick={startNavigation}
               disabled={isNavigating}
               className="w-full bg-blue-600 hover:bg-blue-700"
               size="lg"
@@ -250,7 +250,7 @@ const SiteNavigationAnalysis = ({ url, onComplete }: SiteNavigationAnalysisProps
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {pages.flatMap(page => 
+                      {pages.flatMap(page =>
                         page.events.map((event, eventIndex) => (
                           <TableRow key={`${page.name}-${eventIndex}`}>
                             <TableCell className="font-medium">{page.name}</TableCell>
@@ -290,7 +290,7 @@ const SiteNavigationAnalysis = ({ url, onComplete }: SiteNavigationAnalysisProps
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {pages.flatMap(page => 
+                      {pages.flatMap(page =>
                         page.scripts.map((script, scriptIndex) => (
                           <TableRow key={`${page.name}-${scriptIndex}`}>
                             <TableCell className="font-medium">{page.name}</TableCell>
