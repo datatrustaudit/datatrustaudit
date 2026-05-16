@@ -19,9 +19,9 @@ import { createContext, useContext, useState, useEffect, useCallback, ReactNode 
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type SupportedCurrency = 'USD' | 'BRL' | 'EUR' | 'GBP';
-export type SupportedLanguage = 'pt' | 'en';
-export type RegionCode = 'BR' | 'US' | 'EU' | 'UK' | 'OTHER';
+export type SupportedCurrency = 'USD' | 'BRL' | 'EUR' | 'GBP' | 'MXN' | 'ARS' | 'CLP' | 'COP' | 'CAD' | 'AUD';
+export type SupportedLanguage = 'pt' | 'en' | 'es' | 'fr' | 'zh' | 'de' | 'it' | 'ar' | 'hi' | 'ja';
+export type RegionCode = 'BR' | 'US' | 'EU' | 'UK' | 'LATAM' | 'APAC' | 'OTHER';
 
 export interface LocaleInfo {
     currencyCode: SupportedCurrency;
@@ -65,6 +65,11 @@ const TZ_REGION: Record<string, RegionCode> = {
     'Europe/Vienna': 'EU', 'Europe/Warsaw': 'EU', 'Europe/Lisbon': 'EU',
     'Europe/Athens': 'EU', 'Europe/Helsinki': 'EU', 'Europe/Stockholm': 'EU',
     'Europe/Copenhagen': 'EU', 'Europe/Dublin': 'EU', 'Europe/Zurich': 'EU',
+    'America/Mexico_City': 'LATAM', 'America/Argentina/Buenos_Aires': 'LATAM',
+    'America/Santiago': 'LATAM', 'America/Bogota': 'LATAM',
+    'America/Toronto': 'US', 'America/Vancouver': 'US',
+    'Australia/Sydney': 'APAC', 'Asia/Tokyo': 'APAC', 'Asia/Shanghai': 'APAC',
+    'Asia/Kolkata': 'APAC', 'Asia/Dubai': 'OTHER',
 };
 
 // ── Exchange rates (USD base, approx 2025) ─────────────────────────────────
@@ -74,6 +79,12 @@ export const CONVERSION_RATES: Record<SupportedCurrency, number> = {
     BRL: 5.85,
     EUR: 0.93,
     GBP: 0.80,
+    MXN: 20.45,
+    ARS: 825.00,
+    CLP: 950.00,
+    COP: 3950.00,
+    CAD: 1.36,
+    AUD: 1.54,
 };
 
 /** Market-facing price overrides for Brazil (display value, not converted) */
@@ -91,17 +102,21 @@ function detectRegion(tz: string, browserLang: string): RegionCode {
     if (tz.startsWith('America/')) return browserLang.startsWith('pt') ? 'BR' : 'US';
     if (tz.startsWith('Europe/')) return tz === 'Europe/London' ? 'UK' : 'EU';
     if (browserLang.startsWith('pt')) return 'BR';
+    if (browserLang.startsWith('es')) return 'LATAM';
     return 'OTHER';
 }
 
 function regionToLocaleInfo(region: RegionCode, browserLang: string): LocaleInfo {
+    const lang = (browserLang.split('-')[0] as SupportedLanguage) || 'en';
     switch (region) {
         case 'BR': return { currencyCode: 'BRL', locale: 'pt-BR', region, language: 'pt' };
         case 'UK': return { currencyCode: 'GBP', locale: 'en-GB', region, language: 'en' };
         case 'EU': return { currencyCode: 'EUR', locale: 'de-DE', region, language: 'en' };
         case 'US': return { currencyCode: 'USD', locale: 'en-US', region, language: 'en' };
+        case 'LATAM': return { currencyCode: 'MXN', locale: 'es-MX', region, language: 'es' };
+        case 'APAC': return { currencyCode: 'AUD', locale: 'en-AU', region, language: 'en' };
         default:
-            return { currencyCode: 'USD', locale: 'en-US', region: 'OTHER', language: browserLang.startsWith('pt') ? 'pt' : 'en' };
+            return { currencyCode: 'USD', locale: 'en-US', region: 'OTHER', language: lang };
     }
 }
 
@@ -120,6 +135,8 @@ function detectAutoLocale(): LocaleInfo {
 
 const CURRENCY_LOCALE: Record<SupportedCurrency, string> = {
     USD: 'en-US', BRL: 'pt-BR', EUR: 'de-DE', GBP: 'en-GB',
+    MXN: 'es-MX', ARS: 'es-AR', CLP: 'es-CL', COP: 'es-CO',
+    CAD: 'en-CA', AUD: 'en-AU',
 };
 
 // ── Context ───────────────────────────────────────────────────────────────────
@@ -135,12 +152,14 @@ export const LocaleProvider = ({ children }: { children: ReactNode }) => {
 
     const [currency, setCurrencyState] = useState<SupportedCurrency>(() => {
         const saved = localStorage.getItem(STORAGE_CURRENCY) as SupportedCurrency | null;
-        return saved && ['USD', 'BRL', 'EUR', 'GBP'].includes(saved) ? saved : autoLocale.currencyCode;
+        const validCurrencies = ['USD', 'BRL', 'EUR', 'GBP', 'MXN', 'ARS', 'CLP', 'COP', 'CAD', 'AUD'];
+        return saved && validCurrencies.includes(saved) ? saved : autoLocale.currencyCode;
     });
 
     const [language, setLanguageState] = useState<SupportedLanguage>(() => {
         const saved = localStorage.getItem(STORAGE_LANGUAGE) as SupportedLanguage | null;
-        return saved && ['en', 'pt'].includes(saved) ? saved : autoLocale.language;
+        const validLangs = ['pt', 'en', 'es', 'fr', 'zh', 'de', 'it', 'ar', 'hi', 'ja'];
+        return saved && validLangs.includes(saved) ? saved : autoLocale.language;
     });
 
     const [isManualOverride, setIsManualOverride] = useState<boolean>(() =>
@@ -161,6 +180,8 @@ export const LocaleProvider = ({ children }: { children: ReactNode }) => {
         localStorage.setItem('gtm-audit-lang', l);
         localStorage.setItem(STORAGE_OVERRIDE, 'true');
         setIsManualOverride(true);
+        // Dispatch custom event to notify I18nContext if needed
+        window.dispatchEvent(new Event('gtm-language-changed'));
     }, []);
 
     const resetToAuto = useCallback(() => {
@@ -171,6 +192,7 @@ export const LocaleProvider = ({ children }: { children: ReactNode }) => {
         localStorage.removeItem(STORAGE_OVERRIDE);
         localStorage.setItem('gtm-audit-lang', autoLocale.language);
         setIsManualOverride(false);
+        window.dispatchEvent(new Event('gtm-language-changed'));
     }, [autoLocale]);
 
     const locale: LocaleInfo = {
@@ -181,7 +203,14 @@ export const LocaleProvider = ({ children }: { children: ReactNode }) => {
     };
 
     const formatPrice = useCallback((usdPrice: number): string => {
-        if (usdPrice === 0) return currency === 'BRL' ? 'Grátis' : 'Free';
+        if (usdPrice === 0) {
+            const labels: Record<string, string> = {
+                pt: 'Grátis', en: 'Free', es: 'Gratis', fr: 'Gratuit', zh: '免费',
+                de: 'Kostenlos', it: 'Gratis', ar: 'مجاني', hi: 'नि:शुल्क', ja: '無料'
+            };
+            return labels[language] || labels.en;
+        }
+        
         let localAmount: number;
         // Use market-facing BR overrides if currency is BRL
         if (currency === 'BRL' && BR_PRICE_OVERRIDES[usdPrice]) {
@@ -196,7 +225,7 @@ export const LocaleProvider = ({ children }: { children: ReactNode }) => {
             minimumFractionDigits: 0,
             maximumFractionDigits: 0,
         }).format(localAmount);
-    }, [currency]);
+    }, [currency, language]);
 
     return (
         <LocaleContext.Provider value={{
@@ -232,6 +261,7 @@ export interface LocaleInfoLegacy {
 
 const CURRENCY_SYMBOL: Record<SupportedCurrency, string> = {
     USD: '$', BRL: 'R$', EUR: '€', GBP: '£',
+    MXN: '$', ARS: '$', CLP: '$', COP: '$', CAD: '$', AUD: '$',
 };
 
 /** @deprecated Use useLocaleContext() instead. Kept for backward compatibility. */

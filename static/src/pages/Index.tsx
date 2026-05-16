@@ -2,8 +2,7 @@ import { useState } from 'react';
 import { useI18n } from '@/context/I18nContext';
 import AppHeader from '@/components/AppHeader';
 import AuditContainer from '@/components/AuditContainer';
-import { Shield, Zap, Search, Lock, Activity, CheckCircle2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Shield, Zap, Search, Activity, CheckCircle2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
 const Index = () => {
@@ -24,29 +23,29 @@ const Index = () => {
 
           <Badge className="bg-white/5 hover:bg-white/10 text-blue-400 cursor-pointer mb-8 py-2 px-5 text-sm rounded-full mx-auto inline-flex items-center gap-2 border border-blue-500/20 backdrop-blur-md shadow-xl transition-all hover:scale-105 active:scale-95">
             <Shield className="w-4 h-4" />
-            DataTrust Audit 2.0 está no ar!
+            {t('home.badge_promo')}
           </Badge>
           
           <h1 className="text-5xl md:text-8xl font-black tracking-tight text-white mb-8 leading-[1.1]">
-            Pare de perder dados por <br />
+            {t('home.hero_title_line1')} <br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-blue-600 to-indigo-600 drop-shadow-sm">
-              tags quebradas
+              {t('home.hero_title_accent')}
             </span>.
           </h1>
           
           <p className="text-xl md:text-2xl text-slate-400 mb-12 max-w-3xl mx-auto font-light leading-relaxed">
-            Auditoria automatizada de Google Tag Manager, compliance LGPD/GDPR e saúde de dados. Descubra erros silenciosos antes que eles custem o seu ROI.
+            {t('home.hero_subtitle')}
           </p>
           
           <div className="flex flex-col sm:flex-row gap-6 justify-center items-center mb-4">
             <span className="flex items-center gap-2 text-sm text-slate-300 font-medium bg-white/5 px-4 py-2 rounded-full border border-white/5">
-              <CheckCircle2 className="w-4 h-4 text-green-400" /> Sem cartão de crédito
+              <CheckCircle2 className="w-4 h-4 text-green-400" /> {t('home.perk_no_card')}
             </span>
             <span className="flex items-center gap-2 text-sm text-slate-300 font-medium bg-white/5 px-4 py-2 rounded-full border border-white/5">
-              <CheckCircle2 className="w-4 h-4 text-green-400" /> Relatório em 10 segundos
+              <CheckCircle2 className="w-4 h-4 text-green-400" /> {t('home.perk_fast_report')}
             </span>
             <span className="flex items-center gap-2 text-sm text-slate-300 font-medium bg-white/5 px-4 py-2 rounded-full border border-white/5">
-              <CheckCircle2 className="w-4 h-4 text-green-400" /> +50 verificações ativas
+              <CheckCircle2 className="w-4 h-4 text-green-400" /> {t('home.perk_active_checks')}
             </span>
           </div>
         </section>
@@ -61,10 +60,10 @@ const Index = () => {
           <div className="container mx-auto px-4 max-w-6xl">
             <div className="text-center mb-16">
               <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
-                Tudo que você precisa para Data Layer e Tags
+                {t('home.features_title')}
               </h2>
               <p className="text-lg text-slate-400 max-w-2xl mx-auto">
-                Desenvolvido por especialistas em Web Analytics para martechs e equipes de growth de alta performance.
+                {t('home.features_subtitle')}
               </p>
             </div>
             
@@ -74,8 +73,8 @@ const Index = () => {
                 <div className="w-14 h-14 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
                   <Activity className="w-7 h-7" />
                 </div>
-                <h3 className="text-xl font-bold text-white mb-3">Auditoria de Eventos</h3>
-                <p className="text-slate-400 leading-relaxed">Verifica disparo de pageviews, conversões e ecommerce. Detectamos tags duplicadas, parâmetros faltando e consent mode.</p>
+                <h3 className="text-xl font-bold text-white mb-3">{t('home.feature1_title')}</h3>
+                <p className="text-slate-400 leading-relaxed">{t('home.feature1_desc')}</p>
               </div>
 
               {/* Feature 2 */}
@@ -83,8 +82,8 @@ const Index = () => {
                 <div className="w-14 h-14 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
                   <Shield className="w-7 h-7" />
                 </div>
-                <h3 className="text-xl font-bold text-white mb-3">Riscos LGPD & GDPR</h3>
-                <p className="text-slate-400 leading-relaxed">Varredura automática por tecnologias de rastreamento antes do consentimento. Descubra pixels ocultos carregando dados PII.</p>
+                <h3 className="text-xl font-bold text-white mb-3">{t('home.feature2_title')}</h3>
+                <p className="text-slate-400 leading-relaxed">{t('home.feature2_desc')}</p>
               </div>
 
               {/* Feature 3 */}
@@ -92,8 +91,8 @@ const Index = () => {
                 <div className="w-14 h-14 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
                   <Search className="w-7 h-7" />
                 </div>
-                <h3 className="text-xl font-bold text-white mb-3">Exportação PDF/Excel</h3>
-                <p className="text-slate-400 leading-relaxed">Gere white-labels profissionais para seus clientes com 1 clique. Ideal para consultorias e agências fecharem contratos de web analytics.</p>
+                <h3 className="text-xl font-bold text-white mb-3">{t('home.feature3_title')}</h3>
+                <p className="text-slate-400 leading-relaxed">{t('home.feature3_desc')}</p>
               </div>
             </div>
           </div>
@@ -113,12 +112,12 @@ const Index = () => {
               </p>
             </div>
             <div className="flex items-center gap-8 text-sm font-medium text-slate-500">
-              <a href="/pricing" className="hover:text-blue-400 transition-colors">Preços</a>
-              <a href="/docs" className="hover:text-blue-400 transition-colors">Documentação</a>
-              <a href="/terms" className="hover:text-blue-400 transition-colors">Termos & Privacidade</a>
+              <a href="/pricing" className="hover:text-blue-400 transition-colors">{t('nav.pricing')}</a>
+              <a href="/docs" className="hover:text-blue-400 transition-colors">{t('nav.docs')}</a>
+              <a href="/terms" className="hover:text-blue-400 transition-colors">{t('nav.terms')}</a>
             </div>
             <p className="text-xs text-slate-600">
-              © 2024 TRACKNOLOGY Ecosystem. Todos os direitos reservados.
+              {t('footer.copyright')}
             </p>
           </div>
         </div>

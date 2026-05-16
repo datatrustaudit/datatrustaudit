@@ -2,7 +2,12 @@ import { createContext, useContext, useState, useEffect, ReactNode } from 'react
 import pt from '../translations/pt.json';
 import en from '../translations/en.json';
 
-type Language = 'pt' | 'en';
+// We'll import these as they are created
+// import es from '../translations/es.json';
+// import fr from '../translations/fr.json';
+// ...
+
+type Language = 'pt' | 'en' | 'es' | 'fr' | 'zh' | 'de' | 'it' | 'ar' | 'hi' | 'ja';
 
 interface I18nContextType {
     language: Language;
@@ -10,7 +15,11 @@ interface I18nContextType {
     setLanguage: (lang: Language) => void;
 }
 
-const translations: Record<Language, Record<string, unknown>> = { pt, en };
+// Initial translations with fallbacks to avoid crashes
+const translations: Record<Language, any> = { 
+    pt, en, 
+    es: {}, fr: {}, zh: {}, de: {}, it: {}, ar: {}, hi: {}, ja: {} 
+};
 
 /**
  * Flat fallback map for keys that might be missing from translation files.
@@ -70,45 +79,74 @@ const FALLBACK_EN: Record<string, string> = {
     'errors.blocked_403': 'This site blocks automated analysis. Use the Upload or View-Source tab.',
 };
 
-const FALLBACKS: Record<Language, Record<string, string>> = { pt: FALLBACK_PT, en: FALLBACK_EN };
+const FALLBACKS: Record<string, Record<string, string>> = { pt: FALLBACK_PT, en: FALLBACK_EN };
 
 const I18nContext = createContext<I18nContextType | null>(null);
 
 export const I18nProvider = ({ children }: { children: ReactNode }) => {
-    const [language, setLanguage] = useState<Language>(() => {
+    const [language, setLanguageState] = useState<Language>(() => {
         const saved = localStorage.getItem('gtm-audit-lang');
-        if (saved && (saved === 'pt' || saved === 'en')) return saved as Language;
+        const validLangs = ['pt', 'en', 'es', 'fr', 'zh', 'de', 'it', 'ar', 'hi', 'ja'];
+        if (saved && validLangs.includes(saved)) return saved as Language;
         const browserLang = navigator.language.split('-')[0];
-        return browserLang === 'pt' ? 'pt' : 'en';
+        return (validLangs.includes(browserLang) ? browserLang : 'en') as Language;
     });
+
+    const setLanguage = (lang: Language) => {
+        setLanguageState(lang);
+        localStorage.setItem('gtm-audit-lang', lang);
+        localStorage.setItem('gtm-locale-language', lang); // sync with LocaleContext
+    };
+
+    // Listen for language changes from other contexts (like LocaleContext)
+    useEffect(() => {
+        const handleSync = () => {
+            const saved = localStorage.getItem('gtm-audit-lang');
+            if (saved && saved !== language) {
+                setLanguageState(saved as Language);
+            }
+        };
+
+        window.addEventListener('gtm-language-changed', handleSync);
+        return () => window.removeEventListener('gtm-language-changed', handleSync);
+    }, [language]);
 
     useEffect(() => {
         localStorage.setItem('gtm-audit-lang', language);
         document.documentElement.lang = language;
+        document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
     }, [language]);
 
     const t = (keyPath: string): string => {
         // Walk the nested object
         const keys = keyPath.split('.');
         let current: unknown = translations[language];
+        
+        // If the translation for current language is empty, fallback to English
+        if (!current || Object.keys(current).length === 0) {
+            current = translations['en'];
+        }
+
         for (const key of keys) {
             if (current === null || typeof current !== 'object') { current = undefined; break; }
             current = (current as Record<string, unknown>)[key];
         }
+        
         if (typeof current === 'string') return current;
 
-        // Try fallback map for this language
-        const fb = FALLBACKS[language][keyPath];
+        // Try fallback map for this language (if available)
+        const fb = FALLBACKS[language]?.[keyPath] || FALLBACKS['en']?.[keyPath];
         if (fb) return fb;
 
-        // Try opposite language's translation
-        const altLang: Language = language === 'pt' ? 'en' : 'pt';
-        let altCurrent: unknown = translations[altLang];
-        for (const key of keys) {
-            if (altCurrent === null || typeof altCurrent !== 'object') { altCurrent = undefined; break; }
-            altCurrent = (altCurrent as Record<string, unknown>)[key];
+        // Try English translation as second resort
+        if (language !== 'en') {
+            let enCurrent: unknown = translations['en'];
+            for (const key of keys) {
+                if (enCurrent === null || typeof enCurrent !== 'object') { enCurrent = undefined; break; }
+                enCurrent = (enCurrent as Record<string, unknown>)[key];
+            }
+            if (typeof enCurrent === 'string') return enCurrent;
         }
-        if (typeof altCurrent === 'string') return altCurrent;
 
         // Last resort: humanize the last segment of the key
         const lastKey = keys[keys.length - 1];

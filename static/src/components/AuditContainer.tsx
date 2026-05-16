@@ -81,6 +81,7 @@ interface AuditContainerProps {
 }
 
 const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
+  const { t } = useI18n();
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [auditResult, setAuditResult] = useState<NewAuditResult | null>(null);
@@ -112,14 +113,13 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
     setCurrentScanId(null);
     setCurrentAuditUrl('');
     onStateChange?.(false);
-    console.log('🧹 Dados da auditoria anterior limpos');
   };
 
   const handleAudit = async () => {
     if (!url) {
       toast({
-        title: "Erro",
-        description: "Por favor, insira uma URL válida",
+        title: t('common.error'),
+        description: t('audit.url_required'),
         variant: "destructive"
       });
       return;
@@ -134,8 +134,8 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
       new URL(validUrl);
     } catch {
       toast({
-        title: "URL Inválida",
-        description: "Por favor, insira uma URL válida (ex: exemplo.com)",
+        title: t('audit.invalid_url'),
+        description: t('audit.invalid_url_desc'),
         variant: "destructive"
       });
       return;
@@ -149,8 +149,6 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
     setCurrentAuditUrl(validUrl);
     setAnalysisType('url');
     onStateChange?.(true);
-
-    console.log(`🔄 Iniciando auditoria por URL para: ${validUrl}`);
 
     try {
       const headers: Record<string, string> = {
@@ -168,7 +166,7 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
       if (!response.ok) {
         let errData;
         try { errData = await response.json(); } catch { errData = null; }
-        throw new Error(errData?.detail || `Erro na API: ${response.status}`);
+        throw new Error(errData?.detail || `API Error: ${response.status}`);
       }
       
       const data = await response.json();
@@ -180,7 +178,7 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
             const pollRes = await fetch(`/api/scans/${scanId}`, {
                 headers
             });
-            if (!pollRes.ok) throw new Error("Falha ao obter status da auditoria");
+            if (!pollRes.ok) throw new Error(t('audit.poll_failed'));
             const pollData = await pollRes.json();
             
             if (pollData.status === "completed") {
@@ -190,22 +188,22 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
                 const score = pollData.result?.scores?.overall || pollData.result?.score || pollData.score || 0;
                 
                 toast({
-                  title: "Auditoria Concluída!",
-                  description: `Score: ${score}% – ${violationCount} violações LGPD detectadas`
+                  title: t('audit.completed'),
+                  description: `${t('dashboard.compliance_score')}: ${score}% – ${violationCount} ${t('dashboard.privacy_risks')}`
                 });
                 setLoading(false);
             } else if (pollData.status === "failed") {
-                throw new Error("A auditoria falhou no servidor.");
+                throw new Error(t('audit.failed_server'));
             } else {
                 pollTimerRef.current = setTimeout(pollScan, 3000);
             }
         } catch (e) {
-            console.error('❌ Erro no polling:', e);
+            console.error('❌ Polling error:', e);
             clearAuditData();
             setLoading(false);
             toast({
-              title: "Erro na Auditoria",
-              description: e instanceof Error ? e.message : "Ocorreu um erro durante a análise. Tente novamente.",
+              title: t('audit.error_title'),
+              description: e instanceof Error ? e.message : t('audit.error_generic'),
               variant: "destructive"
             });
         }
@@ -214,12 +212,12 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
       pollScan();
 
     } catch (error) {
-      console.error('❌ Erro na auditoria:', error);
+      console.error('❌ Audit error:', error);
       clearAuditData();
       setLoading(false);
       toast({
-        title: "Erro na Auditoria",
-        description: error instanceof Error ? error.message : "Ocorreu um erro ao iniciar a análise. Tente novamente.",
+        title: t('audit.error_title'),
+        description: error instanceof Error ? error.message : t('audit.error_init'),
         variant: "destructive"
       });
     }
@@ -228,8 +226,8 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
   const handleFileAnalysis = async (files: any[]) => {
     if (!files || files.length === 0) {
       toast({
-        title: "Erro",
-        description: "Nenhum arquivo foi carregado",
+        title: t('common.error'),
+        description: t('audit.no_files'),
         variant: "destructive"
       });
       return;
@@ -240,32 +238,24 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
     setAnalysisType('file');
     onStateChange?.(true);
 
-    console.log(`🔄 Iniciando análise por upload de ${files.length} arquivos`);
-
     try {
       const fileAnalysisService = FileAnalysisService.getInstance();
       const result = await fileAnalysisService.analyzeFiles(files);
 
       setFileAnalysisResult(result);
-      setCurrentAuditUrl(`Análise de ${files.length} arquivo(s)`);
+      setCurrentAuditUrl(`${t('home.tab_upload')}: ${files.length} ${t('common.files')}`);
 
       toast({
-        title: "Análise de Arquivos Concluída!",
-        description: `${result.summary.totalScripts} scripts e ${result.summary.totalEvents} eventos analisados com ${result.summary.duplicateCount} duplicatas encontradas.`
+        title: t('audit.file_completed'),
+        description: `${result.summary.totalScripts} ${t('common.scripts')}, ${result.summary.totalEvents} ${t('common.events')}`
       });
 
-      console.log(`✅ Análise de arquivos concluída:`);
-      console.log(`   - Scripts: ${result.summary.totalScripts}`);
-      console.log(`   - Eventos: ${result.summary.totalEvents}`);
-      console.log(`   - Duplicatas: ${result.summary.duplicateCount}`);
-      console.log(`   - Score: ${result.summary.complianceScore}%`);
-
     } catch (error) {
-      console.error('❌ Erro na análise de arquivos:', error);
+      console.error('❌ File analysis error:', error);
       clearAuditData();
       toast({
-        title: "Erro na Análise",
-        description: "Ocorreu um erro durante a análise dos arquivos. Verifique os arquivos e tente novamente.",
+        title: t('audit.error_title'),
+        description: t('audit.file_error'),
         variant: "destructive"
       });
     } finally {
@@ -279,29 +269,21 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
     setAnalysisType('navigation');
     onStateChange?.(true);
 
-    console.log(`🔄 Processando resultados da navegação completa`);
-
     try {
       setNavigationResult(results);
-      setCurrentAuditUrl(`Navegação completa - ${results.pages.length} páginas`);
+      setCurrentAuditUrl(`${t('home.tab_deep')}: ${results.pages.length} ${t('common.pages')}`);
 
       toast({
-        title: "Navegação Completa Finalizada!",
-        description: `${results.pages.length} páginas analisadas, ${results.totalEvents} eventos capturados, ${results.violationsFound} violações encontradas.`
+        title: t('audit.navigation_completed'),
+        description: `${results.pages.length} ${t('common.pages')}, ${results.totalEvents} ${t('common.events')}`
       });
 
-      console.log(`✅ Navegação completa processada:`);
-      console.log(`   - Páginas: ${results.pages.length}`);
-      console.log(`   - Eventos: ${results.totalEvents}`);
-      console.log(`   - Violações: ${results.violationsFound}`);
-      console.log(`   - GA4 ID: ${results.ga4PropertyId}`);
-
     } catch (error) {
-      console.error('❌ Erro no processamento da navegação:', error);
+      console.error('❌ Navigation error:', error);
       clearAuditData();
       toast({
-        title: "Erro no Processamento",
-        description: "Ocorreu um erro ao processar os resultados da navegação.",
+        title: t('audit.error_title'),
+        description: t('audit.navigation_error'),
         variant: "destructive"
       });
     } finally {
@@ -310,9 +292,6 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
   };
 
   const handleUrlChange = (newUrl: string) => {
-    if (newUrl !== url && (auditResult || fileAnalysisResult || navigationResult) && currentAuditUrl) {
-      console.log('🔄 URL alterada, preparando para nova auditoria');
-    }
     setUrl(newUrl);
   };
 
@@ -329,18 +308,18 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
         onNavigationComplete={handleNavigationComplete}
       />
 
-      {/* Resultado da auditoria por URL - Novo formato */}
+      {/* Audit Result by URL */}
       {analysisType === 'url' && auditResult && (
         <NewAuditResults result={auditResult} scanId={currentScanId || undefined} />
       )}
 
-      {/* Resultado da análise de arquivos */}
+      {/* File analysis result */}
       {analysisType === 'file' && fileAnalysisResult && (
         <>
-          <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-            <div className="flex items-center gap-2 text-sm text-green-800">
-              <span className="font-medium">Análise de arquivos:</span>
-              <span className="font-mono bg-white px-2 py-1 rounded border">
+          <div className="mb-4 p-3 bg-white/5 border border-white/10 rounded-xl backdrop-blur-md">
+            <div className="flex items-center gap-3 text-sm text-white/60">
+              <span className="font-bold uppercase tracking-widest text-[10px] text-blue-400">{t('common.analysis')}:</span>
+              <span className="font-mono bg-white/5 px-2 py-1 rounded border border-white/5 text-white/80">
                 {currentAuditUrl}
               </span>
             </div>
@@ -349,13 +328,13 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
         </>
       )}
 
-      {/* Resultado da navegação completa - Unificado com NewAuditResults */}
+      {/* Navigation Result (Deep Scan) */}
       {analysisType === 'navigation' && navigationResult && (
         <NewAuditResults 
           result={{
             url: url,
             timestamp: new Date().toISOString(),
-            tags: navigationResult.allTags || [], // Garantir que temos tags consolidadas
+            tags: navigationResult.allTags || [],
             tagCount: navigationResult.allTags?.length || 0,
             typeCounts: {}, 
             duplicates: [],
@@ -372,7 +351,8 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
               confidenceLevel: 'low',
               consentRisks: [],
               disclosureGaps: [],
-            },
+              violationsCount: navigationResult.violationsFound?.length || 0,
+            } as any,
             score: navigationResult.summary?.complianceScore || 0,
             summary: {
               totalTags: navigationResult.allTags?.length || 0,
@@ -383,7 +363,7 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
               piiExposureCount: navigationResult.piiExposureCount || 0,
               securityIssuesCount: navigationResult.securityIssuesCount || 0
             },
-            pageReports: navigationResult.pages, // Para o Deep Scan Panel
+            pageReports: navigationResult.pages,
           }} 
         />
       )}
