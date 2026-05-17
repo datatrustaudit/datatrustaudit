@@ -31,31 +31,34 @@ const DataQualityNotes = ({ notes }: DataQualityNotesProps) => {
                     Limitações conhecidas desta análise — o que não pôde ser verificado e por quê.
                 </p>
                 <div className="space-y-3">
-                    {notes.map((note, i) => (
-                        <div
-                            key={i}
-                            className="flex items-start gap-3 p-3 rounded-lg bg-white/70 border border-gray-100"
-                        >
-                            <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
-                            <div className="min-w-0 flex-1">
-                                <p className="text-sm font-medium text-gray-800">{note.limitation}</p>
-                                <p className="text-xs text-gray-500 mt-1">{note.reason}</p>
-                                {note.affectedAreas.length > 0 && (
-                                    <div className="flex flex-wrap gap-1 mt-2">
-                                        {note.affectedAreas.map((area) => (
-                                            <Badge
-                                                key={area}
-                                                variant="outline"
-                                                className="text-[10px] bg-gray-50 text-gray-600 border-gray-200"
-                                            >
-                                                {area}
-                                            </Badge>
-                                        ))}
-                                    </div>
-                                )}
+                    {notes.map((note, i) => {
+                        const areas = note.affectedAreas || (note as any).affected_areas || [];
+                        return (
+                            <div
+                                key={i}
+                                className="flex items-start gap-3 p-3 rounded-lg bg-white/70 border border-gray-100"
+                            >
+                                <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-sm font-medium text-gray-800">{note.limitation}</p>
+                                    <p className="text-xs text-gray-500 mt-1">{note.reason}</p>
+                                    {areas.length > 0 && (
+                                        <div className="flex flex-wrap gap-1 mt-2">
+                                            {areas.map((area) => (
+                                                <Badge
+                                                    key={area}
+                                                    variant="outline"
+                                                    className="text-[10px] bg-gray-50 text-gray-600 border-gray-200"
+                                                >
+                                                    {area}
+                                                </Badge>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             </CardContent>
         </Card>

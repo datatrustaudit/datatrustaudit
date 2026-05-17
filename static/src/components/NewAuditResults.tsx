@@ -374,7 +374,7 @@ ${violationsText}
                 </CardHeader>
                 <CardContent>
                     <div className="flex flex-wrap gap-3">
-                        {Object.entries(result.typeCounts).map(([type, count]) => {
+                        {Object.entries(result.typeCounts || {}).map(([type, count]) => {
                             const typeLabels: Record<string, { label: string; color: string }> = {
                                 consent: { label: '🔐 Consentimento', color: 'bg-green-100 text-green-800 border-green-300' },
                                 tag_manager: { label: '📦 Tag Manager', color: 'bg-blue-100 text-blue-800 border-blue-300' },

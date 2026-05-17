@@ -80,7 +80,7 @@ const Dashboard = ({ result }: DashboardProps) => {
     // Dados para o gráfico de pizza de tipos de tags
     const COLORS = ['#10B981', '#3B82F6', '#8B5CF6', '#F59E0B', '#EF4444', '#06B6D4', '#6B7280'];
 
-    const pieData = Object.entries(result.typeCounts).map(([type, count], index) => {
+    const pieData = Object.entries(result.typeCounts || {}).map(([type, count], index) => {
         const labels: Record<string, string> = {
             consent: 'Consentimento',
             tag_manager: 'Tag Manager',
@@ -122,16 +122,19 @@ const Dashboard = ({ result }: DashboardProps) => {
     ];
 
     // Dados para timeline de carregamento (limited by visibility)
-    const timelineData = visibleTags.map((tag, index) => ({
-        position: index + 1,
-        name: tag.name.length > 15 ? tag.name.substring(0, 15) + '...' : tag.name,
-        fullName: tag.name,
-        lineNumber: tag.lineNumber,
-        risk: tag.lgpdRisk === 'critical' ? 100 :
-            tag.lgpdRisk === 'high' ? 75 :
-                tag.lgpdRisk === 'medium' ? 50 : 25,
-        isViolation: tag.isBeforeConsent ? 1 : 0
-    }));
+    const timelineData = visibleTags.map((tag, index) => {
+        const tagName = tag.name || tag.vendor || 'Unknown Tag';
+        return {
+            position: index + 1,
+            name: tagName.length > 15 ? tagName.substring(0, 15) + '...' : tagName,
+            fullName: tagName,
+            lineNumber: tag.lineNumber || 0,
+            risk: tag.lgpdRisk === 'critical' ? 100 :
+                tag.lgpdRisk === 'high' ? 75 :
+                    tag.lgpdRisk === 'medium' ? 50 : 25,
+            isViolation: tag.isBeforeConsent ? 1 : 0
+        };
+    });
 
     // Score gauge data
     const scoreData = [

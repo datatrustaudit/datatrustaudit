@@ -10,7 +10,7 @@ Checks:
 - Tags firing before consent (based on source position)
 """
 import re
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from .models import (
     ConsentAuditResult, ConsentFinding,
     CONFIDENCE_HIGH, CONFIDENCE_MEDIUM, CONFIDENCE_LOW,
@@ -148,7 +148,7 @@ def _detect_consent_mode(html: str) -> Dict:
     }
 
 
-def audit_consent(html: str, tags_before_consent_names: Optional[List[str]] = None) -> ConsentAuditResult:
+def audit_consent(html: str, tags_before_consent_names: Optional[List[str]] = None, scan: Optional[Any] = None) -> ConsentAuditResult:
     result = ConsentAuditResult()
     result.tags_before_consent = tags_before_consent_names or []
 

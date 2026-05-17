@@ -216,7 +216,20 @@ export const PlanProvider = ({ children }: PlanProviderProps) => {
         const saved = localStorage.getItem('gtm-audit-plan');
         if (saved) {
             try {
-                return JSON.parse(saved);
+                const parsed = JSON.parse(saved);
+                if (parsed && typeof parsed === 'object' && parsed.type && PLAN_CONFIGS[parsed.type as PlanType]) {
+                    return parsed;
+                }
+                if (parsed && typeof parsed === 'string' && PLAN_CONFIGS[parsed as PlanType]) {
+                    const type = parsed as PlanType;
+                    return {
+                        type,
+                        name: PLAN_CONFIGS[type].name,
+                        auditsRemaining: PLAN_CONFIGS[type].limits.auditsPerMonth,
+                        auditsLimit: PLAN_CONFIGS[type].limits.auditsPerMonth,
+                        features: PLAN_CONFIGS[type].features || []
+                    };
+                }
             } catch {
                 return getDefaultPlan();
             }
@@ -247,7 +260,9 @@ export const PlanProvider = ({ children }: PlanProviderProps) => {
         localStorage.setItem('gtm-audit-selected-plan', newPlan);
     };
 
-    const limits = PLAN_CONFIGS[plan.type].limits;
+    const limits = plan && plan.type && PLAN_CONFIGS[plan.type]
+        ? PLAN_CONFIGS[plan.type].limits
+        : PLAN_CONFIGS.free.limits;
 
     useEffect(() => {
         localStorage.setItem('gtm-audit-plan', JSON.stringify(plan));

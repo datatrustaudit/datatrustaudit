@@ -243,6 +243,7 @@ class ConsentFinding:
     status: str     # ok | warning | critical | not_detected
     description: str
     evidence: Optional[str] = None
+    recommendation: Optional[str] = None
     confidence: str = CONFIDENCE_MEDIUM
 
     def to_dict(self) -> Dict[str, Any]:
@@ -252,6 +253,7 @@ class ConsentFinding:
             "status": self.status,
             "description": self.description,
             "evidence": self.evidence,
+            "recommendation": self.recommendation,
             "confidence": self.confidence,
         }
 

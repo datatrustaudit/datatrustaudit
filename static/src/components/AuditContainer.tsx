@@ -10,6 +10,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { BarChart3 } from 'lucide-react';
 import { usePlan } from '@/context/PlanContext';
 import { useAuth } from '@/context/AuthContext';
+import { useI18n } from '@/context/I18nContext';
 
 interface Tag {
     id: string;
@@ -79,6 +80,157 @@ interface NewAuditResult {
 interface AuditContainerProps {
   onStateChange?: (isActive: boolean) => void;
 }
+
+const normalizeAuditResult = (raw: any): NewAuditResult => {
+  const safeRaw = raw || {};
+
+  // Extract tags safely
+  const tags = (safeRaw.tags || []).map((t: any) => ({
+    id: t.id || '',
+    name: t.name || t.vendor || '',
+    type: t.type || 'custom',
+    position: t.position || 0,
+    lineNumber: t.lineNumber || t.line_number || 0,
+    matchedPattern: t.matchedPattern || t.matched_pattern || '',
+    tagId: t.tagId || t.tag_id || null,
+    dataCollected: t.dataCollected || t.data_collected || [],
+    lgpdRisk: t.lgpdRisk || t.privacy_risk || t.lgpd_risk || 'medium',
+    context: t.context || t.source_block || '',
+    isBeforeConsent: t.isBeforeConsent || t.is_before_consent || false,
+  }));
+
+  // Calculate typeCounts
+  const typeCounts: Record<string, number> = {};
+  tags.forEach((t: any) => {
+    const type = t.type || 'custom';
+    typeCounts[type] = (typeCounts[type] || 0) + 1;
+  });
+
+  // Calculate score & scores
+  const score = safeRaw.score || safeRaw.scores?.overall || safeRaw.scores?.auditScore || 0;
+  const scores = {
+    auditScore: safeRaw.scores?.auditScore || safeRaw.scores?.overall || score || 0,
+    trackingQualityScore: safeRaw.scores?.trackingQualityScore || safeRaw.scores?.tracking_quality || 0,
+    eventArchitectureScore: safeRaw.scores?.eventArchitectureScore || safeRaw.scores?.event_architecture || 0,
+    datalayerQualityScore: safeRaw.scores?.datalayerQualityScore || safeRaw.scores?.datalayer_quality || 0,
+    consentIntegrityScore: safeRaw.scores?.consentIntegrityScore || safeRaw.scores?.consent_integrity || 0,
+    privacyRiskScore: safeRaw.scores?.privacyRiskScore || safeRaw.scores?.privacy_risk || 0,
+  };
+
+  // Privacy info
+  const privacy = {
+    jurisdiction: safeRaw.privacy?.jurisdiction || 'Unknown',
+    framework: safeRaw.privacy?.framework || safeRaw.privacy?.law_full || 'General Privacy',
+    confidenceLevel: safeRaw.privacy?.confidenceLevel || safeRaw.privacy?.confidence_level || '',
+    consentRisks: safeRaw.privacy?.consentRisks || safeRaw.privacy?.consent_risks || [],
+    disclosureGaps: safeRaw.privacy?.disclosureGaps || safeRaw.privacy?.disclosure_gaps || [],
+    violations: (safeRaw.privacy?.violations || []).map((v: any) => ({
+      tag: v.tag || '',
+      violation: v.violation || '',
+      article: v.article || '',
+      description: v.description || '',
+      severity: v.severity || 'medium',
+      confidence: v.confidence || 'medium',
+      dataCollected: v.dataCollected || v.data_collected || [],
+      tagId: v.tagId || v.tag_id || null,
+    })),
+    total_violations: safeRaw.privacy?.totalViolations || safeRaw.privacy?.total_violations || safeRaw.privacy?.violations?.length || 0,
+    estimatedRiskExposure: safeRaw.privacy?.estimatedRiskExposure || safeRaw.privacy?.estimated_risk_exposure || 'R$ 0',
+    has_consent_tool: safeRaw.privacy?.hasConsentTool || safeRaw.privacy?.has_consent_tool || safeRaw.consent?.cmpDetected || false,
+    has_universal_analytics: safeRaw.privacy?.hasUniversalAnalytics || safeRaw.privacy?.has_universal_analytics || false,
+    compliance_score: safeRaw.privacy?.complianceScore || safeRaw.privacy?.compliance_score || score || 0,
+  };
+
+  // Summary
+  const summary = {
+    totalTags: tags.length,
+    consentDetected: privacy.has_consent_tool,
+    consentModeV2: safeRaw.consent?.consentModeV2 || safeRaw.consent?.consent_mode_v2 || false,
+    hasUniversalAnalytics: privacy.has_universal_analytics || tags.some((t: any) => t.id === 'ua' || t.name === 'Universal Analytics'),
+    violationsCount: privacy.total_violations,
+    estimatedFine: privacy.estimatedRiskExposure,
+    piiExposureCount: (safeRaw.datalayer_findings || []).filter((f: any) => f.type === 'pii_exposure').length,
+    securityIssuesCount: 0,
+    eventsDetected: safeRaw.events?.totalEvents || safeRaw.events?.total_events || 0,
+    duplicatesDetected: (safeRaw.duplicates || []).length,
+  };
+
+  // Safe Events mapping
+  const events = {
+    events: (safeRaw.events?.events || []).map((e: any) => ({
+      name: e.name || '',
+      source: e.source || 'dataLayer',
+      validity: e.validity || 'no_parameters',
+      confidence: e.confidence || 'medium',
+      detectionMethod: e.detectionMethod || e.detection_method || '',
+      parametersFound: (e.parametersFound || e.parameters_found || []).map((p: any) => ({
+        name: p.name || '',
+        value: p.value !== undefined ? p.value : null,
+        expectedType: p.expectedType || p.expected_type || null,
+        actualType: p.actualType || p.actual_type || null,
+        isValid: p.isValid !== undefined ? p.isValid : true,
+        issue: p.issue || null,
+      })),
+      parameterCount: e.parameterCount || e.parameter_count || 0,
+      missingRequiredParams: e.missingRequiredParams || e.missing_required_params || [],
+      missingRecommendedParams: e.missingRecommendedParams || e.missing_recommended_params || [],
+      occurrenceCount: e.occurrenceCount || e.occurrence_count || 1,
+      lineNumber: e.lineNumber || e.line_number || null,
+      sourceSnippet: e.sourceSnippet || e.source_snippet || null,
+      isDuplicate: e.isDuplicate || e.is_duplicate || false,
+    })),
+    totalEvents: safeRaw.events?.totalEvents || safeRaw.events?.total_events || 0,
+    uniqueEventNames: safeRaw.events?.uniqueEventNames || safeRaw.events?.unique_event_names || 0,
+    duplicatedEventNames: safeRaw.events?.duplicatedEventNames || safeRaw.events?.duplicated_event_names || 0,
+    eventsWithIssues: safeRaw.events?.eventsWithIssues || safeRaw.events?.events_with_issues || 0,
+    ecommerceEventsDetected: safeRaw.events?.ecommerceEventsDetected || safeRaw.events?.ecommerce_events_detected || [],
+  };
+
+  // Safe GTM Quality mapping
+  const rawGtmQuality = safeRaw.gtm_quality || safeRaw.gtmQuality || {};
+  const gtmQuality = {
+    containers: rawGtmQuality.containers || [],
+    containerCount: rawGtmQuality.containerCount || rawGtmQuality.container_count || 0,
+    hasNoscript: rawGtmQuality.hasNoscript || rawGtmQuality.has_noscript || false,
+    datalayerInitBeforeGtm: rawGtmQuality.datalayerInitBeforeGtm || rawGtmQuality.datalayer_init_before_gtm || false,
+    datalayerOverwritten: rawGtmQuality.datalayerOverwritten || rawGtmQuality.datalayer_overwritten || false,
+    gtmInHead: rawGtmQuality.gtmInHead || rawGtmQuality.gtm_in_head || false,
+    gtmLoadedMultipleTimes: rawGtmQuality.gtmLoadedMultipleTimes || rawGtmQuality.gtm_loaded_multiple_times || false,
+    findings: (rawGtmQuality.findings || []).map((f: any) => ({
+      check: f.check || '',
+      label: f.label || '',
+      status: f.status || 'warning',
+      description: f.description || '',
+      evidence: f.evidence || null,
+      recommendation: f.recommendation || null,
+      confidence: f.confidence || 'medium',
+    })),
+    score: rawGtmQuality.score || 0,
+  };
+
+  return {
+    url: safeRaw.url || '',
+    timestamp: safeRaw.timestamp || new Date().toISOString(),
+    tags,
+    tagCount: tags.length,
+    typeCounts,
+    duplicates: safeRaw.duplicates || [],
+    loadingOrder: safeRaw.loadingOrder || [],
+    privacy,
+    score,
+    scores,
+    gtmQuality,
+    events,
+    consentAudit: safeRaw.consent || { findings: [], cmpDetected: false },
+    recommendations: safeRaw.recommendations || [],
+    dataQualityNotes: (safeRaw.data_quality_notes || safeRaw.dataQualityNotes || []).map((n: any) => ({
+      limitation: n.limitation || '',
+      reason: n.reason || '',
+      affectedAreas: n.affected_areas || n.affectedAreas || [],
+    })),
+    pageReports: safeRaw.pageReports || [],
+  };
+};
 
 const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
   const { t } = useI18n();
@@ -182,7 +334,7 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
             const pollData = await pollRes.json();
             
             if (pollData.status === "completed") {
-                setAuditResult(pollData.result);
+                setAuditResult(normalizeAuditResult(pollData.result));
                 
                 const violationCount = pollData.result?.privacy?.total_violations || 0;
                 const score = pollData.result?.scores?.overall || pollData.result?.score || pollData.score || 0;
@@ -336,7 +488,14 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
             timestamp: new Date().toISOString(),
             tags: navigationResult.allTags || [],
             tagCount: navigationResult.allTags?.length || 0,
-            typeCounts: {}, 
+            typeCounts: (() => {
+              const counts: Record<string, number> = {};
+              (navigationResult.allTags || []).forEach((t: any) => {
+                const type = t.type || 'custom';
+                counts[type] = (counts[type] || 0) + 1;
+              });
+              return counts;
+            })(), 
             duplicates: [],
             loadingOrder: [],
             privacy: {
