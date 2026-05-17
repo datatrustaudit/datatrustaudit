@@ -1,1 +1,198 @@
-{ "common": { "loading": "Loading..." }, "nav": { "pricing": "Pricing" }, "pricing": { "title": "Choose your plan" } }
+{
+  "common": {
+    "loading": "加载中...",
+    "error": "错误",
+    "success": "成功",
+    "save": "保存",
+    "cancel": "取消",
+    "back": "返回",
+    "next": "下一步",
+    "audit": "审计",
+    "results": "结果",
+    "copy": "复制",
+    "close": "关闭",
+    "open": "打开",
+    "edit": "编辑",
+    "delete": "删除",
+    "change": "更改",
+    "confirm": "确认",
+    "unlimited": "无限制",
+    "active": "已启用",
+    "locked": "已锁定",
+    "analysis": "分析",
+    "files": "文件",
+    "scripts": "脚本",
+    "events": "事件",
+    "pages": "页面"
+  },
+  "nav": {
+    "dashboard": "控制台",
+    "history": "历史记录",
+    "settings": "设置",
+    "upgrade": "立即升级",
+    "pricing": "价格",
+    "login": "登录",
+    "signup": "注册",
+    "logout": "退出登录",
+    "profile": "个人资料",
+    "change_plan": "更改方案",
+    "docs": "文档",
+    "terms": "服务条款与隐私",
+    "support": "技术支持",
+    "account": "账户",
+    "resources": "资源",
+    "back": "返回"
+  },
+  "audit": {
+    "url_required": "请输入有效的网址",
+    "invalid_url": "无效网址",
+    "invalid_url_desc": "请输入有效的网址（例如 example.com）",
+    "poll_failed": "获取审计状态失败",
+    "completed": "审计已完成！",
+    "failed_server": "服务器端审计失败。",
+    "error_title": "审计出错",
+    "error_generic": "分析过程中发生错误。请重试。",
+    "error_init": "启动分析时发生错误。请重试。",
+    "no_files": "未上传任何文件",
+    "file_completed": "文件分析已完成！",
+    "file_error": "文件分析过程中发生错误。请检查文件并重试。",
+    "navigation_completed": "深度扫描已完成！",
+    "navigation_error": "深度扫描处理过程中发生错误。"
+  },
+  "locale": {
+    "language": "语言",
+    "currency": "货币",
+    "reset": "重置为自动设置"
+  },
+  "home": {
+    "tagline": "代码标签与 LGPD/GDPR 隐私审计",
+    "badge_promo": "DataTrust Audit 2.0 已正式上线！",
+    "hero_title_line1": "告别因",
+    "hero_title_accent": "标签损坏",
+    "hero_subtitle": "Google Tag Manager、LGPD/GDPR 合规性及数据健康状况自动化审计。在默默损害您的投资回报率（ROI）之前，发现隐藏的追踪错误。",
+    "perk_no_card": "无需信用卡",
+    "perk_fast_report": "10秒生成报告",
+    "perk_active_checks": "+50项主动检查",
+    "features_title": "为您提供数据层（Data Layer）和追踪标签所需的一切",
+    "features_subtitle": "由网络分析专家专为高成长团队和数字营销人员开发。",
+    "feature1_title": "事件审计",
+    "feature1_desc": "验证页面浏览量、转化和电商触发器。我们能够检测重复标签、缺失参数以及 Consent Mode（同意模式）问题。",
+    "feature2_title": "LGPD & GDPR 隐私风险",
+    "feature2_desc": "在用户同意前自动扫描追踪技术。发现加载 PII（个人身份信息）数据的隐藏像素。",
+    "feature3_title": "PDF/Excel 导出",
+    "feature3_desc": "一键为您的客户生成专业的无白标报告。是顾问和代理机构的理想选择。",
+    "title": "DataTrust Audit",
+    "subtitle": "利用人工智能对标签、事件和 LGPD/GDPR 合规性进行完整审计",
+    "audit_description": "自动检测隐私泄露、错误配置的标签以及 LGPD/GDPR 合规风险。",
+    "tag_count": "14+ 追踪标签",
+    "tag_desc": "自动检测",
+    "lgpd_title": "GDPR/LGPD",
+    "lgpd_desc": "合规分析",
+    "fines_title": "罚金",
+    "fines_desc": "预估罚款计算",
+    "ai_title": "人工智能",
+    "ai_desc": "人工智能赋能审计",
+    "tab_url": "URL网址",
+    "tab_url_desc": "快速分析",
+    "tab_upload": "上传",
+    "tab_upload_desc": "GTM 文件",
+    "tab_deep": "深度扫描",
+    "tab_deep_desc": "全站扫描",
+    "tab_realtime": "实时",
+    "tab_realtime_desc": "Omnibug 风格",
+    "url_placeholder": "输入网站网址（例如 example.com）",
+    "audit_btn": "开始审计",
+    "audit_button": "审计",
+    "analyzing": "正在分析...",
+    "view_source": "高级 View-Source（源码）分析",
+    "view_source_desc": "在 HTML 中精确定位标签位置，实现精准调试",
+    "fast": "快速",
+    "fast_desc": "~5秒生成",
+    "secure": "安全",
+    "secure_desc": "不保存任何数据",
+    "pages_analyzed": "已分析页面"
+  },
+  "footer": {
+    "copyright": "© 2024 TRACKNOLOGY Ecosystem. 保留所有权利。"
+  },
+  "pricing": {
+    "title": "选择您的方案",
+    "subtitle": "审计 GTM 合规性及隐私风险。可随时取消。",
+    "simple_pricing": "简单透明的定价",
+    "monthly": "按月购买",
+    "annual": "按年购买",
+    "save_20": "省 20%",
+    "billed_annual_notice": "选择年费方案可节省 20% — 每年支付一次",
+    "free_label": "免费",
+    "per_month": "/月",
+    "billed_annual": "按年计费",
+    "current_plan": "当前方案",
+    "subscribe": "订阅",
+    "switch": "切换至",
+    "start_free": "免费开始使用",
+    "view_comparison": "查看完整方案对比",
+    "hide_comparison": "隐藏对比",
+    "questions": "有任何疑问？",
+    "legal_disclaimer": "本报告仅作为技术性风险评估指标。不能代替专业法律咨询意见。",
+    "feature": "功能点",
+    "data_visibility": "数据可见度",
+    "compare": {
+      "audits_per_month": "每月审计次数",
+      "basic_dashboard": "基础版控制台",
+      "detailed_dashboard": "详细版控制台",
+      "json_export": "JSON 导出",
+      "pdf_export": "PDF 报告导出",
+      "excel_export": "Excel 导出",
+      "complete_history": "完整历史记录",
+      "realtime_monitoring": "实时监控",
+      "advanced_view_source": "高级源码分析 (View-Source)",
+      "exact_tag_localization": "标签精确定位",
+      "ai_chat": "AI 助手对话",
+      "priority_support": "优先技术支持"
+    },
+    "trust": {
+      "guarantee": {
+        "title": "7天退款保障",
+        "desc": "不满意？全额退款。"
+      },
+      "secure_checkout": {
+        "title": "安全支付",
+        "desc": "SSL + 安全支付处理。"
+      },
+      "cancel_anytime": {
+        "title": "随时取消",
+        "desc": "无绑定合同。随时取消或升级。"
+      },
+      "no_card_storage": {
+        "title": "不保存卡片信息",
+        "desc": "我们绝不存储您的信用卡卡号。"
+      }
+    }
+  },
+  "plans": {
+    "free": {
+      "label": "免费版",
+      "badge": "基础",
+      "usage_cap": "1 次审计/月"
+    },
+    "pro": {
+      "label": "专业版",
+      "badge": "推荐",
+      "usage_cap": "2 次审计/月"
+    },
+    "premium": {
+      "label": "尊享版",
+      "badge": "精英",
+      "usage_cap": "无限制"
+    }
+  },
+  "lgpd_report": {
+    "title": "合规与隐私报告",
+    "subtitle": "基于网站公开行为的指引性技术分析",
+    "score_label": "合规指数",
+    "high_risk": "高风险",
+    "medium_risk": "中风险",
+    "low_risk": "低风险",
+    "no_risk": "无风险"
+  }
+}

@@ -1,1 +1,198 @@
-{ "common": { "loading": "Loading..." }, "nav": { "pricing": "Pricing" }, "pricing": { "title": "Choose your plan" } }
+{
+  "common": {
+    "loading": "Caricamento...",
+    "error": "Errore",
+    "success": "Successo",
+    "save": "Salva",
+    "cancel": "Annulla",
+    "back": "Indietro",
+    "next": "Avanti",
+    "audit": "Audit",
+    "results": "Risultati",
+    "copy": "Copia",
+    "close": "Chiudi",
+    "open": "Apri",
+    "edit": "Modifica",
+    "delete": "Elimina",
+    "change": "Modifica",
+    "confirm": "Conferma",
+    "unlimited": "Illimitato",
+    "active": "Attivo",
+    "locked": "Bloccato",
+    "analysis": "Analisi",
+    "files": "file",
+    "scripts": "script",
+    "events": "eventi",
+    "pages": "pagine"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "history": "Cronologia",
+    "settings": "Impostazioni",
+    "upgrade": "Aggiorna ora",
+    "pricing": "Prezzi",
+    "login": "Accedi",
+    "signup": "Registrati",
+    "logout": "Esci",
+    "profile": "Profilo",
+    "change_plan": "Cambia piano",
+    "docs": "Documentazione",
+    "terms": "Termini & Privacy",
+    "support": "Supporto",
+    "account": "Account",
+    "resources": "Risorse",
+    "back": "Indietro"
+  },
+  "audit": {
+    "url_required": "Inserisci un URL valido",
+    "invalid_url": "URL non valido",
+    "invalid_url_desc": "Inserisci un URL valido (es. esempio.com)",
+    "poll_failed": "Impossibile ottenere lo stato dell'audit",
+    "completed": "Audit completato!",
+    "failed_server": "Audit fallito sul server.",
+    "error_title": "Errore Audit",
+    "error_generic": "Si è verificato un errore durante l'analisi. Riprova.",
+    "error_init": "Si è verificato un errore durante l'avvio dell'analisi. Riprova.",
+    "no_files": "Nessun file caricato",
+    "file_completed": "Analisi del file completata!",
+    "file_error": "Si è verificato un errore durante l'analisi del file. Controlla i file e riprova.",
+    "navigation_completed": "Scansione approfondita completata!",
+    "navigation_error": "Si è verificato un errore durante la scansione approfondita."
+  },
+  "locale": {
+    "language": "Lingua",
+    "currency": "Valuta",
+    "reset": "Ripristina le impostazioni automatiche"
+  },
+  "home": {
+    "tagline": "Audit di Tag & LGPD/GDPR",
+    "badge_promo": "DataTrust Audit 2.0 è attivo!",
+    "hero_title_line1": "Smetti di perdere dati a causa di",
+    "hero_title_accent": "tag interrotti",
+    "hero_subtitle": "Audit automatizzato di Google Tag Manager, conformità GDPR/LGPD e salute dei dati. Scopri gli errori silenziosi prima che compromettano il tuo ROI.",
+    "perk_no_card": "Nessuna carta di credito",
+    "perk_fast_report": "Report in 10 secondi",
+    "perk_active_checks": "+50 controlli attivi",
+    "features_title": "Tutto ciò di cui hai bisogno per Data Layer e Tag",
+    "features_subtitle": "Sviluppato da esperti di Web Analytics per martech e growth team ad alte prestazioni.",
+    "feature1_title": "Audit degli Eventi",
+    "feature1_desc": "Verifica le visualizzazioni di pagina, le conversioni e i trigger di e-commerce. Rileviamo tag duplicati, parametri mancanti e problemi di consent mode.",
+    "feature2_title": "Rischi GDPR & LGPD",
+    "feature2_desc": "Scansione automatica delle tecnologie di tracciamento prima del consenso. Scopri i pixel nascosti che caricano dati PII.",
+    "feature3_title": "Esportazione PDF/Excel",
+    "feature3_desc": "Genera report white-label professionali per i tuoi clienti con 1 clic. Ideale per consulenti e agenzie.",
+    "title": "DataTrust Audit",
+    "subtitle": "Audit completo di tag, eventi e conformità GDPR/LGPD con l'IA",
+    "audit_description": "Rileva automaticamente violazioni della privacy, tag configurati in modo errato e rischi di conformità GDPR/LGPD.",
+    "tag_count": "14+ Tag",
+    "tag_desc": "Rilevamento automatico",
+    "lgpd_title": "GDPR/LGPD",
+    "lgpd_desc": "Analisi di conformità",
+    "fines_title": "Sanzioni",
+    "fines_desc": "Calcolo stimato",
+    "ai_title": "IA",
+    "ai_desc": "Audit basato sull'IA",
+    "tab_url": "URL",
+    "tab_url_desc": "Analisi rapida",
+    "tab_upload": "Carica",
+    "tab_upload_desc": "File GTM",
+    "tab_deep": "Scansione approfondita",
+    "tab_deep_desc": "Sito completo",
+    "tab_realtime": "Tempo reale",
+    "tab_realtime_desc": "Stile Omnibug",
+    "url_placeholder": "Inserisci l'URL del sito (es. esempio.com)",
+    "audit_btn": "Avvia Audit",
+    "audit_button": "Audit",
+    "analyzing": "Analisi in corso...",
+    "view_source": "Analisi View-Source avanzata",
+    "view_source_desc": "Individua l'esatta posizione dei tag nell'HTML per un debug preciso",
+    "fast": "Rapido",
+    "fast_desc": "~5 secondi",
+    "secure": "Sicuro",
+    "secure_desc": "Nessun dato memorizzato",
+    "pages_analyzed": "Pagine analizzate"
+  },
+  "footer": {
+    "copyright": "© 2024 TRACKNOLOGY Ecosystem. Tutti i diritti riservati."
+  },
+  "pricing": {
+    "title": "Scegli il tuo piano",
+    "subtitle": "Controlla la conformità di GTM e i rischi per la privacy. Cancella in qualsiasi momento.",
+    "simple_pricing": "Prezzi semplici e trasparenti",
+    "monthly": "Mensile",
+    "annual": "Annuale",
+    "save_20": "-20%",
+    "billed_annual_notice": "Risparmia il 20% con la fatturazione annuale — addebitata una volta all'anno",
+    "free_label": "Gratuito",
+    "per_month": "/mese",
+    "billed_annual": "Fatturato annualmente",
+    "current_plan": "Piano attuale",
+    "subscribe": "Abbonati a",
+    "switch": "Passa a",
+    "start_free": "Inizia gratuitamente",
+    "view_comparison": "Visualizza il confronto completo",
+    "hide_comparison": "Nascondi il confronto",
+    "questions": "Domande?",
+    "legal_disclaimer": "Valutazione tecnica indicativa del rischio. Non sostituisce una consulenza legale.",
+    "feature": "Funzionalità",
+    "data_visibility": "Visibilità dei dati",
+    "compare": {
+      "audits_per_month": "Audit al mese",
+      "basic_dashboard": "Dashboard di base",
+      "detailed_dashboard": "Dashboard dettagliata",
+      "json_export": "Esportazione JSON",
+      "pdf_export": "Esportazione PDF",
+      "excel_export": "Esportazione Excel",
+      "complete_history": "Cronologia completa",
+      "realtime_monitoring": "Monitoraggio in tempo reale",
+      "advanced_view_source": "Analisi View-Source avanzata",
+      "exact_tag_localization": "Localizzazione esatta dei tag",
+      "ai_chat": "Chat IA",
+      "priority_support": "Supporto prioritario"
+    },
+    "trust": {
+      "guarantee": {
+        "title": "Garantito 7 Giorni",
+        "desc": "Non sei soddisfatto? Rimborso completo."
+      },
+      "secure_checkout": {
+        "title": "Pagamento Sicuro",
+        "desc": "SSL + elaborazione sicura."
+      },
+      "cancel_anytime": {
+        "title": "Cancella in qualsiasi momento",
+        "desc": "Nessun vincolo. Cancella o cambia piano in qualsiasi momento."
+      },
+      "no_card_storage": {
+        "title": "Nessun dato della carta salvato",
+        "desc": "Non memorizziamo i numeri della tua carta."
+      }
+    }
+  },
+  "plans": {
+    "free": {
+      "label": "Gratuito",
+      "badge": "Base",
+      "usage_cap": "1 audit/mese"
+    },
+    "pro": {
+      "label": "Pro",
+      "badge": "Consigliato",
+      "usage_cap": "2 audit/mese"
+    },
+    "premium": {
+      "label": "Premium",
+      "badge": "Elite",
+      "usage_cap": "Illimitato"
+    }
+  },
+  "lgpd_report": {
+    "title": "Rapporto su conformità & privacy",
+    "subtitle": "Analisi tecnica basata sul comportamento osservabile del sito",
+    "score_label": "Punteggio di conformità",
+    "high_risk": "Rischio elevato",
+    "medium_risk": "Rischio medio",
+    "low_risk": "Rischio basso",
+    "no_risk": "Nessun rischio"
+  }
+}

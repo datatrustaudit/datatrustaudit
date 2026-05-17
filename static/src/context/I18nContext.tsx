@@ -1,11 +1,14 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import pt from '../translations/pt.json';
 import en from '../translations/en.json';
-
-// We'll import these as they are created
-// import es from '../translations/es.json';
-// import fr from '../translations/fr.json';
-// ...
+import es from '../translations/es.json';
+import fr from '../translations/fr.json';
+import de from '../translations/de.json';
+import it from '../translations/it.json';
+import zh from '../translations/zh.json';
+import ja from '../translations/ja.json';
+import ar from '../translations/ar.json';
+import hi from '../translations/hi.json';
 
 type Language = 'pt' | 'en' | 'es' | 'fr' | 'zh' | 'de' | 'it' | 'ar' | 'hi' | 'ja';
 
@@ -15,10 +18,9 @@ interface I18nContextType {
     setLanguage: (lang: Language) => void;
 }
 
-// Initial translations with fallbacks to avoid crashes
+// Initial translations with all 10 languages supported
 const translations: Record<Language, any> = { 
-    pt, en, 
-    es: {}, fr: {}, zh: {}, de: {}, it: {}, ar: {}, hi: {}, ja: {} 
+    pt, en, es, fr, de, it, zh, ja, ar, hi
 };
 
 /**
