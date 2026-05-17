@@ -316,6 +316,7 @@ def _resolve_plan(payload_plan: str, current_user: Optional[User]) -> str:
 
 
 @router.post("")
+@router.post("/")
 async def run_direct_audit(payload: AuditRequest, current_user: Optional[User] = Depends(get_current_user)):
     try:
         url = normalize_url(payload.url)
