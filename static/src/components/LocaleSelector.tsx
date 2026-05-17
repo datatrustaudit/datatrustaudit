@@ -17,7 +17,7 @@ import {
 import { Globe, ChevronDown, Check, RotateCcw, DollarSign } from 'lucide-react';
 
 const LANGUAGES: { code: SupportedLanguage; label: string; flag: string }[] = [
-    { code: 'pt', label: 'Português (BR)', flag: '🇧🇷' },
+    { code: 'pt-BR', label: 'Português (BR)', flag: '🇧🇷' },
     { code: 'en', label: 'English',        flag: '🇺🇸' },
     { code: 'es', label: 'Español',        flag: '🇪🇸' },
     { code: 'fr', label: 'Français',       flag: '🇫🇷' },
@@ -54,6 +54,7 @@ const LocaleSelector = ({ compact = true }: LocaleSelectorProps) => {
 
     const currentLang = LANGUAGES.find(l => l.code === language);
     const currentCurrency = CURRENCIES.find(c => c.code === currency);
+    const currentLanguageCode = currentLang?.code === 'pt-BR' ? 'PT' : currentLang?.code.toUpperCase();
 
     const handleSetLanguage = (lang: SupportedLanguage) => {
         setLanguage(lang);
@@ -133,7 +134,7 @@ const LocaleSelector = ({ compact = true }: LocaleSelectorProps) => {
             <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all text-white/80 hover:text-white text-sm font-medium">
                     <Globe className="w-4 h-4 text-blue-400" />
-                    <span className="hidden sm:inline">{currentLang?.code.toUpperCase()}</span>
+                    <span className="hidden sm:inline">{currentLanguageCode}</span>
                     <span className="text-white/20">|</span>
                     <span>{currentCurrency?.symbol} {currentCurrency?.code}</span>
                     <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-300 ${open ? 'rotate-180' : ''}`} />

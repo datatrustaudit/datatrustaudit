@@ -40,7 +40,7 @@ STATIC_DIR = os.path.join(BASE_DIR, "static", "dist")  # Vite builds to dist fol
 # Storage and DB
 from db.database import engine, get_db
 from db.models import Base, User, Scan, Payment
-from api import auth, payments, scans
+from api import auth, payments, scans, audit
 
 DB_PATH = os.path.join(BASE_DIR, "db", "tags.json")
 
@@ -78,6 +78,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(payments.router)
 app.include_router(scans.router)
+app.include_router(audit.router)
 
 # Servir assets do frontend (Vite builda para /assets/)
 app.mount("/assets", StaticFiles(directory=os.path.join(STATIC_DIR, "assets")), name="assets")
@@ -1390,14 +1391,14 @@ def plan_strip_report(report: dict, plan: str) -> None:
     Mutates `report` in-place.
     
     free  → 10% tags (no lineNumber/context/matchedPattern), violation count only, redacted fine
-    pro   → 90% tags (violation details OK), still no lineNumber / view-source data
+    pro   → 70% tags (violation details OK), still no lineNumber / view-source data
     full  → no stripping
     """
     if plan == "full":
         return  # Premium users get everything
 
     tags = report.get("tags", [])
-    visible_pct = 0.10 if plan == "free" else 0.90
+    visible_pct = 0.10 if plan == "free" else 0.70
     visible_count = max(1, int(len(tags) * visible_pct))
 
     # Truncate tag list

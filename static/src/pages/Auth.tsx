@@ -8,13 +8,14 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Eye, EyeOff, Tag, Shield, Zap, AlertCircle } from 'lucide-react';
+import MinimalTopMenu from '@/components/MinimalTopMenu';
 
 type AuthMode = 'login' | 'signup' | 'forgot';
 
 const AuthPage = () => {
     const navigate = useNavigate();
     const { login, signup } = useAuth();
-    const { language } = useI18n();
+    const { t } = useI18n();
     const [mode, setMode] = useState<AuthMode>('login');
     const [showPassword, setShowPassword] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
@@ -22,7 +23,8 @@ const AuthPage = () => {
     const [success, setSuccess] = useState('');
     const [form, setForm] = useState({ name: '', email: '', password: '' });
 
-    const isEn = language === 'en';
+    const tx = (key: string, vars: Record<string, string> = {}) =>
+        Object.entries(vars).reduce((text, [name, value]) => text.replace(`{${name}}`, value), t(key));
 
     const getRedirectTarget = () => {
         const saved = localStorage.getItem('gtm-redirect-after-auth');
@@ -37,9 +39,8 @@ const AuthPage = () => {
         setError('');
         // To be implemented: backend OAuth flow
         // Example: window.location.href = `${process.env.API_URL}/auth/${provider}`;
-        setError(isEn 
-            ? `${provider.charAt(0).toUpperCase() + provider.slice(1)} login is currently in configuration. Please use email/password.` 
-            : `O login via ${provider.charAt(0).toUpperCase() + provider.slice(1)} está em configuração. Por favor, use e-mail/senha.`);
+        const providerLabel = provider.charAt(0).toUpperCase() + provider.slice(1);
+        setError(tx('auth.social_config', { provider: providerLabel }));
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -53,7 +54,7 @@ const AuthPage = () => {
                 navigate(getRedirectTarget() ?? '/');
             } else if (mode === 'signup') {
                 if (!form.name.trim()) {
-                    setError(isEn ? 'Name is required.' : 'Nome é obrigatório.');
+                    setError(t('auth.name_required'));
                     setIsLoading(false);
                     return;
                 }
@@ -63,13 +64,10 @@ const AuthPage = () => {
             } else {
                 // Forgot password — mock
                 await new Promise(r => setTimeout(r, 800));
-                setSuccess(isEn
-                    ? 'If this email exists, a reset link has been sent.'
-                    : 'Se este e-mail existir, um link de redefinição foi enviado.'
-                );
+                setSuccess(t('auth.reset_sent'));
             }
         } catch (err: unknown) {
-            setError(err instanceof Error ? err.message : (isEn ? 'Authentication error.' : 'Erro de autenticação.'));
+            setError(err instanceof Error ? err.message : t('auth.authentication_error'));
         } finally {
             setIsLoading(false);
         }
@@ -77,26 +75,27 @@ const AuthPage = () => {
 
     const titles: Record<AuthMode, { heading: string; sub: string; cta: string }> = {
         login: {
-            heading: isEn ? 'Welcome back' : 'Bem-vindo de volta',
-            sub: isEn ? 'Sign in to your DataTrust Audit account.' : 'Entre na sua conta DataTrust Audit.',
-            cta: isEn ? 'Sign In' : 'Entrar',
+            heading: t('auth.login_heading'),
+            sub: t('auth.login_sub'),
+            cta: t('auth.login_cta'),
         },
         signup: {
-            heading: isEn ? 'Create your account' : 'Crie sua conta',
-            sub: isEn ? 'Start auditing for free.' : 'Comece a auditar gratuitamente.',
-            cta: isEn ? 'Create Account' : 'Criar Conta',
+            heading: t('auth.signup_heading'),
+            sub: t('auth.signup_sub'),
+            cta: t('auth.signup_cta'),
         },
         forgot: {
-            heading: isEn ? 'Forgot password?' : 'Esqueceu a senha?',
-            sub: isEn ? "We'll send a reset link to your email." : 'Enviaremos um link de redefinição.',
-            cta: isEn ? 'Send Reset Link' : 'Enviar Link',
+            heading: t('auth.forgot_heading'),
+            sub: t('auth.forgot_sub'),
+            cta: t('auth.forgot_cta'),
         },
     };
 
     const { heading, sub, cta } = titles[mode];
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 flex items-center justify-center px-4">
+        <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 flex items-center justify-center px-4 pt-20">
+            <MinimalTopMenu />
             {/* Background glow */}
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
                 <div className="absolute -top-40 -right-40 w-96 h-96 rounded-full bg-blue-600/20 blur-3xl" />
@@ -115,8 +114,8 @@ const AuthPage = () => {
                 {/* Trust chips */}
                 <div className="flex items-center justify-center gap-3 mb-6">
                     {[
-                        { icon: <Shield className="w-3.5 h-3.5" />, label: isEn ? 'Secure' : 'Seguro' },
-                        { icon: <Zap className="w-3.5 h-3.5" />, label: isEn ? 'Instant access' : 'Acesso imediato' },
+                        { icon: <Shield className="w-3.5 h-3.5" />, label: t('auth.secure') },
+                        { icon: <Zap className="w-3.5 h-3.5" />, label: t('auth.instant_access') },
                     ].map((chip, i) => (
                         <div key={i} className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 text-white/70 text-xs font-medium border border-white/10">
                             {chip.icon} {chip.label}
@@ -177,7 +176,7 @@ const AuthPage = () => {
                                         <span className="w-full border-t border-white/10"></span>
                                     </div>
                                     <div className="relative flex justify-center text-xs uppercase">
-                                        <span className="bg-slate-950 px-2 text-slate-500">{isEn ? 'Or continue with email' : 'Ou continue com e-mail'}</span>
+                                        <span className="bg-slate-950 px-2 text-slate-500">{t('auth.or_continue_email')}</span>
                                     </div>
                                 </div>
                             </>
@@ -186,12 +185,12 @@ const AuthPage = () => {
                         <form onSubmit={handleSubmit} className="space-y-4">
                             {mode === 'signup' && (
                                 <div className="space-y-1.5">
-                                    <Label className="text-white/70 text-sm">{isEn ? 'Full Name' : 'Nome Completo'}</Label>
+                                    <Label className="text-white/70 text-sm">{t('auth.full_name')}</Label>
                                     <Input
                                         type="text"
                                         value={form.name}
                                         onChange={e => setForm({ ...form, name: e.target.value })}
-                                        placeholder={isEn ? 'Your name' : 'Seu nome'}
+                                        placeholder={t('auth.your_name')}
                                         required
                                         className="bg-white/10 border-white/20 text-white placeholder:text-white/30 focus:border-blue-400"
                                     />
@@ -212,7 +211,7 @@ const AuthPage = () => {
 
                             {mode !== 'forgot' && (
                                 <div className="space-y-1.5">
-                                    <Label className="text-white/70 text-sm">{isEn ? 'Password' : 'Senha'}</Label>
+                                    <Label className="text-white/70 text-sm">{t('auth.password')}</Label>
                                     <div className="relative">
                                         <Input
                                             type={showPassword ? 'text' : 'password'}
@@ -237,7 +236,7 @@ const AuthPage = () => {
                             {mode === 'login' && (
                                 <div className="flex justify-end">
                                     <button type="button" onClick={() => setMode('forgot')} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
-                                        {isEn ? 'Forgot password?' : 'Esqueci minha senha'}
+                                        {t('auth.forgot_password')}
                                     </button>
                                 </div>
                             )}
@@ -254,16 +253,16 @@ const AuthPage = () => {
                         <div className="mt-6 text-center text-sm">
                             {mode === 'login' ? (
                                 <span className="text-white/40">
-                                    {isEn ? "Don't have an account?" : 'Não tem conta?'}{' '}
+                                    {t('auth.no_account')}{' '}
                                     <button onClick={() => setMode('signup')} className="text-blue-400 hover:text-blue-300 font-medium">
-                                        {isEn ? 'Sign up' : 'Criar conta'}
+                                        {t('auth.sign_up')}
                                     </button>
                                 </span>
                             ) : (
                                 <span className="text-white/40">
-                                    {isEn ? 'Already have an account?' : 'Já tem conta?'}{' '}
+                                    {t('auth.have_account')}{' '}
                                     <button onClick={() => setMode('login')} className="text-blue-400 hover:text-blue-300 font-medium">
-                                        {isEn ? 'Sign in' : 'Entrar'}
+                                        {t('auth.sign_in')}
                                     </button>
                                 </span>
                             )}
@@ -272,9 +271,7 @@ const AuthPage = () => {
                 </Card>
 
                 <p className="text-center text-white/30 text-xs mt-6">
-                    {isEn
-                        ? 'By signing up, you agree to our Terms of Service and Privacy Policy.'
-                        : 'Ao criar uma conta, você concorda com nossos Termos de Uso e Política de Privacidade.'}
+                    {t('auth.terms_notice')}
                 </p>
             </div>
         </div>

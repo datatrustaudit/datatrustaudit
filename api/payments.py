@@ -30,7 +30,10 @@ def create_preference(
     current_user: User = Depends(get_current_user), 
     db: Session = Depends(get_db)
 ):
-    plan = payload.get("plan", "pro")
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    plan = payload.get("plan") or payload.get("plan_id") or "pro"
     
     if plan not in PRICES or plan == "free":
         raise HTTPException(status_code=400, detail="Plano inválido")
@@ -42,9 +45,9 @@ def create_preference(
         return {"init_point": "/checkout/fallback", "id": "fallback"}
         
     preference_data = {
-        "items": [
+            "items": [
             {
-                "title": f"Assinatura GTM Audit Pro - {plan.capitalize()}",
+                "title": f"Assinatura DataTrust Audit - {plan.capitalize()}",
                 "quantity": 1,
                 "currency_id": "BRL",
                 "unit_price": amount
@@ -107,9 +110,9 @@ async def mp_webhook(request: Request, db: Session = Depends(get_db)):
                         new_payment = Payment(
                             user_id=user_id,
                             mp_payment_id=str(payment_id),
-                            amount=int(float(payment_details.get("transaction_amount", 0)) * 100),
+                            amount=float(payment_details.get("transaction_amount", 0)),
                             status="approved",
-                            plan=plan_name
+                            plan_purchased=plan_name
                         )
                         db.add(new_payment)
                     else:

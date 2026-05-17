@@ -63,7 +63,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             formData.append('username', email); // OAuth2 expects username
             formData.append('password', password);
 
-            const res = await fetch('/api/auth/login', {
+            const res = await fetch('/api/auth/token', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',

@@ -95,6 +95,7 @@ const PricingPage = () => {
                         <a href="mailto:suporte@datatrustauditpro.com" className="text-white/40 hover:text-white/70 text-sm transition-colors hidden sm:block">
                             {t('nav.support')}
                         </a>
+                        <LocaleSelector compact />
                         <Link to="/" className="text-white/60 hover:text-white text-sm transition-colors">
                             {t('nav.back')}
                         </Link>

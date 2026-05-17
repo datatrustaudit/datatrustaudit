@@ -10,7 +10,7 @@ import ja from '../translations/ja.json';
 import ar from '../translations/ar.json';
 import hi from '../translations/hi.json';
 
-type Language = 'pt' | 'en' | 'es' | 'fr' | 'zh' | 'de' | 'it' | 'ar' | 'hi' | 'ja';
+type Language = 'pt-BR' | 'en' | 'es' | 'fr' | 'zh' | 'de' | 'it' | 'ar' | 'hi' | 'ja';
 
 interface I18nContextType {
     language: Language;
@@ -20,7 +20,7 @@ interface I18nContextType {
 
 // Initial translations with all 10 languages supported
 const translations: Record<Language, any> = { 
-    pt, en, es, fr, de, it, zh, ja, ar, hi
+    'pt-BR': pt, en, es, fr, de, it, zh, ja, ar, hi
 };
 
 /**
@@ -81,16 +81,17 @@ const FALLBACK_EN: Record<string, string> = {
     'errors.blocked_403': 'This site blocks automated analysis. Use the Upload or View-Source tab.',
 };
 
-const FALLBACKS: Record<string, Record<string, string>> = { pt: FALLBACK_PT, en: FALLBACK_EN };
+const FALLBACKS: Record<string, Record<string, string>> = { 'pt-BR': FALLBACK_PT, en: FALLBACK_EN };
 
 const I18nContext = createContext<I18nContextType | null>(null);
 
 export const I18nProvider = ({ children }: { children: ReactNode }) => {
     const [language, setLanguageState] = useState<Language>(() => {
-        const saved = localStorage.getItem('gtm-audit-lang');
-        const validLangs = ['pt', 'en', 'es', 'fr', 'zh', 'de', 'it', 'ar', 'hi', 'ja'];
+        const savedValue = localStorage.getItem('gtm-audit-lang');
+        const saved = savedValue === 'pt' ? 'pt-BR' : savedValue;
+        const validLangs = ['pt-BR', 'en', 'es', 'fr', 'zh', 'de', 'it', 'ar', 'hi', 'ja'];
         if (saved && validLangs.includes(saved)) return saved as Language;
-        const browserLang = navigator.language.split('-')[0];
+        const browserLang = navigator.language.toLowerCase().startsWith('pt') ? 'pt-BR' : navigator.language.split('-')[0];
         return (validLangs.includes(browserLang) ? browserLang : 'en') as Language;
     });
 
@@ -103,7 +104,8 @@ export const I18nProvider = ({ children }: { children: ReactNode }) => {
     // Listen for language changes from other contexts (like LocaleContext)
     useEffect(() => {
         const handleSync = () => {
-            const saved = localStorage.getItem('gtm-audit-lang');
+            const savedValue = localStorage.getItem('gtm-audit-lang');
+            const saved = savedValue === 'pt' ? 'pt-BR' : savedValue;
             if (saved && saved !== language) {
                 setLanguageState(saved as Language);
             }

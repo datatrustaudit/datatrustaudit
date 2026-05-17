@@ -7,6 +7,7 @@ import { useSubscription, PLAN_PRICING, BillingCycle, SubscriptionPlan } from '@
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/use-toast';
+import LocaleSelector from '@/components/LocaleSelector';
 import {
     Tag, Shield, CreditCard, Smartphone, ArrowRight,
     Check, Lock, AlertCircle, ExternalLink, Calendar,
@@ -75,8 +76,9 @@ const CheckoutPage = () => {
     const isAnnual = cycleParam === 'annual';
     const plan = PLAN_META[planId] ?? PLAN_META.pro;
     const pricing = PLAN_PRICING[planId]?.[cycleParam] ?? PLAN_PRICING.pro.monthly;
-    const isEn = language === 'en';
-    const L = (obj: { en: string; pt: string }) => obj[language as 'en' | 'pt'] ?? obj.en;
+    const isEn = language !== 'pt-BR';
+    const localeKey: 'en' | 'pt' = isEn ? 'en' : 'pt';
+    const L = (obj: { en: string; pt: string }) => obj[localeKey] ?? obj.en;
 
     // Monthly equivalent for display
     const monthlyEquivUsd = isAnnual ? Math.round((pricing.usd / 12) * 100) / 100 : pricing.usd;
@@ -89,7 +91,7 @@ const CheckoutPage = () => {
     const renewalDateStr = renewalDate.toLocaleDateString(locale.locale, { day: 'numeric', month: 'long', year: 'numeric' });
 
     const planLabel = L(plan.label);
-    const highlights = plan.highlights[language as 'en' | 'pt'] ?? plan.highlights.en;
+    const highlights = plan.highlights[localeKey] ?? plan.highlights.en;
     const audits = L(plan.audits);
 
     useEffect(() => {
@@ -174,6 +176,7 @@ const CheckoutPage = () => {
                         <span className="font-bold text-white text-sm">DataTrust Audit</span>
                     </Link>
                     <div className="flex items-center gap-3">
+                        <LocaleSelector compact />
                         <button
                             onClick={() => navigate(`/pricing`)}
                             className="text-white/40 hover:text-white/70 text-xs transition-colors"

@@ -83,9 +83,11 @@ interface AuditContainerProps {
 
 const normalizeAuditResult = (raw: any): NewAuditResult => {
   const safeRaw = raw || {};
+  const rawEvents = Array.isArray(safeRaw.events) ? { events: safeRaw.events, totalEvents: safeRaw.events.length } : (safeRaw.events || {});
+  const rawViolations = safeRaw.violations || safeRaw.privacy?.violations || [];
 
   // Extract tags safely
-  const tags = (safeRaw.tags || []).map((t: any) => ({
+  const tags = (Array.isArray(safeRaw.tags) ? safeRaw.tags : []).map((t: any) => ({
     id: t.id || '',
     name: t.name || t.vendor || '',
     type: t.type || 'custom',
@@ -107,14 +109,14 @@ const normalizeAuditResult = (raw: any): NewAuditResult => {
   });
 
   // Calculate score & scores
-  const score = safeRaw.score || safeRaw.scores?.overall || safeRaw.scores?.auditScore || 0;
+  const score = safeRaw.score ?? safeRaw.scores?.overall ?? safeRaw.scores?.auditScore ?? null;
   const scores = {
-    auditScore: safeRaw.scores?.auditScore || safeRaw.scores?.overall || score || 0,
-    trackingQualityScore: safeRaw.scores?.trackingQualityScore || safeRaw.scores?.tracking_quality || 0,
-    eventArchitectureScore: safeRaw.scores?.eventArchitectureScore || safeRaw.scores?.event_architecture || 0,
-    datalayerQualityScore: safeRaw.scores?.datalayerQualityScore || safeRaw.scores?.datalayer_quality || 0,
-    consentIntegrityScore: safeRaw.scores?.consentIntegrityScore || safeRaw.scores?.consent_integrity || 0,
-    privacyRiskScore: safeRaw.scores?.privacyRiskScore || safeRaw.scores?.privacy_risk || 0,
+    auditScore: safeRaw.scores?.auditScore ?? safeRaw.scores?.overall ?? score ?? 0,
+    trackingQualityScore: safeRaw.scores?.trackingQualityScore ?? safeRaw.scores?.tracking_quality ?? 0,
+    eventArchitectureScore: safeRaw.scores?.eventArchitectureScore ?? safeRaw.scores?.event_architecture ?? 0,
+    datalayerQualityScore: safeRaw.scores?.datalayerQualityScore ?? safeRaw.scores?.datalayer_quality ?? 0,
+    consentIntegrityScore: safeRaw.scores?.consentIntegrityScore ?? safeRaw.scores?.consent_integrity ?? 0,
+    privacyRiskScore: safeRaw.scores?.privacyRiskScore ?? safeRaw.scores?.privacy_risk ?? 0,
   };
 
   // Privacy info
@@ -124,7 +126,7 @@ const normalizeAuditResult = (raw: any): NewAuditResult => {
     confidenceLevel: safeRaw.privacy?.confidenceLevel || safeRaw.privacy?.confidence_level || '',
     consentRisks: safeRaw.privacy?.consentRisks || safeRaw.privacy?.consent_risks || [],
     disclosureGaps: safeRaw.privacy?.disclosureGaps || safeRaw.privacy?.disclosure_gaps || [],
-    violations: (safeRaw.privacy?.violations || []).map((v: any) => ({
+    violations: rawViolations.map((v: any) => ({
       tag: v.tag || '',
       violation: v.violation || '',
       article: v.article || '',
@@ -134,16 +136,16 @@ const normalizeAuditResult = (raw: any): NewAuditResult => {
       dataCollected: v.dataCollected || v.data_collected || [],
       tagId: v.tagId || v.tag_id || null,
     })),
-    total_violations: safeRaw.privacy?.totalViolations || safeRaw.privacy?.total_violations || safeRaw.privacy?.violations?.length || 0,
-    estimatedRiskExposure: safeRaw.privacy?.estimatedRiskExposure || safeRaw.privacy?.estimated_risk_exposure || 'R$ 0',
-    has_consent_tool: safeRaw.privacy?.hasConsentTool || safeRaw.privacy?.has_consent_tool || safeRaw.consent?.cmpDetected || false,
-    has_universal_analytics: safeRaw.privacy?.hasUniversalAnalytics || safeRaw.privacy?.has_universal_analytics || false,
-    compliance_score: safeRaw.privacy?.complianceScore || safeRaw.privacy?.compliance_score || score || 0,
+    total_violations: safeRaw.privacy?.totalViolations ?? safeRaw.privacy?.total_violations ?? safeRaw.summary?.totalViolations ?? rawViolations.length ?? 0,
+    estimatedRiskExposure: safeRaw.privacy?.estimatedRiskExposure || safeRaw.privacy?.estimated_risk_exposure || safeRaw.summary?.estimatedFine || 'Unavailable in static scan',
+    has_consent_tool: safeRaw.privacy?.hasConsentTool ?? safeRaw.privacy?.has_consent_tool ?? safeRaw.privacy?.cmpDetected ?? safeRaw.consent?.cmpDetected ?? safeRaw.summary?.consentDetected ?? false,
+    has_universal_analytics: safeRaw.privacy?.hasUniversalAnalytics ?? safeRaw.privacy?.has_universal_analytics ?? false,
+    compliance_score: safeRaw.privacy?.complianceScore ?? safeRaw.privacy?.compliance_score ?? score ?? 0,
   };
 
   // Summary
   const summary = {
-    totalTags: tags.length,
+    totalTags: safeRaw.summary?.totalTags ?? tags.length,
     consentDetected: privacy.has_consent_tool,
     consentModeV2: safeRaw.consent?.consentModeV2 || safeRaw.consent?.consent_mode_v2 || false,
     hasUniversalAnalytics: privacy.has_universal_analytics || tags.some((t: any) => t.id === 'ua' || t.name === 'Universal Analytics'),
@@ -151,13 +153,13 @@ const normalizeAuditResult = (raw: any): NewAuditResult => {
     estimatedFine: privacy.estimatedRiskExposure,
     piiExposureCount: (safeRaw.datalayer_findings || []).filter((f: any) => f.type === 'pii_exposure').length,
     securityIssuesCount: 0,
-    eventsDetected: safeRaw.events?.totalEvents || safeRaw.events?.total_events || 0,
-    duplicatesDetected: (safeRaw.duplicates || []).length,
+    eventsDetected: safeRaw.summary?.totalEvents ?? rawEvents.totalEvents ?? rawEvents.total_events ?? 0,
+    duplicatesDetected: safeRaw.summary?.duplicatesDetected ?? (safeRaw.duplicates || []).length,
   };
 
   // Safe Events mapping
   const events = {
-    events: (safeRaw.events?.events || []).map((e: any) => ({
+    events: (rawEvents.events || []).map((e: any) => ({
       name: e.name || '',
       source: e.source || 'dataLayer',
       validity: e.validity || 'no_parameters',
@@ -179,11 +181,11 @@ const normalizeAuditResult = (raw: any): NewAuditResult => {
       sourceSnippet: e.sourceSnippet || e.source_snippet || null,
       isDuplicate: e.isDuplicate || e.is_duplicate || false,
     })),
-    totalEvents: safeRaw.events?.totalEvents || safeRaw.events?.total_events || 0,
-    uniqueEventNames: safeRaw.events?.uniqueEventNames || safeRaw.events?.unique_event_names || 0,
-    duplicatedEventNames: safeRaw.events?.duplicatedEventNames || safeRaw.events?.duplicated_event_names || 0,
-    eventsWithIssues: safeRaw.events?.eventsWithIssues || safeRaw.events?.events_with_issues || 0,
-    ecommerceEventsDetected: safeRaw.events?.ecommerceEventsDetected || safeRaw.events?.ecommerce_events_detected || [],
+    totalEvents: rawEvents.totalEvents || rawEvents.total_events || 0,
+    uniqueEventNames: rawEvents.uniqueEventNames || rawEvents.unique_event_names || 0,
+    duplicatedEventNames: rawEvents.duplicatedEventNames || rawEvents.duplicated_event_names || 0,
+    eventsWithIssues: rawEvents.eventsWithIssues || rawEvents.events_with_issues || 0,
+    ecommerceEventsDetected: rawEvents.ecommerceEventsDetected || rawEvents.ecommerce_events_detected || [],
   };
 
   // Safe GTM Quality mapping
@@ -217,7 +219,7 @@ const normalizeAuditResult = (raw: any): NewAuditResult => {
     duplicates: safeRaw.duplicates || [],
     loadingOrder: safeRaw.loadingOrder || [],
     privacy,
-    score,
+    score: score ?? 0,
     scores,
     gtmQuality,
     events,
@@ -243,9 +245,11 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
   const [analysisType, setAnalysisType] = useState<'url' | 'file' | 'navigation'>('url');
   const [navigationResult, setNavigationResult] = useState<any>(null);
   const [currentScanId, setCurrentScanId] = useState<string | null>(null);
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const [auditPhase, setAuditPhase] = useState<string>('');
 
   // Plan entitlement
-  const { plan, limits, isFeatureAvailable } = usePlan();
+  const { plan, limits, isFeatureAvailable, canPerformAudit, useAudit } = usePlan();
   const { token, isAuthenticated } = useAuth();
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -263,31 +267,44 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
     setFileAnalysisResult(null);
     setNavigationResult(null);
     setCurrentScanId(null);
+    setAuditError(null);
+    setAuditPhase('');
     setCurrentAuditUrl('');
     onStateChange?.(false);
   };
 
   const handleAudit = async () => {
-    if (!url) {
+    const inputUrl = url.trim();
+    if (!inputUrl) {
       toast({
         title: t('common.error'),
-        description: t('audit.url_required'),
+        description: t('audit.invalid_url_message'),
         variant: "destructive"
       });
       return;
     }
 
-    let validUrl = url;
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-      validUrl = 'https://' + url;
+    let validUrl = inputUrl;
+    if (!/^https?:\/\//i.test(inputUrl)) {
+      validUrl = 'https://' + inputUrl;
     }
 
     try {
-      new URL(validUrl);
+      const parsed = new URL(validUrl);
+      if (!parsed.hostname.includes('.')) throw new Error('invalid');
     } catch {
       toast({
         title: t('audit.invalid_url'),
-        description: t('audit.invalid_url_desc'),
+        description: t('audit.invalid_url_message'),
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (!canPerformAudit()) {
+      toast({
+        title: t('audit.limit_reached'),
+        description: t('audit.limit_reached_desc'),
         variant: "destructive"
       });
       return;
@@ -298,6 +315,8 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
     }
 
     setLoading(true);
+    setAuditError(null);
+    setAuditPhase(t('audit.phase_validating'));
     setCurrentAuditUrl(validUrl);
     setAnalysisType('url');
     onStateChange?.(true);
@@ -310,20 +329,55 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      const response = await fetch(`/api/scans/?url=${encodeURIComponent(validUrl)}`, {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 45000);
+
+      setAuditPhase(t('audit.phase_reading'));
+      const response = await fetch('/api/audit', {
         method: 'POST',
-        headers
+        headers,
+        body: JSON.stringify({ url: validUrl, plan: plan.type }),
+        signal: controller.signal,
       });
+      window.clearTimeout(timeoutId);
       
       if (!response.ok) {
         let errData;
         try { errData = await response.json(); } catch { errData = null; }
-        throw new Error(errData?.detail || `API Error: ${response.status}`);
+        throw new Error(errData?.message || errData?.detail || `API Error: ${response.status}`);
       }
       
       const data = await response.json();
+      if (data.success === false) {
+        const friendly = data.errorCode === 'INVALID_URL'
+          ? t('audit.invalid_url_message')
+          : data.message || t('audit.error_generic');
+        setAuditError(friendly);
+        setAuditPhase(t('audit.phase_failed'));
+        setLoading(false);
+        onStateChange?.(false);
+        toast({
+          title: t('audit.error_title'),
+          description: friendly,
+          variant: "destructive"
+        });
+        return;
+      }
+
       const scanId = data.scan_id;
-      setCurrentScanId(scanId);
+      setCurrentScanId(scanId || null);
+      setAuditPhase(data.status === 'partial' ? t('audit.phase_partial') : t('audit.phase_completed'));
+      setAuditResult(normalizeAuditResult(data));
+      useAudit();
+
+      const violationCount = data.summary?.totalViolations ?? data.privacy?.totalViolations ?? 0;
+      const score = data.score ?? 0;
+      toast({
+        title: data.status === 'partial' ? t('audit.partial_results') : t('audit.completed'),
+        description: `${t('dashboard.compliance_score')}: ${score}% - ${violationCount} ${t('dashboard.privacy_risks')}`
+      });
+      setLoading(false);
+      return;
 
       const pollScan = async () => {
         try {
@@ -365,11 +419,17 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
 
     } catch (error) {
       console.error('❌ Audit error:', error);
-      clearAuditData();
+      const message = error instanceof DOMException && error.name === 'AbortError'
+        ? t('audit.timeout_error')
+        : error instanceof Error ? error.message : t('audit.error_init');
+      setAuditResult(null);
+      setAuditError(message);
+      setAuditPhase(t('audit.phase_failed'));
       setLoading(false);
+      onStateChange?.(false);
       toast({
         title: t('audit.error_title'),
-        description: error instanceof Error ? error.message : t('audit.error_init'),
+        description: message,
         variant: "destructive"
       });
     }
@@ -459,6 +519,35 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
         onFileAnalysis={handleFileAnalysis}
         onNavigationComplete={handleNavigationComplete}
       />
+
+      {loading && analysisType === 'url' && (
+        <Card className="mb-6 border-blue-500/20 bg-blue-950/30 text-white">
+          <CardContent className="py-5">
+            <div className="flex items-center gap-3">
+              <div className="animate-spin rounded-full h-5 w-5 border-2 border-blue-200/30 border-t-blue-300" />
+              <div>
+                <p className="font-semibold">{auditPhase || t('audit.phase_reading')}</p>
+                <p className="text-sm text-blue-100/70">{t('audit.safe_scan_note')}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {auditError && !loading && analysisType === 'url' && !auditResult && (
+        <Alert className="mb-6 border-red-500/30 bg-red-950/30 text-red-100">
+          <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span>{auditError}</span>
+            <button
+              type="button"
+              onClick={handleAudit}
+              className="rounded-lg bg-red-500/20 px-3 py-1.5 text-sm font-semibold text-red-100 hover:bg-red-500/30"
+            >
+              {t('common.retry')}
+            </button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Audit Result by URL */}
       {analysisType === 'url' && auditResult && (

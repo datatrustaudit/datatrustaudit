@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useI18n } from '@/context/I18nContext';
 import AppHeader from '@/components/AppHeader';
 import AuditContainer from '@/components/AuditContainer';
+import AuditErrorBoundary from '@/components/AuditErrorBoundary';
 import { Shield, Zap, Search, Activity, CheckCircle2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
@@ -52,7 +53,9 @@ const Index = () => {
       )}
 
       <main className="container mx-auto px-4 pb-16 relative z-10">
-        <AuditContainer onStateChange={setIsAuditActive} />
+        <AuditErrorBoundary>
+          <AuditContainer onStateChange={setIsAuditActive} />
+        </AuditErrorBoundary>
       </main>
 
       {!isAuditActive && (

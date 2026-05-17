@@ -16,6 +16,26 @@ class User(Base):
     scans = relationship("Scan", back_populates="user")
     payments = relationship("Payment", back_populates="user")
 
+    @property
+    def plan(self):
+        if self.subscription and self.subscription.plan_name:
+            return self.subscription.plan_name
+        return "free"
+
+    @plan.setter
+    def plan(self, value):
+        plan_name = value if value in {"free", "pro", "premium"} else "free"
+        if self.subscription:
+            self.subscription.plan_name = plan_name
+        else:
+            self.subscription = Subscription(plan_name=plan_name)
+
+    @property
+    def scans_used(self):
+        if self.subscription:
+            return self.subscription.scans_used_this_month or 0
+        return 0
+
 class Subscription(Base):
     __tablename__ = "subscriptions"
     id = Column(Integer, primary_key=True, index=True)

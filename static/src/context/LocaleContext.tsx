@@ -20,7 +20,7 @@ import { createContext, useContext, useState, useEffect, useCallback, ReactNode 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type SupportedCurrency = 'USD' | 'BRL' | 'EUR' | 'GBP' | 'MXN' | 'ARS' | 'CLP' | 'COP' | 'CAD' | 'AUD';
-export type SupportedLanguage = 'pt' | 'en' | 'es' | 'fr' | 'zh' | 'de' | 'it' | 'ar' | 'hi' | 'ja';
+export type SupportedLanguage = 'pt-BR' | 'en' | 'es' | 'fr' | 'zh' | 'de' | 'it' | 'ar' | 'hi' | 'ja';
 export type RegionCode = 'BR' | 'US' | 'EU' | 'UK' | 'LATAM' | 'APAC' | 'OTHER';
 
 export interface LocaleInfo {
@@ -89,10 +89,10 @@ export const CONVERSION_RATES: Record<SupportedCurrency, number> = {
 
 /** Market-facing price overrides for Brazil (display value, not converted) */
 export const BR_PRICE_OVERRIDES: Record<number, number> = {
-    19: 97,    // Pro monthly
-    49: 247,   // Premium monthly
-    182: 970,  // Pro annual (~10 months)
-    470: 2470, // Premium annual (~10 months)
+    19: 89,    // Pro monthly
+    49: 229,   // Premium monthly
+    182: 890,  // Pro annual (~10 months)
+    470: 2290, // Premium annual (~10 months)
 };
 
 // ── Region helpers ─────────────────────────────────────────────────────────────
@@ -107,9 +107,9 @@ function detectRegion(tz: string, browserLang: string): RegionCode {
 }
 
 function regionToLocaleInfo(region: RegionCode, browserLang: string): LocaleInfo {
-    const lang = (browserLang.split('-')[0] as SupportedLanguage) || 'en';
+    const lang = (browserLang.toLowerCase().startsWith('pt') ? 'pt-BR' : browserLang.split('-')[0]) as SupportedLanguage;
     switch (region) {
-        case 'BR': return { currencyCode: 'BRL', locale: 'pt-BR', region, language: 'pt' };
+        case 'BR': return { currencyCode: 'BRL', locale: 'pt-BR', region, language: 'pt-BR' };
         case 'UK': return { currencyCode: 'GBP', locale: 'en-GB', region, language: 'en' };
         case 'EU': return { currencyCode: 'EUR', locale: 'de-DE', region, language: 'en' };
         case 'US': return { currencyCode: 'USD', locale: 'en-US', region, language: 'en' };
@@ -157,8 +157,9 @@ export const LocaleProvider = ({ children }: { children: ReactNode }) => {
     });
 
     const [language, setLanguageState] = useState<SupportedLanguage>(() => {
-        const saved = localStorage.getItem(STORAGE_LANGUAGE) as SupportedLanguage | null;
-        const validLangs = ['pt', 'en', 'es', 'fr', 'zh', 'de', 'it', 'ar', 'hi', 'ja'];
+        const savedValue = localStorage.getItem(STORAGE_LANGUAGE);
+        const saved = (savedValue === 'pt' ? 'pt-BR' : savedValue) as SupportedLanguage | null;
+        const validLangs = ['pt-BR', 'en', 'es', 'fr', 'zh', 'de', 'it', 'ar', 'hi', 'ja'];
         return saved && validLangs.includes(saved) ? saved : autoLocale.language;
     });
 
@@ -205,7 +206,7 @@ export const LocaleProvider = ({ children }: { children: ReactNode }) => {
     const formatPrice = useCallback((usdPrice: number): string => {
         if (usdPrice === 0) {
             const labels: Record<string, string> = {
-                pt: 'Grátis', en: 'Free', es: 'Gratis', fr: 'Gratuit', zh: '免费',
+                'pt-BR': 'Grátis', en: 'Free', es: 'Gratis', fr: 'Gratuit', zh: '免费',
                 de: 'Kostenlos', it: 'Gratis', ar: 'مجاني', hi: 'नि:शुल्क', ja: '無料'
             };
             return labels[language] || labels.en;

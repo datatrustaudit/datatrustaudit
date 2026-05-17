@@ -23,8 +23,9 @@ const SettingsPage = () => {
         return null;
     }
 
-    const isEn = language === 'en';
-    const L = (obj: { en: string; pt: string }) => obj[language as 'en' | 'pt'] ?? obj.en;
+    const isEn = language !== 'pt-BR';
+    const localeKey: 'en' | 'pt' = isEn ? 'en' : 'pt';
+    const L = (obj: { en: string; pt: string }) => obj[localeKey] ?? obj.en;
 
     const planData = {
         free: { icon: <Tag className="w-5 h-5 text-slate-400" />, label: { en: 'Free', pt: 'Grátis' }, gradient: 'from-slate-500 to-slate-600' },
@@ -122,7 +123,7 @@ const SettingsPage = () => {
                                             {isEn ? 'Audits Limit' : 'Limite de Auditorias'}
                                         </div>
                                         <div className="font-semibold text-slate-900 dark:text-white">
-                                            {limits[currentPlanId]?.[isEn ? 'en' : 'pt']}
+                                            {limits[currentPlanId]?.[localeKey]}
                                         </div>
                                     </div>
                                     {subscription.plan !== 'free' && (
