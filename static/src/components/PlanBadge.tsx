@@ -23,7 +23,7 @@ import { useI18n } from '@/context/I18nContext';
 import { Link } from 'react-router-dom';
 
 const PlanBadge = () => {
-    const { plan, limits, getUsagePercentage } = usePlan();
+    const { plan, limits, getUsagePercentage, effectivePlan } = usePlan();
     const { t } = useI18n();
 
     const getPlanIcon = (planType: PlanType) => {
@@ -36,6 +36,7 @@ const PlanBadge = () => {
     };
 
     const getPlanColor = (planType: PlanType) => {
+        if (effectivePlan === 'admin') return 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25';
         switch (planType) {
             case 'free': return 'bg-white/5 text-white/60 border border-white/10 hover:bg-white/10';
             case 'pro': return 'bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20';
@@ -54,8 +55,8 @@ const PlanBadge = () => {
                     size="sm"
                     className={`gap-2 h-9 rounded-xl px-4 ${getPlanColor(plan.type)} shadow-sm transition-all duration-300 group`}
                 >
-                    {getPlanIcon(plan.type)}
-                    <span className="font-bold tracking-tight">{t(`plans.${plan.type}.label`)}</span>
+                    {effectivePlan === 'admin' ? <Crown className="h-3 w-3 text-emerald-400" /> : getPlanIcon(plan.type)}
+                    <span className="font-bold tracking-tight">{effectivePlan === 'admin' ? 'Admin' : t(`plans.${plan.type}.label`)}</span>
                     <ChevronDown className="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 transition-all" />
                 </Button>
             </DropdownMenuTrigger>
@@ -76,14 +77,14 @@ const PlanBadge = () => {
                     <div className="flex justify-between text-[10px] uppercase tracking-widest font-bold text-white/40 mb-2">
                         <span>{t('pricing.compare.audits_per_month')}</span>
                         <span>
-                            {limits.auditsPerMonth === -1 || limits.auditsPerMonth > 100 ? (
+                            {limits.scansPerWeek === -1 || limits.scansPerWeek > 100 ? (
                                 <span className="text-blue-400 font-bold">{t('common.unlimited')}</span>
                             ) : (
-                                `${plan.auditsLimit - plan.auditsRemaining} / ${plan.auditsLimit}`
+                                `${plan.scansLimit - plan.scansRemaining} / ${plan.scansLimit}`
                             )}
                         </span>
                     </div>
-                    {(limits.auditsPerMonth !== -1 && limits.auditsPerMonth < 100) && (
+                    {(limits.scansPerWeek !== -1 && limits.scansPerWeek <= 200) && (
                         <div className="h-2 bg-white/5 rounded-full overflow-hidden border border-white/5">
                             <div 
                                 className="h-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)] transition-all duration-1000" 
@@ -119,7 +120,7 @@ const PlanBadge = () => {
                     </div>
                 </div>
 
-                {plan.type !== 'premium' && (
+                {plan.type !== 'premium' && effectivePlan !== 'admin' && (
                     <>
                         <DropdownMenuSeparator className="bg-white/5" />
                         <DropdownMenuItem asChild className="focus:bg-white/5 cursor-pointer p-0">

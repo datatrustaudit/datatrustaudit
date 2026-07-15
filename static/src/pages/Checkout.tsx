@@ -4,6 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useLocale, localizePrice } from '@/hooks/useLocale';
 import { useI18n } from '@/context/I18nContext';
 import { useSubscription, PLAN_PRICING, BillingCycle, SubscriptionPlan } from '@/context/SubscriptionContext';
+import { getCheckoutUrl } from '@/config/pricing.config';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/use-toast';
@@ -28,10 +29,10 @@ const PLAN_META: Record<SubscriptionPlan, {
         gradient: 'from-slate-500 to-slate-600',
         shadowColor: 'shadow-slate-500/20',
         icon: <Tag className="w-5 h-5" />,
-        audits: { en: '1 simple audit / month', pt: '1 auditoria simples / mês' },
+        audits: { en: '10 scans per week', pt: '10 escaneamentos por semana' },
         highlights: {
-            en: ['Basic dashboard', '1 violation detail', 'AI chat (5 msg/day)'],
-            pt: ['Dashboard básico', '1 detalhe de violação', 'Chat IA (5 msg/dia)'],
+            en: ['Basic dashboard', 'Risk summary', 'AI chat (5 msg/day)'],
+            pt: ['Dashboard básico', 'Resumo de riscos', 'Chat IA (5 msg/dia)'],
         },
     },
     pro: {
@@ -39,10 +40,10 @@ const PLAN_META: Record<SubscriptionPlan, {
         gradient: 'from-blue-500 to-indigo-600',
         shadowColor: 'shadow-blue-500/25',
         icon: <Star className="w-5 h-5" />,
-        audits: { en: '2 full audits / month', pt: '2 auditorias completas / mês' },
+        audits: { en: '50 scans per week', pt: '50 escaneamentos por semana' },
         highlights: {
-            en: ['All violations visible (70%)', 'PDF export', 'AI chat (100 msg/day)', 'Fine forecast (LGPD/GDPR/CCPA)'],
-            pt: ['Todas violações (70%)', 'Exportação PDF', 'Chat IA (100 msg/dia)', 'Previsão multa (LGPD/GDPR/CCPA)'],
+            en: ['Full audit (GA4, GTM, pixels, cookies)', 'Pre-consent risk detection', 'PDF report', 'All violations (70% visibility)'],
+            pt: ['Auditoria completa (GA4, GTM, pixels, cookies)', 'Riscos antes do consentimento', 'Relatório em PDF', 'Todas violações (70% visibilidade)'],
         },
     },
     premium: {
@@ -50,15 +51,13 @@ const PLAN_META: Record<SubscriptionPlan, {
         gradient: 'from-amber-500 to-orange-600',
         shadowColor: 'shadow-amber-500/25',
         icon: <Crown className="w-5 h-5" />,
-        audits: { en: '3 limited audits / month', pt: '3 auditorias limitadas / mês' },
+        audits: { en: '200 scans per week', pt: '200 escaneamentos por semana' },
         highlights: {
-            en: ['Everything in Pro', 'Complete audit history', 'Excel/JSON export', 'AI fix & teach assistant', 'Line-level code precision', 'Bilingual report (EN+PT)', 'Priority support'],
-            pt: ['Tudo do Pro', 'Histórico completo', 'Excel/JSON', 'IA para correção', 'Precisão por linha', 'Relatório bilíngue (EN+PT)', 'Suporte prioritário'],
+            en: ['Everything in Pro', 'Full evidence export (JSON)', 'Network, cookies & dataLayer tabs', 'Consent timeline', 'LGPD/GDPR exposure estimate', 'Priority support'],
+            pt: ['Tudo do Pro', 'Evidências completas (JSON)', 'Network, cookies e dataLayer', 'Timeline de consentimento', 'Estimativa de exposição LGPD/GDPR', 'Suporte prioritário'],
         },
     },
 };
-
-const MERCADO_PAGO_BASE = 'https://link.mercadopago.com.br/DataTrust Auditpro';
 
 const CheckoutPage = () => {
     const { toast } = useToast();
@@ -109,12 +108,11 @@ const CheckoutPage = () => {
     if (!isAuthenticated || !PLAN_META[planId] || planId === 'free') return null;
 
     const handlePay = async () => {
-        if (!token) return;
         setIsLoading(true);
         setError(null);
         
         try {
-            // Store checkout state for post-payment confirmation
+            // Store checkout state for tracking
             const checkoutState = {
                 planId,
                 billingCycle: cycleParam,
@@ -130,33 +128,20 @@ const CheckoutPage = () => {
             localStorage.setItem('gtm-selected-plan', planId);
             localStorage.setItem('gtm-billing-cycle', cycleParam);
             
-            // Call API
-            const response = await fetch('/api/payments/create-preference', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    plan_id: planId,
-                    billing_cycle: cycleParam,
-                    price: cycleParam === 'annual' ? pricing.usd * 0.8 * 12 : pricing.usd // basic math
-                })
-            });
+            // Get Kiwify checkout URL
+            const billing = isAnnual ? 'annual' : 'monthly';
+            const checkoutUrl = getCheckoutUrl(planId as any, billing, user?.email);
             
-            if (!response.ok) {
-                const data = await response.json().catch(() => ({}));
-                throw new Error(data.detail || 'Falha ao iniciar pagamento');
+            if (!checkoutUrl) {
+                throw new Error(isEn 
+                    ? 'Checkout URL not configured. Please contact support.'
+                    : 'URL de checkout não configurada. Entre em contato com o suporte.');
             }
+
+            markPending(planId, cycleParam);
             
-            const data = await response.json();
-            
-            if (data.init_point) {
-                markPending(planId, cycleParam);
-                window.location.href = data.init_point;
-            } else {
-                throw new Error('Nenhum link de pagamento recebido.');
-            }
+            // Redirect to Kiwify secure checkout
+            window.location.href = checkoutUrl;
         } catch (err: any) {
             console.error('Checkout error:', err);
             setError(err.message || 'Erro ao processar checkout');
@@ -165,7 +150,7 @@ const CheckoutPage = () => {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex flex-col">
+        <div className="min-h-screen bg-[#070b16] flex flex-col">
             {/* Secure nav */}
             <nav className="border-b border-white/10 bg-white/5 backdrop-blur-sm">
                 <div className="max-w-xl mx-auto px-6 py-4 flex items-center justify-between">
@@ -283,13 +268,6 @@ const CheckoutPage = () => {
                                         : (isEn ? 'Every month' : 'Mensal')}
                                 </span>
                             </div>
-                            {locale.region !== 'US' && (
-                                <div className="text-white/25 text-xs pt-1">
-                                    {isEn
-                                        ? `Approximate conversion from USD. Charged in ${locale.currencyCode}.`
-                                        : `Conversão aproximada do USD. Cobrado em ${locale.currencyCode}.`}
-                                </div>
-                            )}
                         </div>
                     </div>
 
@@ -301,34 +279,34 @@ const CheckoutPage = () => {
                         </div>
                     )}
 
-                    {/* Payment methods */}
+                    {/* Kiwify payment info */}
                     <div className="bg-white/5 border border-white/10 rounded-2xl p-6 backdrop-blur-sm">
                         <div className="text-white/40 text-xs uppercase tracking-widest font-medium mb-4">
-                            {isEn ? 'Payment methods' : 'Formas de pagamento'}
+                            {isEn ? 'Payment' : 'Pagamento'}
                         </div>
                         <div className="grid grid-cols-2 gap-3 mb-4">
                             <div className="flex items-center gap-3 p-3.5 rounded-xl bg-white/5 border border-white/10">
                                 <Shield className="w-5 h-5 text-blue-400 flex-shrink-0" />
                                 <div>
-                                    <div className="text-white text-xs font-semibold">{isEn ? 'Electronic Payment' : 'Pagamento Eletrônico'}</div>
-                                    <div className="text-white/30 text-xs">{isEn ? 'Credit & Debit Cards' : 'Cartões de Crédito e Débito'}</div>
+                                    <div className="text-white text-xs font-semibold">{isEn ? 'Cards' : 'Cartões'}</div>
+                                    <div className="text-white/30 text-xs">{isEn ? 'Credit & Debit' : 'Crédito e Débito'}</div>
                                 </div>
                             </div>
                             <div className="flex items-center gap-3 p-3.5 rounded-xl bg-white/5 border border-white/10">
                                 <Smartphone className="w-5 h-5 text-green-400 flex-shrink-0" />
                                 <div>
                                     <div className="text-white text-xs font-semibold">PIX</div>
-                                    <div className="text-white/30 text-xs">{isEn ? 'Instant payment' : 'Pagamento imediato'}</div>
+                                    <div className="text-white/30 text-xs">{isEn ? 'Instant' : 'Imediato'}</div>
                                 </div>
                             </div>
                         </div>
 
-                        <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3.5 flex gap-2.5">
-                            <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
-                            <p className="text-amber-300/80 text-xs">
+                        <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3.5 flex gap-2.5">
+                            <AlertCircle className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
+                            <p className="text-blue-300/80 text-xs">
                                 {isEn
-                                    ? 'You will be redirected to Mercado Pago secure hosted checkout. We do not collect or store card data. Your subscription activates after payment confirmation.'
-                                    : 'Você será redirecionado ao checkout seguro do Mercado Pago. Não coletamos dados de cartão. A assinatura é ativada após a confirmação do pagamento.'}
+                                    ? 'You will be redirected to the secure Kiwify checkout. Access will be activated after payment confirmation or manual activation by admin.'
+                                    : 'Você será redirecionado ao checkout seguro da Kiwify. O acesso será liberado após confirmação do pagamento ou ativação manual pelo admin.'}
                             </p>
                         </div>
                     </div>
@@ -351,43 +329,11 @@ const CheckoutPage = () => {
                         ) : (
                             <Lock className="w-4 h-4 mr-2" />
                         )}
-                        {isLoading ? (isEn ? 'Processing...' : 'Processando...') : (isEn
-                            ? `Pay ${totalDuePrice} securely`
-                            : `Pagar ${totalDuePrice} com segurança`)}
+                        {isLoading ? (isEn ? 'Redirecting...' : 'Redirecionando...') : (isEn
+                            ? `Subscribe — ${totalDuePrice}`
+                            : `Assinar — ${totalDuePrice}`)}
                         {!isLoading && <ArrowRight className="w-4 h-4 ml-2" />}
                     </Button>
-
-                    <div className="mt-6 pt-6 border-t border-white/10 text-center">
-                        <button 
-                            onClick={() => {
-                                const details = document.getElementById('manual-pix-details');
-                                if (details) details.classList.toggle('hidden');
-                            }}
-                            className="text-white/40 hover:text-white/80 text-xs underline transition-colors"
-                        >
-                            {isEn ? 'Prefer manual PIX?' : 'Problemas com o pagamento? Usar PIX manual'}
-                        </button>
-                        
-                        <div id="manual-pix-details" className="hidden mt-4 bg-white/5 border border-white/10 rounded-xl p-4 text-left">
-                            <p className="text-white text-sm font-semibold mb-2">
-                                {isEn ? 'Manual PIX Payment' : 'Pagamento via PIX Manual'}
-                            </p>
-                            <p className="text-white/60 text-xs mb-3">
-                                {isEn 
-                                    ? `Transfer exact amount: ${totalDuePrice}. Send receipt to support for manual activation.` 
-                                    : `Envie o valor exato de ${totalDuePrice} para a chave abaixo. Envie o comprovante para o suporte.`}
-                            </p>
-                            <div className="bg-black/30 p-2 rounded text-green-400 font-mono text-center text-sm break-all mb-3 select-all border border-green-500/20">
-                                cnpj: 40.123.456/0001-99
-                            </div>
-                            <Button variant="outline" size="sm" className="w-full text-xs text-black font-semibold hover:bg-white/90" onClick={() => {
-                                navigator.clipboard.writeText('40.123.456/0001-99');
-                                toast({ title: isEn ? 'Copied!' : 'Copiado!', description: isEn ? 'PIX key copied.' : 'Chave PIX copiada.'});
-                            }}>
-                                {isEn ? 'Copy PIX Key' : 'Copiar Chave CNPJ'}
-                            </Button>
-                        </div>
-                    </div>
 
                     {/* Trust signals */}
                     <div className="mt-4 flex items-center justify-center gap-4 text-white/25 text-xs pt-1">
@@ -395,13 +341,13 @@ const CheckoutPage = () => {
                         <span>•</span>
                         <span>{isEn ? '30-day guarantee' : 'Garantia 30 dias'}</span>
                         <span>•</span>
-                        <span className="flex items-center gap-1"><ExternalLink className="w-3 h-3" /> Mercado Pago</span>
+                        <span className="flex items-center gap-1"><ExternalLink className="w-3 h-3" /> Kiwify</span>
                     </div>
 
                     <p className="text-center text-white/15 text-xs mt-4">
                         {isEn
-                            ? `By clicking pay, you agree to a ${isAnnual ? 'yearly' : 'monthly'} recurring subscription. Cancel anytime from your account.`
-                            : `Ao clicar em pagar, você concorda com uma assinatura recorrente ${isAnnual ? 'anual' : 'mensal'}. Cancele quando quiser na sua conta.`}
+                            ? `By clicking subscribe, you agree to a ${isAnnual ? 'yearly' : 'monthly'} recurring subscription. Cancel anytime from your account.`
+                            : `Ao clicar em assinar, você concorda com uma assinatura recorrente ${isAnnual ? 'anual' : 'mensal'}. Cancele quando quiser na sua conta.`}
                     </p>
                     <div className="border-t border-white/5 pt-4 text-center text-white/20 text-xs space-y-1">
                         <p>

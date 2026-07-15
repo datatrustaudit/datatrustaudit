@@ -4,6 +4,7 @@ import re
 import io
 import tempfile
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,7 +39,7 @@ else:
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static", "dist")  # Vite builds to dist folder
 # Storage and DB
-from db.database import engine, get_db
+from db.database import engine, get_db, sync_sqlite_schema
 from db.models import Base, User, Scan, Payment
 from api import auth, payments, scans, audit
 
@@ -50,6 +51,7 @@ async def lifespan(app: FastAPI):
     print(" DataTrust Audit API starting...")
     try:
         Base.metadata.create_all(bind=engine)
+        sync_sqlite_schema()
         print(" Database tables created via SQLAlchemy")
     except Exception as e:
         print(f" Could not sync DB on startup: {e}")
@@ -73,6 +75,36 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def auth_validation_exception_handler(request: Request, exc: RequestValidationError):
+    if request.url.path.startswith("/api/auth/"):
+        return JSONResponse(
+            {
+                "success": False,
+                "message": "Verifique seus dados e tente novamente.",
+                "errorCode": "VALIDATION_FAILED",
+                "errors": exc.errors(),
+            },
+            status_code=422,
+        )
+    raise exc
+
+
+@app.exception_handler(Exception)
+async def auth_unhandled_exception_handler(request: Request, exc: Exception):
+    if request.url.path.startswith("/api/auth/"):
+        return JSONResponse(
+            {
+                "success": False,
+                "message": "Não foi possível criar sua conta. Tente novamente.",
+                "errorCode": "SIGNUP_FAILED",
+                "errors": [],
+            },
+            status_code=500,
+        )
+    raise exc
 
 # Registra rotas da API
 app.include_router(auth.router)
@@ -1390,7 +1422,7 @@ def plan_strip_report(report: dict, plan: str) -> None:
     
     Mutates `report` in-place.
     
-    free  → 10% tags (no lineNumber/context/matchedPattern), violation count only, redacted fine
+    free  → 30% tags (no lineNumber/context/matchedPattern), violation count only, redacted fine
     pro   → 70% tags (violation details OK), still no lineNumber / view-source data
     full  → no stripping
     """
@@ -1398,7 +1430,7 @@ def plan_strip_report(report: dict, plan: str) -> None:
         return  # Premium users get everything
 
     tags = report.get("tags", [])
-    visible_pct = 0.10 if plan == "free" else 0.70
+    visible_pct = 0.30 if plan == "free" else 0.70
     visible_count = max(1, int(len(tags) * visible_pct))
 
     # Truncate tag list

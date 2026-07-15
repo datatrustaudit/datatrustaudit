@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
@@ -8,12 +8,14 @@ from db.database import get_db
 from db.models import User, Scan
 from api.auth import get_current_user
 from worker.tasks import run_website_audit
+from audit_engine.credit_rules import WEEKLY_SCAN_LIMITS, get_weekly_limit, can_perform_scan
 
 router = APIRouter(prefix="/api/scans", tags=["Scans"])
 
-FREE_MAX_SCANS = int(os.getenv("FREE_MAX_SCANS", "1"))
-PRO_MAX_SCANS = int(os.getenv("PRO_MAX_SCANS", "50"))
-PREMIUM_MAX_SCANS = int(os.getenv("PREMIUM_MAX_SCANS", "300"))
+# Weekly scan limits (configurable via env)
+FREE_MAX_SCANS = int(os.getenv("FREE_MAX_SCANS", str(WEEKLY_SCAN_LIMITS["free"])))
+PRO_MAX_SCANS = int(os.getenv("PRO_MAX_SCANS", str(WEEKLY_SCAN_LIMITS["pro"])))
+PREMIUM_MAX_SCANS = int(os.getenv("PREMIUM_MAX_SCANS", str(WEEKLY_SCAN_LIMITS["premium"])))
 
 def normalize_url(url: str):
     url = url.strip()
@@ -32,28 +34,31 @@ def create_scan(url: str, background_tasks: BackgroundTasks, current_user: User 
     """Queues a new website audit task asynchronously."""
     plan = "free"
     user_id = None
+    is_admin = False
     
     if current_user:
         user_id = current_user.id
         plan = current_user.plan
+        is_admin = getattr(current_user, 'is_admin', False)
     
-    # Check limits tracking against `scans` table count for this month
-    start_of_month = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    # Check weekly scan limits (admin bypasses all limits)
+    start_of_week = datetime.utcnow() - timedelta(days=datetime.utcnow().weekday())
+    start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
     
+    scans_this_week = 0
     if user_id:
-        scans_this_month = db.query(Scan).filter(
+        scans_this_week = db.query(Scan).filter(
             Scan.user_id == user_id,
-            Scan.created_at >= start_of_month
+            Scan.created_at >= start_of_week
         ).count()
-    else:
-        scans_this_month = 0
     
-    limit = FREE_MAX_SCANS
-    if plan == "pro": limit = PRO_MAX_SCANS
-    if plan == "premium": limit = PREMIUM_MAX_SCANS
-    
-    if scans_this_month >= limit:
-        raise HTTPException(status_code=403, detail="Scan limit reached. Please upgrade your plan.")
+    if not is_admin:
+        limit = get_weekly_limit(plan)
+        if limit != -1 and scans_this_week >= limit:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Weekly scan limit reached ({limit} scans/week for {plan} plan). Please upgrade your plan."
+            )
         
     safe_url = normalize_url(url)
     
@@ -65,7 +70,12 @@ def create_scan(url: str, background_tasks: BackgroundTasks, current_user: User 
     # Queue task natively via FastAPI
     background_tasks.add_task(run_website_audit, new_scan.id)
     
-    return {"scan_id": new_scan.id, "status": new_scan.status}
+    return {
+        "scan_id": new_scan.id,
+        "status": new_scan.status,
+        "scans_this_week": scans_this_week + 1,
+        "weekly_limit": get_weekly_limit(plan, is_admin),
+    }
 
 @router.get("/{scan_id}")
 def get_scan(scan_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -101,7 +111,7 @@ def get_scan(scan_id: int, current_user: User = Depends(get_current_user), db: S
         if "tags" in res:
             total_tags = len(res["tags"])
             if plan == "free":
-                res["tags"] = res["tags"][:max(1, int(total_tags * 0.10))]
+                res["tags"] = res["tags"][:max(1, int(total_tags * 0.30))]
                 res["locked_tags"] = True
             elif plan == "pro":
                 res["tags"] = res["tags"][:max(1, int(total_tags * 0.70))]

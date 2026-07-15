@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from api.auth import get_current_user
 from audit_engine.browser_fetcher import browser_scan
 from audit_engine.orchestrator import run_audit
+from audit_engine.credit_rules import should_consume_scan_credit, get_evidence_count
 from db.models import User
 
 
@@ -33,6 +34,8 @@ def _friendly_message(code: str) -> str:
         "FETCH_FAILED": "We could not access this website. Please check the URL and try again.",
         "BLOCKED": "The website may have blocked the scan. Basic or partial results are shown when available.",
         "TIMEOUT": "The website took too long to respond. Please try again.",
+        "PROTOCOL_ERROR": "The runtime scan was interrupted by a protocol failure. No confirmed runtime findings were generated.",
+        "DNS_FAILURE": "Could not resolve the website domain. Please check the URL.",
     }
     return messages.get(code, messages["FETCH_FAILED"])
 
@@ -193,8 +196,8 @@ def _normalize_audit_response(url: str, plan: str, scan: Any, audit_result: Any)
     limit_note = None
     visible_tags = tags
     if plan == "free":
-        visible_tags = tags[:max(1, int(len(tags) * 0.10))] if tags else []
-        limit_note = "Free plan shows a basic scan with limited source detail."
+        visible_tags = tags[:max(1, int(len(tags) * 0.30))] if tags else []
+        limit_note = "Free plan shows 30% data visibility with limited source detail."
     elif plan == "pro":
         visible_tags = tags[:max(1, int(len(tags) * 0.70))] if tags else []
         limit_note = "Pro plan shows 70% data visibility. Premium unlocks full source mapping."
@@ -279,7 +282,20 @@ def _normalize_audit_response(url: str, plan: str, scan: Any, audit_result: Any)
         "datalayerFindings": datalayer,
         "scores": scores,
         "disclaimer": audit.get("disclaimer"),
+        # Scan metadata
+        "scan_status": getattr(scan, "scan_status", "completed") if not getattr(scan, "error", None) else getattr(scan, "scan_status", "partial"),
+        "failure_reason": getattr(scan, "failure_reason", None),
+        "browser_attempts": getattr(scan, "browser_attempts", 1),
+        "static_fallback_used": getattr(scan, "static_fallback_attempted", False) or getattr(scan, "fallback_used", False),
+        "final_url": getattr(scan, "final_url", None),
+        "started_at": getattr(scan, "started_at", None),
+        "finished_at": getattr(scan, "finished_at", None),
+        "warnings": getattr(scan, "warnings", []),
     }
+
+    # Determine credit consumption
+    response["evidence_count"] = get_evidence_count(response)
+    response["scan_credit_consumed"] = should_consume_scan_credit(response)
 
     if plan == "free":
         response["violations"] = []
@@ -340,11 +356,24 @@ async def run_direct_audit(payload: AuditRequest, current_user: Optional[User] =
     try:
         audit_result = run_audit(url, scan, use_view_source=(plan == "premium"))
         response = _normalize_audit_response(url, plan, scan, audit_result)
+
+        scan_status = getattr(scan, "scan_status", "completed")
         if not getattr(scan, "html", ""):
             response["success"] = False
-            response["status"] = "failed"
-            response["errorCode"] = "FETCH_FAILED"
-            response["message"] = _friendly_message("FETCH_FAILED")
+            response["status"] = scan_status if scan_status != "completed" else "failed"
+            if scan_status == "protocol_error":
+                response["errorCode"] = "PROTOCOL_ERROR"
+                response["message"] = _friendly_message("PROTOCOL_ERROR")
+            elif scan_status == "blocked":
+                response["errorCode"] = "BLOCKED"
+                response["message"] = _friendly_message("BLOCKED")
+            elif scan_status == "timeout":
+                response["errorCode"] = "TIMEOUT"
+                response["message"] = _friendly_message("TIMEOUT")
+            else:
+                response["errorCode"] = "FETCH_FAILED"
+                response["message"] = _friendly_message("FETCH_FAILED")
+
         return JSONResponse(response)
     except Exception as exc:
         return _failed_response("FETCH_FAILED", [{"message": str(exc)}])

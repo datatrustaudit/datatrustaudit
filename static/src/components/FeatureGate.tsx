@@ -52,8 +52,8 @@ const FeatureGate = ({
     const isPro = unlockPlan === 'pro';
 
     const planLabels = {
-        pro: { name: 'Pro', price: 'USD $19/mês', color: 'from-blue-500 to-indigo-600', icon: <Zap className="h-4 w-4" /> },
-        full: { name: 'Premium', price: 'USD $49/mês', color: 'from-amber-500 to-orange-600', icon: <Crown className="h-4 w-4" /> },
+        pro: { name: 'Pro', price: 'R$ 49,90/mês', color: 'from-blue-500 to-indigo-600', icon: <Zap className="h-4 w-4" /> },
+        full: { name: 'Premium', price: 'R$ 149,90/mês', color: 'from-amber-500 to-orange-600', icon: <Crown className="h-4 w-4" /> },
     };
     const target = planLabels[unlockPlan];
 

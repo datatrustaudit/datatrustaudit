@@ -5,13 +5,13 @@
  *   1. User selects plan + billing cycle on /pricing
  *   2. Data saved to localStorage (gtm-selected-plan, gtm-billing-cycle)
  *   3. /checkout reads params + displays full subscription summary
- *   4. "Pagar" → redirect to Mercado Pago hosted checkout (secure redirect)
- *   5. MP returns to /payment/success?plan=X&cycle=Y&ref=MPID
+ *   4. "Pagar" → redirect to Kiwify hosted checkout (secure redirect)
+ *   5. Kiwify webhook or admin manual activation
  *   6. This context activateSubscription() is called → plan entitlements applied
  *
- * Annual pricing strategy:
- *   Pro: USD 19/mo or USD 182/yr (20% off = ~USD 15.17/mo)
- *   Premium: USD 49/mo or USD 470/yr (20% off = ~USD 39.17/mo)
+ * BRL pricing (final):
+ *   Pro:     R$ 49/mês
+ *   Premium: R$ 149/mês
  */
 
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
@@ -32,7 +32,7 @@ export interface Subscription {
     currency: string | null;
     localPrice: string | null;
     usdPrice: number | null;
-    /** Mercado Pago subscription/preapproval ID */
+    /** Kiwify subscription/payment ID */
     paymentProviderRef: string | null;
 }
 
@@ -52,26 +52,27 @@ interface SubscriptionContextValue {
     consumeAudit: () => boolean;
 }
 
-// ── Pricing matrix ───────────────────────────────────────────────────────────
+// ── Pricing matrix (BRL base) ───────────────────────────────────────────────
 export const PLAN_PRICING: Record<SubscriptionPlan, Record<BillingCycle, { usd: number; savingsPct: number }>> = {
     free: {
         monthly: { usd: 0, savingsPct: 0 },
         annual:  { usd: 0, savingsPct: 0 },
     },
     pro: {
-        monthly: { usd: 19,  savingsPct: 0 },
-        annual:  { usd: 182, savingsPct: 20 },   // 182/12 ≈ 15.17/mo
+        monthly: { usd: 49.90,  savingsPct: 0 },    // R$ 49,90/mês
+        annual:  { usd: 479.04, savingsPct: 20 },    // ~R$ 39,92/mês (annual)
     },
     premium: {
-        monthly: { usd: 49,  savingsPct: 0 },
-        annual:  { usd: 470, savingsPct: 20 },   // 470/12 ≈ 39.17/mo
+        monthly: { usd: 149.90,  savingsPct: 0 },   // R$ 149,90/mês
+        annual:  { usd: 1439.04, savingsPct: 20 },   // ~R$ 119,92/mês (annual)
     },
 };
 
+// Weekly scan quotas
 export const QUOTA_MAP: Record<SubscriptionPlan, number> = {
-    free: 1,
-    pro: 2,
-    premium: 3,
+    free: 10,
+    pro: 50,
+    premium: 200,
 };
 
 // ── Defaults ─────────────────────────────────────────────────────────────────
@@ -121,14 +122,17 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
         localStorage.setItem('gtm-billing-cycle', cycle);
     }, []);
 
-    // Monthly audit quota reset
+    // Weekly audit quota reset
     useEffect(() => {
-        const lastReset = localStorage.getItem('gtm-audit-reset-month');
-        const currentMonth = new Date().toISOString().slice(0, 7);
-        if (lastReset !== currentMonth) {
+        const lastReset = localStorage.getItem('gtm-audit-reset-week');
+        const now = new Date();
+        const startOfWeek = new Date(now);
+        startOfWeek.setDate(now.getDate() - now.getDay());
+        const currentWeek = startOfWeek.toISOString().slice(0, 10);
+        if (lastReset !== currentWeek) {
             setAuditUsed(0);
             localStorage.setItem('gtm-audit-count', '0');
-            localStorage.setItem('gtm-audit-reset-month', currentMonth);
+            localStorage.setItem('gtm-audit-reset-week', currentWeek);
         }
     }, []);
 
@@ -174,6 +178,7 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
 
     const consumeAudit = useCallback((): boolean => {
         const max = QUOTA_MAP[subscription.plan];
+        if (max === -1) return true;
         if (auditUsed >= max) return false;
         const next = auditUsed + 1;
         setAuditUsed(next);

@@ -10,7 +10,10 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     name = Column(String, nullable=True)
     phone = Column(String, nullable=True)
+    is_admin = Column(Boolean, default=False)  # Internal admin flag — bypasses all limits
+    subscription_status = Column(String, default="inactive")  # inactive|active|pending|canceled
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     subscription = relationship("Subscription", back_populates="user", uselist=False)
     scans = relationship("Scan", back_populates="user")
@@ -31,9 +34,27 @@ class User(Base):
             self.subscription = Subscription(plan_name=plan_name)
 
     @property
+    def effective_plan(self):
+        """Returns 'admin' if is_admin, else the normal plan name."""
+        if self.is_admin:
+            return "admin"
+        return self.plan
+
+    @property
+    def has_active_subscription(self):
+        """Pro/Premium features require active subscription OR admin override.
+        Free users can always scan regardless of subscription_status."""
+        if self.is_admin:
+            return True
+        if self.plan == "free":
+            return True
+        return self.subscription_status == "active"
+
+    @property
     def scans_used(self):
+        """Weekly scan count from subscription record."""
         if self.subscription:
-            return self.subscription.scans_used_this_month or 0
+            return self.subscription.weekly_scan_count or 0
         return 0
 
 class Subscription(Base):
@@ -41,7 +62,9 @@ class Subscription(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), unique=True)
     plan_name = Column(String, default="free") # free, pro, premium
-    scans_used_this_month = Column(Integer, default=0)
+    scans_used_this_month = Column(Integer, default=0)  # Kept for backward compat
+    weekly_scan_count = Column(Integer, default=0)  # Current weekly scan usage
+    weekly_scan_reset_at = Column(DateTime, nullable=True)  # When weekly counter resets
     status = Column(String, default="active") # active, past_due, canceled
     current_period_end = Column(DateTime, nullable=True)
     
@@ -52,7 +75,8 @@ class Scan(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     url = Column(String, nullable=False)
-    status = Column(String, default="pending") # pending, processing, completed, failed
+    status = Column(String, default="pending") # pending, processing, completed, failed, protocol_error, blocked, timeout
+    scan_credit_consumed = Column(Boolean, default=False)  # Whether this scan consumed a credit
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
     scan_method = Column(String, nullable=True)

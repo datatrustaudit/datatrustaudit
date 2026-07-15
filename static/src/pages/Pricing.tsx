@@ -27,7 +27,7 @@ const PLAN_COLORS: Record<PlanType, string> = {
 };
 
 const COMPARE_ROWS = [
-    { key: 'audits_per_month', free: '1', pro: '2', full: '3' },
+    { key: 'audits_per_week', free: '10/sem', pro: '50/sem', full: '200/sem' },
     { key: 'basic_dashboard', free: true, pro: true, full: true },
     { key: 'detailed_dashboard', free: false, pro: true, full: true },
     { key: 'json_export', free: false, pro: true, full: true },
@@ -81,14 +81,16 @@ const PricingPage = () => {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
+        <div className="min-h-screen bg-[#070b16]">
             {/* Nav */}
             <nav className="sticky top-0 z-30 border-b border-white/10 bg-slate-950/80 backdrop-blur-xl">
                 <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
                     <Link to="/" className="flex items-center gap-2.5 group">
-                        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform">
-                            <Tag className="w-4 h-4 text-white" />
-                        </div>
+                        <img
+                            src="/logo-datatrust.jpg"
+                            alt="DataTrust Audit"
+                            className="w-8 h-8 rounded-lg object-contain shadow-lg group-hover:scale-105 transition-transform"
+                        />
                         <span className="font-bold text-white">DataTrust Audit</span>
                     </Link>
                     <div className="flex items-center gap-4">
@@ -323,6 +325,9 @@ const PricingPage = () => {
                                         {(['free', 'pro', 'premium'] as const).map((col) => {
                                             const val = (row as Record<string, any>)[col === 'premium' ? 'full' : col];
                                             const isLocked = val === false;
+                                            const displayValue = val === 'premium_domain_limit'
+                                                ? t('plans.premium.features.audits')
+                                                : String(val);
                                             return (
                                                 <td key={col} className={`py-3.5 px-4 text-center ${isLocked ? 'opacity-30' : ''}`}>
                                                     {val === true ? (
@@ -330,7 +335,7 @@ const PricingPage = () => {
                                                     ) : isLocked ? (
                                                         <X className="w-4 h-4 text-white/50 mx-auto" />
                                                     ) : (
-                                                        <span className="text-white/80 font-medium text-xs">{String(val)}</span>
+                                                        <span className="text-white/80 font-medium text-xs">{displayValue}</span>
                                                     )}
                                                 </td>
                                             );

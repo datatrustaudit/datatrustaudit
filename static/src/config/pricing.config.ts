@@ -11,10 +11,36 @@ export interface PlanConfig {
     labelKey: string;
     badgeKey: string;
     visibility: number;
-    auditsPerMonth: number;
+    scansPerWeek: number;
     featuresKeys: string[];
     lockedKeys: string[];
     pricing: PlanPricing;
+    checkoutUrl?: string;
+}
+
+// Kiwify checkout URLs
+const KIWIFY_PRO_MONTHLY = import.meta.env.VITE_KIWIFY_PRO_MONTHLY_URL || 'https://pay.kiwify.com.br/d1eUlrr';
+const KIWIFY_PREMIUM_MONTHLY = import.meta.env.VITE_KIWIFY_PREMIUM_MONTHLY_URL || 'https://pay.kiwify.com.br/DfeG9rm';
+const KIWIFY_PRO_YEARLY = import.meta.env.VITE_KIWIFY_PRO_YEARLY_URL || 'https://pay.kiwify.com.br/fJMsLEv';
+const KIWIFY_PREMIUM_YEARLY = import.meta.env.VITE_KIWIFY_PREMIUM_YEARLY_URL || 'https://pay.kiwify.com.br/HfxKSXY';
+
+/**
+ * Returns the Kiwify checkout URL for a given plan.
+ * Appends user email if available.
+ */
+export function getCheckoutUrl(plan: PlanType, billing: 'monthly' | 'annual' = 'monthly', email?: string): string {
+    let url = '';
+    if (plan === 'pro') {
+        url = billing === 'annual' && KIWIFY_PRO_YEARLY ? KIWIFY_PRO_YEARLY : KIWIFY_PRO_MONTHLY;
+    } else if (plan === 'premium') {
+        url = billing === 'annual' && KIWIFY_PREMIUM_YEARLY ? KIWIFY_PREMIUM_YEARLY : KIWIFY_PREMIUM_MONTHLY;
+    }
+    // Append email to Kiwify URL if available
+    if (url && email) {
+        const separator = url.includes('?') ? '&' : '?';
+        url = `${url}${separator}email=${encodeURIComponent(email)}`;
+    }
+    return url;
 }
 
 export const PRICING_CONFIG: Record<PlanType, PlanConfig> = {
@@ -22,8 +48,8 @@ export const PRICING_CONFIG: Record<PlanType, PlanConfig> = {
         id: 'free',
         labelKey: 'plans.free.label',
         badgeKey: 'plans.free.badge',
-        visibility: 10,
-        auditsPerMonth: 1,
+        visibility: 30,
+        scansPerWeek: 10,
         featuresKeys: [
             'plans.free.features.audits',
             'plans.free.features.dashboard',
@@ -50,7 +76,8 @@ export const PRICING_CONFIG: Record<PlanType, PlanConfig> = {
         labelKey: 'plans.pro.label',
         badgeKey: 'plans.pro.badge',
         visibility: 70,
-        auditsPerMonth: 2,
+        scansPerWeek: 50,
+        checkoutUrl: KIWIFY_PRO_MONTHLY,
         featuresKeys: [
             'plans.pro.features.audits',
             'plans.pro.features.dashboard',
@@ -70,8 +97,8 @@ export const PRICING_CONFIG: Record<PlanType, PlanConfig> = {
             'plans.pro.locked.support_priority',
         ],
         pricing: {
-            monthly: 19,
-            annual: 182,
+            monthly: 49.90,
+            annual: 479.04,
             savingsPct: 20,
         }
     },
@@ -80,7 +107,8 @@ export const PRICING_CONFIG: Record<PlanType, PlanConfig> = {
         labelKey: 'plans.premium.label',
         badgeKey: 'plans.premium.badge',
         visibility: 100,
-        auditsPerMonth: 3,
+        scansPerWeek: 200,
+        checkoutUrl: KIWIFY_PREMIUM_MONTHLY,
         featuresKeys: [
             'plans.premium.features.audits',
             'plans.premium.features.visibility',
@@ -97,8 +125,8 @@ export const PRICING_CONFIG: Record<PlanType, PlanConfig> = {
         ],
         lockedKeys: [],
         pricing: {
-            monthly: 49,
-            annual: 470,
+            monthly: 149.90,
+            annual: 1439.04,
             savingsPct: 20,
         }
     }

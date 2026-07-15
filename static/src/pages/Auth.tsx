@@ -1,22 +1,23 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { useAuth } from '@/context/AuthContext';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { AuthRequestError, useAuth } from '@/context/AuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, Eye, EyeOff, Tag, Shield, Zap, AlertCircle } from 'lucide-react';
+import { Loader2, Eye, EyeOff, Shield, Zap, AlertCircle } from 'lucide-react';
 import MinimalTopMenu from '@/components/MinimalTopMenu';
 
 type AuthMode = 'login' | 'signup' | 'forgot';
 
 const AuthPage = () => {
     const navigate = useNavigate();
-    const { login, signup } = useAuth();
+    const [searchParams] = useSearchParams();
+    const { login, signup, loginWithGoogle } = useAuth();
     const { t } = useI18n();
-    const [mode, setMode] = useState<AuthMode>('login');
+    const [mode, setMode] = useState<AuthMode>(() => searchParams.get('mode') === 'signup' ? 'signup' : 'login');
     const [showPassword, setShowPassword] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
@@ -25,6 +26,22 @@ const AuthPage = () => {
 
     const tx = (key: string, vars: Record<string, string> = {}) =>
         Object.entries(vars).reduce((text, [name, value]) => text.replace(`{${name}}`, value), t(key));
+
+    const getAuthErrorMessage = (err: unknown) => {
+        if (err instanceof AuthRequestError) {
+            switch (err.code) {
+                case 'EMAIL_ALREADY_REGISTERED':
+                    return t('auth.email_may_exist');
+                case 'NAME_REQUIRED':
+                case 'PASSWORD_TOO_SHORT':
+                case 'VALIDATION_FAILED':
+                    return t('auth.check_information');
+                default:
+                    return mode === 'signup' ? t('auth.signup_failed') : t('auth.authentication_error');
+            }
+        }
+        return mode === 'signup' ? t('auth.signup_failed') : t('auth.authentication_error');
+    };
 
     const getRedirectTarget = () => {
         const saved = localStorage.getItem('gtm-redirect-after-auth');
@@ -35,12 +52,13 @@ const AuthPage = () => {
         return null;
     };
 
-    const handleSocialLogin = (provider: 'google' | 'linkedin') => {
+    const handleGoogleLogin = async () => {
         setError('');
-        // To be implemented: backend OAuth flow
-        // Example: window.location.href = `${process.env.API_URL}/auth/${provider}`;
-        const providerLabel = provider.charAt(0).toUpperCase() + provider.slice(1);
-        setError(tx('auth.social_config', { provider: providerLabel }));
+        try {
+            await loginWithGoogle();
+        } catch (err: unknown) {
+            setError(getAuthErrorMessage(err));
+        }
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -58,16 +76,24 @@ const AuthPage = () => {
                     setIsLoading(false);
                     return;
                 }
+                if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+                    setError(t('auth.check_information'));
+                    setIsLoading(false);
+                    return;
+                }
+                if (form.password.length < 6) {
+                    setError(t('auth.check_information'));
+                    setIsLoading(false);
+                    return;
+                }
                 await signup(form.email, form.password, form.name);
-                // After signup, go to checkout if pending or pricing
                 navigate(getRedirectTarget() ?? '/pricing');
             } else {
-                // Forgot password — mock
                 await new Promise(r => setTimeout(r, 800));
                 setSuccess(t('auth.reset_sent'));
             }
         } catch (err: unknown) {
-            setError(err instanceof Error ? err.message : t('auth.authentication_error'));
+            setError(getAuthErrorMessage(err));
         } finally {
             setIsLoading(false);
         }
@@ -94,7 +120,7 @@ const AuthPage = () => {
     const { heading, sub, cta } = titles[mode];
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 flex items-center justify-center px-4 pt-20">
+        <div className="min-h-screen bg-[#070b16] flex items-center justify-center px-4 pt-20">
             <MinimalTopMenu />
             {/* Background glow */}
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -105,9 +131,11 @@ const AuthPage = () => {
             <div className="relative w-full max-w-md">
                 {/* Logo */}
                 <Link to="/" className="flex items-center gap-3 justify-center mb-8 group">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform">
-                        <Tag className="w-5 h-5 text-white" />
-                    </div>
+                    <img
+                        src="/logo-datatrust.jpg"
+                        alt="DataTrust Audit"
+                        className="h-10 w-10 rounded-xl object-contain shadow-lg group-hover:scale-105 transition-transform"
+                    />
                     <span className="text-xl font-bold text-white tracking-tight">DataTrust Audit</span>
                 </Link>
 
@@ -143,12 +171,12 @@ const AuthPage = () => {
 
                         {mode !== 'forgot' && (
                             <>
-                                <div className="grid grid-cols-2 gap-4 mb-6">
-                                    <Button 
+                                <div className="mb-6">
+                                    <Button
                                         type="button"
-                                        variant="outline" 
-                                        onClick={() => handleSocialLogin('google')}
-                                        className="bg-white/5 border-white/10 text-white hover:bg-white/10 h-12 rounded-xl transition-all flex items-center justify-center gap-2 px-4 shadow-sm active:scale-95"
+                                        variant="outline"
+                                        onClick={handleGoogleLogin}
+                                        className="w-full bg-white/5 border-white/10 text-white hover:bg-white/10 h-12 rounded-xl transition-all flex items-center justify-center gap-3 px-4 shadow-sm active:scale-95"
                                     >
                                         <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24">
                                             <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -156,18 +184,7 @@ const AuthPage = () => {
                                             <path fill="currentColor" d="M5.87 14.13c-.22-.67-.35-1.39-.35-2.13s.13-1.46.35-2.13V7.03H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.97l3.69-2.84z" />
                                             <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.03l3.69 2.84c.86-2.59 3.28-4.51 6.13-4.51z" />
                                         </svg>
-                                        <span className="text-sm font-medium">Google</span>
-                                    </Button>
-                                    <Button 
-                                        type="button"
-                                        variant="outline" 
-                                        onClick={() => handleSocialLogin('linkedin')}
-                                        className="bg-white/5 border-white/10 text-white hover:bg-white/10 h-12 rounded-xl transition-all flex items-center justify-center gap-2 px-4 shadow-sm active:scale-95"
-                                    >
-                                        <svg className="w-5 h-5 flex-shrink-0 text-[#0077b5]" viewBox="0 0 24 24">
-                                            <path fill="currentColor" d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.32 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.79M6.88 8.56a1.68 1.68 0 0 0 1.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 0 0-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37h2.77z" />
-                                        </svg>
-                                        <span className="text-sm font-medium">LinkedIn</span>
+                                        <span className="text-sm font-medium">Entrar com Google</span>
                                     </Button>
                                 </div>
 

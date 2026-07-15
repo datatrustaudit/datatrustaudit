@@ -1,6 +1,9 @@
 /**
  * LocaleSelector — compact language + currency switcher for AppHeader.
  * Uses LocaleContext for persistent preference storage.
+ * 
+ * Compact mode: single dropdown combining language + currency (for header)
+ * Expanded mode: two side-by-side select dropdowns (for pricing page)
  */
 
 import { useState } from 'react';
@@ -21,25 +24,25 @@ const LANGUAGES: { code: SupportedLanguage; label: string; flag: string }[] = [
     { code: 'en', label: 'English',        flag: '🇺🇸' },
     { code: 'es', label: 'Español',        flag: '🇪🇸' },
     { code: 'fr', label: 'Français',       flag: '🇫🇷' },
-    { code: 'zh', label: '中文',           flag: '🇨🇳' },
     { code: 'de', label: 'Deutsch',        flag: '🇩🇪' },
     { code: 'it', label: 'Italiano',       flag: '🇮🇹' },
+    { code: 'zh', label: '中文',           flag: '🇨🇳' },
     { code: 'ar', label: 'العربية',        flag: '🇸🇦' },
     { code: 'hi', label: 'हिन्दी',         flag: '🇮🇳' },
     { code: 'ja', label: '日本語',         flag: '🇯🇵' },
 ];
 
 const CURRENCIES: { code: SupportedCurrency; label: string; symbol: string; flag: string }[] = [
-    { code: 'BRL', label: 'Real (BRL)',    symbol: 'R$', flag: '🇧🇷' },
-    { code: 'USD', label: 'Dollar (USD)',  symbol: '$',  flag: '🇺🇸' },
-    { code: 'EUR', label: 'Euro (EUR)',    symbol: '€',  flag: '🇪🇺' },
-    { code: 'GBP', label: 'Pound (GBP)',   symbol: '£',  flag: '🇬🇧' },
-    { code: 'MXN', label: 'Peso (MXN)',    symbol: '$',  flag: '🇲🇽' },
-    { code: 'ARS', label: 'Peso (ARS)',    symbol: '$',  flag: '🇦🇷' },
-    { code: 'CLP', label: 'Peso (CLP)',    symbol: '$',  flag: '🇨🇱' },
-    { code: 'COP', label: 'Peso (COP)',    symbol: '$',  flag: '🇨🇴' },
-    { code: 'CAD', label: 'Dollar (CAD)',  symbol: '$',  flag: '🇨🇦' },
-    { code: 'AUD', label: 'Dollar (AUD)',  symbol: '$',  flag: '🇦🇺' },
+    { code: 'BRL', label: 'BRL (R$)',      symbol: 'R$', flag: '🇧🇷' },
+    { code: 'USD', label: 'USD ($)',       symbol: '$',  flag: '🇺🇸' },
+    { code: 'EUR', label: 'EUR (€)',       symbol: '€',  flag: '🇪🇺' },
+    { code: 'GBP', label: 'GBP (£)',       symbol: '£',  flag: '🇬🇧' },
+    { code: 'MXN', label: 'MXN ($)',       symbol: '$',  flag: '🇲🇽' },
+    { code: 'ARS', label: 'ARS ($)',       symbol: '$',  flag: '🇦🇷' },
+    { code: 'CLP', label: 'CLP ($)',       symbol: '$',  flag: '🇨🇱' },
+    { code: 'COP', label: 'COP ($)',       symbol: '$',  flag: '🇨🇴' },
+    { code: 'CAD', label: 'CAD ($)',       symbol: '$',  flag: '🇨🇦' },
+    { code: 'AUD', label: 'AUD ($)',       symbol: '$',  flag: '🇦🇺' },
 ];
 
 interface LocaleSelectorProps {
@@ -58,69 +61,64 @@ const LocaleSelector = ({ compact = true }: LocaleSelectorProps) => {
 
     const handleSetLanguage = (lang: SupportedLanguage) => {
         setLanguage(lang);
-        setI18nLanguage(lang); // keep I18nContext in sync
+        setI18nLanguage(lang);
     };
 
     if (!compact) {
-        // Expanded inline version for Pricing page
+        // Expanded mode for Pricing page — two clean dropdown selects
         return (
-            <div className="flex flex-col gap-6 w-full max-w-2xl mx-auto">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Language Selection */}
-                    <div className="space-y-3">
-                        <label className="text-white/40 text-[10px] uppercase tracking-widest font-bold block">
-                            {t('locale.language')}
-                        </label>
-                        <div className="flex flex-wrap gap-2">
+            <div className="flex flex-col sm:flex-row gap-4 w-full max-w-lg mx-auto">
+                {/* Language Dropdown */}
+                <div className="flex-1 space-y-2">
+                    <label className="text-white/40 text-[10px] uppercase tracking-widest font-bold block">
+                        Idioma
+                    </label>
+                    <div className="relative">
+                        <select
+                            value={language}
+                            onChange={(e) => handleSetLanguage(e.target.value as SupportedLanguage)}
+                            className="w-full appearance-none bg-[#111827] border border-white/10 text-white text-sm rounded-xl px-4 py-3 pr-10 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30 cursor-pointer hover:border-white/20 transition-colors"
+                        >
                             {LANGUAGES.map(l => (
-                                <button
-                                    key={l.code}
-                                    onClick={() => handleSetLanguage(l.code)}
-                                    className={`px-4 py-2 rounded-xl text-sm font-medium transition-all flex items-center gap-2 border ${
-                                        language === l.code
-                                            ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.3)]'
-                                            : 'bg-white/5 border-white/10 text-white/60 hover:border-white/20 hover:text-white'
-                                    }`}
-                                >
-                                    <span>{l.flag}</span>
-                                    <span>{l.label}</span>
-                                </button>
+                                <option key={l.code} value={l.code}>
+                                    {l.flag}  {l.label}
+                                </option>
                             ))}
-                        </div>
-                    </div>
-
-                    {/* Currency Selection */}
-                    <div className="space-y-3">
-                        <label className="text-white/40 text-[10px] uppercase tracking-widest font-bold block">
-                            {t('locale.currency')}
-                        </label>
-                        <div className="flex flex-wrap gap-2">
-                            {CURRENCIES.map(c => (
-                                <button
-                                    key={c.code}
-                                    onClick={() => setCurrency(c.code)}
-                                    className={`px-4 py-2 rounded-xl text-sm font-medium transition-all flex items-center gap-2 border ${
-                                        currency === c.code
-                                            ? 'bg-indigo-600 border-indigo-500 text-white shadow-[0_0_15px_rgba(99,102,241,0.3)]'
-                                            : 'bg-white/5 border-white/10 text-white/60 hover:border-white/20 hover:text-white'
-                                    }`}
-                                >
-                                    <span>{c.flag}</span>
-                                    <span>{c.code} ({c.symbol})</span>
-                                </button>
-                            ))}
-                        </div>
+                        </select>
+                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 pointer-events-none" />
                     </div>
                 </div>
 
+                {/* Currency Dropdown */}
+                <div className="flex-1 space-y-2">
+                    <label className="text-white/40 text-[10px] uppercase tracking-widest font-bold block">
+                        Moeda
+                    </label>
+                    <div className="relative">
+                        <select
+                            value={currency}
+                            onChange={(e) => setCurrency(e.target.value as SupportedCurrency)}
+                            className="w-full appearance-none bg-[#111827] border border-white/10 text-white text-sm rounded-xl px-4 py-3 pr-10 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30 cursor-pointer hover:border-white/20 transition-colors"
+                        >
+                            {CURRENCIES.map(c => (
+                                <option key={c.code} value={c.code}>
+                                    {c.flag}  {c.label}
+                                </option>
+                            ))}
+                        </select>
+                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 pointer-events-none" />
+                    </div>
+                </div>
+
+                {/* Reset to auto */}
                 {isManualOverride && (
-                    <div className="flex justify-center">
+                    <div className="flex items-end">
                         <button
                             onClick={resetToAuto}
-                            className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-white/30 hover:text-white/60 text-xs transition-all hover:scale-105"
+                            className="flex items-center gap-2 px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white/30 hover:text-white/60 text-xs transition-all hover:scale-105"
+                            title={t('locale.reset')}
                         >
                             <RotateCcw className="w-3.5 h-3.5" />
-                            {t('locale.reset')}
                         </button>
                     </div>
                 )}

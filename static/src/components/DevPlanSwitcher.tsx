@@ -12,17 +12,18 @@ import { Crown, Zap, Bug, User } from 'lucide-react';
 import { usePlan, PlanType, PLAN_CONFIGS } from '@/context/PlanContext';
 
 /**
- * Botão de desenvolvimento para trocar de plano rapidamente.
- * Apenas visível em ambiente de desenvolvimento.
+ * Dev-only plan switcher button (bottom-left corner).
+ * Only visible in development environment.
  */
 const DevPlanSwitcher = () => {
     const { plan, upgradePlan, limits } = usePlan();
     const [isOpen, setIsOpen] = useState(false);
 
-    // Só mostra em dev
     const isDev = import.meta.env.DEV || window.location.hostname === 'localhost';
-
     if (!isDev) return null;
+
+    // Admin users use AdminPlanTesting instead
+    if (plan.isAdmin) return null;
 
     const planIcons: Record<PlanType, JSX.Element> = {
         free: <Zap className="h-4 w-4" />,
@@ -70,7 +71,7 @@ const DevPlanSwitcher = () => {
                                     {config.name}
                                     {config.price > 0 && (
                                         <span className="text-xs text-gray-400">
-                                            ${config.price}/mo
+                                            R$ {String(config.price).replace('.', ',')}/mês
                                         </span>
                                     )}
                                 </div>
@@ -86,7 +87,7 @@ const DevPlanSwitcher = () => {
                     <DropdownMenuSeparator />
 
                     <div className="px-2 py-1.5 text-xs text-gray-500">
-                        <div>Auditorias: {plan.auditsRemaining}/{plan.auditsLimit}</div>
+                        <div>Escaneamentos: {plan.scansLimit === -1 ? 'Ilimitado' : `${plan.scansRemaining}/${plan.scansLimit}`}</div>
                         <div>Visibilidade: {limits.visibilityPercentage}%</div>
                     </div>
                 </DropdownMenuContent>

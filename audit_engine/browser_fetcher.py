@@ -138,6 +138,18 @@ class BrowserScanResult:
     error: Optional[str] = None
     fallback_used: bool = False
 
+    # Scan metadata — populated by browser_scan() orchestration
+    scan_status: str = "completed"  # completed|partial|failed|blocked|protocol_error|timeout
+    failure_reason: Optional[str] = None
+    stages: List[Dict[str, Any]] = field(default_factory=list)
+    errors: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+    final_url: Optional[str] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    browser_attempts: int = 0
+    static_fallback_attempted: bool = False
+
 
 # ─── JavaScript injected BEFORE page load to intercept calls ─────────────────
 _INTERCEPT_SCRIPT = """
@@ -298,8 +310,21 @@ async def _browser_scan_async(url: str, timeout_ms: int = 30000) -> BrowserScanR
                 pass  # networkidle timeout is fine — we still have the page
         except PwTimeout:
             result.error = "Page load timed out — partial data collected"
+            result.scan_status = "timeout"
+            result.failure_reason = "navigation_timeout"
         except Exception as e:
-            result.error = str(e)
+            err_str = str(e)
+            result.error = err_str
+            # Detect HTTP/2 protocol failures
+            if any(sig in err_str.lower() for sig in ["http2", "protocol error", "protocol_error", "err_http2", "net::err_"]):
+                result.scan_status = "protocol_error"
+                result.failure_reason = "http2_protocol_failure"
+            elif "timeout" in err_str.lower():
+                result.scan_status = "timeout"
+                result.failure_reason = "navigation_timeout"
+            elif any(sig in err_str.lower() for sig in ["403", "forbidden", "blocked", "access denied"]):
+                result.scan_status = "blocked"
+                result.failure_reason = "site_blocked_access"
 
         # ── Simulate scroll to trigger lazy-loaded tags ───────────────────────
         try:
@@ -352,17 +377,20 @@ async def _browser_scan_async(url: str, timeout_ms: int = 30000) -> BrowserScanR
     return result
 
 
-def browser_scan(url: str, timeout_ms: int = 30000) -> BrowserScanResult:
+def browser_scan(url: str, timeout_ms: int = 30000, deep_scan: bool = False) -> BrowserScanResult:
     """
-    Public entry point. Runs the browser scan synchronously in a fresh thread.
+    Public entry point. Runs browser scan with multiple fallback attempts.
 
-    Using a ThreadPoolExecutor ensures Playwright gets its own event loop,
-    avoiding the "asyncio.run() cannot be called from a running event loop"
-    error that occurs when called from within FastAPI/uvicorn's async context.
+    Attempt 1: Default Chromium
+    Attempt 2: Retry with same config (transient failures)
+    Attempt 3: Static HTML fallback
 
     Falls back to static HTML fetch if Playwright is unavailable or fails.
     """
     import concurrent.futures
+    from datetime import datetime
+
+    started_at = datetime.now().isoformat()
 
     def _run_in_thread() -> BrowserScanResult:
         """Run inside a new thread with its own fresh event loop."""
@@ -373,24 +401,69 @@ def browser_scan(url: str, timeout_ms: int = 30000) -> BrowserScanResult:
         finally:
             loop.close()
 
-    try:
-        import playwright  # noqa — just for availability check
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_run_in_thread)
-            return future.result(timeout=(timeout_ms / 1000) + 15)
-    except ImportError:
-        print("[browser_fetcher] Playwright not installed — falling back to static fetch")
-        return _static_fallback(url)
-    except concurrent.futures.TimeoutError:
-        print("[browser_fetcher] Browser scan timed out — falling back to static fetch")
-        return _static_fallback(url, error="Browser scan timed out")
-    except Exception as e:
-        print(f"[browser_fetcher] Browser scan failed ({e}) — falling back to static fetch")
-        return _static_fallback(url, error=str(e))
+    max_browser_attempts = 2
+    last_error = None
+
+    for attempt in range(1, max_browser_attempts + 1):
+        try:
+            import playwright  # noqa — just for availability check
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_run_in_thread)
+                result = future.result(timeout=(timeout_ms / 1000) + 15)
+                result.browser_attempts = attempt
+                result.started_at = started_at
+                result.finished_at = datetime.now().isoformat()
+
+                # If we got HTML content, scan succeeded (even if partial)
+                if result.html and len(result.html) > 100:
+                    if result.error and result.scan_status == "completed":
+                        result.scan_status = "partial"
+                    return result
+
+                # If protocol error, don't retry browser — go straight to static
+                if result.scan_status == "protocol_error":
+                    last_error = result.failure_reason or result.error
+                    break
+
+                last_error = result.error
+
+        except ImportError:
+            print("[browser_fetcher] Playwright not installed — falling back to static fetch")
+            last_error = "Playwright not installed"
+            break
+        except concurrent.futures.TimeoutError:
+            print(f"[browser_fetcher] Browser attempt {attempt} timed out")
+            last_error = f"Browser scan timed out (attempt {attempt})"
+        except Exception as e:
+            print(f"[browser_fetcher] Browser attempt {attempt} failed ({e})")
+            last_error = str(e)
+
+    # All browser attempts failed — try static fallback
+    print(f"[browser_fetcher] All browser attempts failed — using static fallback")
+    result = _static_fallback(url, error=last_error)
+    result.browser_attempts = max_browser_attempts
+    result.static_fallback_attempted = True
+    result.started_at = started_at
+    result.finished_at = datetime.now().isoformat()
+
+    # Determine scan_status based on what static got
+    if result.html and len(result.html) > 100:
+        result.scan_status = "partial"
+        result.failure_reason = "browser_failed_static_fallback_used"
+    else:
+        # Check if it was a protocol error
+        if last_error and any(sig in str(last_error).lower() for sig in ["http2", "protocol"]):
+            result.scan_status = "protocol_error"
+            result.failure_reason = "http2_protocol_failure"
+        else:
+            result.scan_status = "failed"
+            result.failure_reason = last_error or "all_scan_methods_failed"
+
+    return result
 
 
 def _static_fallback(url: str, error: Optional[str] = None) -> BrowserScanResult:
-    """Fallback to requests.get() when Playwright is unavailable."""
+    """Enhanced static fallback that captures as much evidence as possible from HTTP response."""
     import requests
 
     _AGENTS = [
@@ -402,20 +475,52 @@ def _static_fallback(url: str, error: Optional[str] = None) -> BrowserScanResult
         try:
             resp = requests.get(
                 url,
-                headers={"User-Agent": ua, "Accept-Language": "pt-BR,pt;q=0.9"},
+                headers={
+                    "User-Agent": ua,
+                    "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                },
                 timeout=20,
                 allow_redirects=True,
             )
-            if resp.status_code == 200:
-                resp.encoding = resp.apparent_encoding or "utf-8"
-                return BrowserScanResult(
-                    url=url,
-                    html=resp.text,
-                    scan_method="html_fallback",
-                    fallback_used=True,
-                    error=error,
-                )
+            resp.encoding = resp.apparent_encoding or "utf-8"
+
+            html = resp.text if resp.status_code == 200 else ""
+
+            # Extract static evidence
+            script_urls = re.findall(r'<script[^>]+src=["\']([^"\'\>]+)["\']', html, re.IGNORECASE)
+            title_match = re.search(r'<title[^>]*>([^<]+)</title>', html, re.IGNORECASE)
+            page_title = title_match.group(1).strip() if title_match else ""
+
+            final_url = resp.url
+
+            result = BrowserScanResult(
+                url=url,
+                html=html,
+                scan_method="static_fallback",
+                fallback_used=True,
+                error=error,
+                page_title=page_title,
+                all_script_urls=script_urls[:100],
+                final_url=final_url,
+                static_fallback_attempted=True,
+            )
+
+            # Add warnings about static limitations
+            result.warnings = [
+                "Static HTML fallback — runtime behavior not verified",
+                "Cookie state, dataLayer pushes, and consent interactions not captured",
+            ]
+
+            return result
+
         except Exception as e:
             last_err = str(e)
-    return BrowserScanResult(url=url, html="", scan_method="html_fallback",
-                             fallback_used=True, error=last_err)
+
+    return BrowserScanResult(
+        url=url, html="", scan_method="static_fallback",
+        fallback_used=True, error=last_err,
+        scan_status="failed",
+        failure_reason=last_err,
+        static_fallback_attempted=True,
+    )

@@ -28,8 +28,10 @@ const translations: Record<Language, any> = {
  * Prevents raw key strings from ever reaching the UI (e.g. "home.audit_button").
  */
 const FALLBACK_PT: Record<string, string> = {
-    'home.audit_button': 'Auditar',
-    'home.audit_btn': 'Auditar',
+    'home.audit_button': 'Escanear',
+    'home.audit_btn': 'Escanear',
+    'home.scan_website': 'Escanear site',
+    'home.create_account_to_scan': 'Criar conta para escanear',
     'home.analyzing': 'Analisando...',
     'home.audit_description': 'Detecte violações de privacidade e riscos LGPD automaticamente.',
     'home.deep_scan': 'Deep Scan',
@@ -55,8 +57,10 @@ const FALLBACK_PT: Record<string, string> = {
 };
 
 const FALLBACK_EN: Record<string, string> = {
-    'home.audit_button': 'Audit',
-    'home.audit_btn': 'Audit',
+    'home.audit_button': 'Scan',
+    'home.audit_btn': 'Scan',
+    'home.scan_website': 'Scan website',
+    'home.create_account_to_scan': 'Create account to scan',
     'home.analyzing': 'Analyzing...',
     'home.audit_description': 'Automatically detect privacy violations and LGPD/GDPR compliance risks.',
     'home.deep_scan': 'Deep Scan',

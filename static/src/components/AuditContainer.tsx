@@ -11,6 +11,7 @@ import { BarChart3 } from 'lucide-react';
 import { usePlan } from '@/context/PlanContext';
 import { useAuth } from '@/context/AuthContext';
 import { useI18n } from '@/context/I18nContext';
+import { useNavigate } from 'react-router-dom';
 
 interface Tag {
     id: string;
@@ -236,6 +237,7 @@ const normalizeAuditResult = (raw: any): NewAuditResult => {
 
 const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [auditResult, setAuditResult] = useState<NewAuditResult | null>(null);
@@ -258,6 +260,15 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
     }
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const scanUrl = params.get('scanUrl') || localStorage.getItem('datatrust-pending-scan-url');
+    if (scanUrl && !url) {
+      setUrl(scanUrl);
+      localStorage.removeItem('datatrust-pending-scan-url');
+    }
+  }, [url]);
 
   // Force-disable view-source for non-Premium users even if toggle somehow got set
   const effectiveViewSource = useViewSource && isFeatureAvailable('showScripts');
@@ -299,6 +310,34 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
         variant: "destructive"
       });
       return;
+    }
+
+    if (!isAuthenticated) {
+      localStorage.setItem('datatrust-pending-scan-url', validUrl);
+      localStorage.setItem('gtm-redirect-after-auth', `/?scanUrl=${encodeURIComponent(validUrl)}`);
+      toast({
+        title: t('nav.signup'),
+        description: t('audit.signup_required_to_scan'),
+      });
+      navigate('/auth?mode=signup');
+      return;
+    }
+
+    const parsedScanUrl = new URL(validUrl);
+    const scanDomain = parsedScanUrl.hostname.replace(/^www\./i, '').toLowerCase();
+    if (plan.type === 'premium') {
+      const storedDomain = localStorage.getItem('datatrust-premium-scan-domain');
+      if (storedDomain && storedDomain !== scanDomain) {
+        toast({
+          title: t('audit.limit_reached'),
+          description: t('audit.premium_domain_locked'),
+          variant: "destructive"
+        });
+        return;
+      }
+      if (!storedDomain) {
+        localStorage.setItem('datatrust-premium-scan-domain', scanDomain);
+      }
     }
 
     if (!canPerformAudit()) {

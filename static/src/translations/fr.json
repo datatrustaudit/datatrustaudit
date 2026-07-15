@@ -186,12 +186,12 @@
     "free": {
       "label": "Gratuit",
       "badge": "Basique",
-      "usage_cap": "1 audit/mois"
+      "usage_cap": "1 scan par mois"
     },
     "pro": {
       "label": "Pro",
       "badge": "Recommandé",
-      "usage_cap": "2 audits/mois"
+      "usage_cap": "5 scans par mois"
     },
     "premium": {
       "label": "Premium",

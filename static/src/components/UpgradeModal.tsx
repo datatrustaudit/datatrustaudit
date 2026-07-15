@@ -189,9 +189,9 @@ const UpgradeModal = () => {
                                             <span className="text-3xl font-bold">{config.priceLabel}</span>
                                         </div>
                                         <div className="text-white/80 text-sm mt-1">
-                                            {planType === 'free' && '1 auditoria/mês'}
-                                            {planType === 'pro' && '2 auditorias/mês'}
-                                            {planType === 'premium' && 'Auditorias Ilimitadas'}
+                                            {planType === 'free' && '1 escaneamento por mês'}
+                                            {planType === 'pro' && '5 escaneamentos por mês'}
+                                            {planType === 'premium' && 'Escaneamentos ilimitados para 1 domínio'}
                                         </div>
                                     </CardHeader>
 
@@ -247,10 +247,10 @@ const UpgradeModal = () => {
                         </h4>
                         <div className="grid grid-cols-3 gap-4 text-center">
                             <div>
-                                <div className="text-3xl font-bold text-gray-400">10%</div>
+                                <div className="text-3xl font-bold text-gray-400">30%</div>
                                 <div className="text-sm text-gray-500">Free</div>
                                 <div className="h-2 bg-gray-200 rounded mt-2">
-                                    <div className="h-full w-[10%] bg-gray-400 rounded" />
+                                    <div className="h-full w-[30%] bg-gray-400 rounded" />
                                 </div>
                             </div>
                             <div>
@@ -281,7 +281,7 @@ const UpgradeModal = () => {
                     {/* Social proof */}
                     <div className="mt-4 text-center">
                         <p className="text-xs text-gray-500">
-                            ⭐⭐⭐⭐⭐ <strong>4.9/5</strong> de satisfação • <strong>+2.500</strong> auditorias realizadas
+                            ⭐⭐⭐⭐⭐ <strong>4.9/5</strong> de satisfação • <strong>+2.500</strong> escaneamentos realizados
                         </p>
                     </div>
                 </div>

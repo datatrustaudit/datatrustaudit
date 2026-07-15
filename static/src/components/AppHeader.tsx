@@ -11,8 +11,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {
     Zap,
-    Moon,
-    Sun,
     Settings,
     History,
     HelpCircle,
@@ -32,43 +30,28 @@ import { Link } from 'react-router-dom';
 const AppHeader = () => {
     const { t } = useI18n();
     const { user, isAuthenticated, logout } = useAuth();
-    const [isDarkMode, setIsDarkMode] = useState(false);
 
-    // Load theme from localStorage
+    // Force dark mode on mount — app is dark-only
     useEffect(() => {
-        const savedTheme = localStorage.getItem('gtm-audit-theme');
-        if (savedTheme === 'dark') {
-            setIsDarkMode(true);
-            document.documentElement.classList.add('dark');
-        }
+        document.documentElement.classList.add('dark');
     }, []);
 
-    const toggleDarkMode = () => {
-        const newMode = !isDarkMode;
-        setIsDarkMode(newMode);
-        if (newMode) {
-            document.documentElement.classList.add('dark');
-            localStorage.setItem('gtm-audit-theme', 'dark');
-        } else {
-            document.documentElement.classList.remove('dark');
-            localStorage.setItem('gtm-audit-theme', 'light');
-        }
-    };
-
     return (
-        <header className="sticky top-0 z-50 w-full border-b border-white/5 bg-gray-950/80 backdrop-blur-xl shadow-[0_4px_30px_rgba(0,0,0,0.3)]">
+        <header className="sticky top-0 z-50 w-full backdrop-blur-xl bg-[#070b16]/90 border-b border-white/5 shadow-[0_4px_30px_rgba(0,0,0,0.3)]">
             <div className="container mx-auto px-4">
                 <div className="flex h-16 items-center justify-between">
                     {/* Logo & Brand */}
                     <Link to="/" className="flex items-center gap-3 group">
                         <div className="flex items-center gap-2">
-                            <div className="p-2 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/20 group-hover:scale-110 transition-transform duration-300">
-                                <Zap className="h-5 w-5" />
-                            </div>
+                            <img
+                                src="/logo-datatrust.jpg"
+                                alt="DataTrust Audit"
+                                className="h-9 w-9 rounded-xl object-contain shadow-lg group-hover:scale-110 transition-transform duration-300"
+                            />
                             <div>
                                 <h1 className="font-bold text-lg text-white tracking-tight flex items-center gap-2">
                                     DataTrust Audit
-                                    <Badge className="bg-white/10 text-white/40 border-white/5 text-[10px]">
+                                    <Badge className="bg-white/10 text-white/60 border-white/5 text-[10px]">
                                         v2.0
                                     </Badge>
                                 </h1>
@@ -93,7 +76,7 @@ const AppHeader = () => {
                             )}
                         </nav>
 
-                        {/* Locale Selector (Language + Currency) - ALWAYS VISIBLE */}
+                        {/* Locale Selector (Language + Currency) */}
                         <LocaleSelector compact />
 
                         <div className="h-4 w-[1px] bg-white/10 mx-1 hidden sm:block" />
@@ -151,22 +134,6 @@ const AppHeader = () => {
                                 </Button>
                             </Link>
                         )}
-
-                        <div className="h-4 w-[1px] bg-white/10 mx-1 hidden sm:block" />
-
-                        {/* Dark Mode Toggle */}
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={toggleDarkMode}
-                            className="rounded-xl hover:bg-white/5 text-white/40 hover:text-white"
-                        >
-                            {isDarkMode ? (
-                                <Sun className="h-5 w-5 text-yellow-400" />
-                            ) : (
-                                <Moon className="h-5 w-5" />
-                            )}
-                        </Button>
 
                         {/* Help / Resources */}
                         <DropdownMenu>

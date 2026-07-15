@@ -1,0 +1,19 @@
+[OK] Gemini AI configured with model: gemini-2.5-flash
+ DataTrust Audit API starting...
+ Database tables created via SQLAlchemy
+INFO:     127.0.0.1:49382 - "POST /api/auth/register HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49388 - "POST /api/auth/register HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49396 - "POST /api/auth/register HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49475 - "POST /api/auth/register HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49489 - "POST /api/auth/register HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49491 - "POST /api/auth/register HTTP/1.1" 409 Conflict
+INFO:     127.0.0.1:49493 - "POST /api/auth/register HTTP/1.1" 422 Unprocessable Entity
+INFO:     127.0.0.1:49495 - "POST /api/auth/register HTTP/1.1" 422 Unprocessable Entity
+INFO:     127.0.0.1:49502 - "POST /api/auth/register HTTP/1.1" 422 Unprocessable Entity
+INFO:     127.0.0.1:49711 - "POST /api/auth/register HTTP/1.1" 409 Conflict
+INFO:     127.0.0.1:49714 - "POST /api/auth/register HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49716 - "GET /api/auth/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49718 - "POST /api/audit HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49798 - "POST /api/audit HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49872 - "POST /api/audit HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49941 - "POST /api/audit HTTP/1.1" 200 OK

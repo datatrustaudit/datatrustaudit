@@ -1,18 +1,24 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { useAuth } from './AuthContext';
 
 export type PlanType = 'free' | 'pro' | 'premium';
+export type EffectivePlan = PlanType | 'admin';
 
 export interface UserPlan {
     type: PlanType;
     name: string;
-    auditsRemaining: number;
-    auditsLimit: number;
+    scansRemaining: number;
+    scansLimit: number;
     expiresAt?: string;
     features: string[];
+    isAdmin?: boolean;
+    subscriptionStatus?: string;
+    effectivePlan?: EffectivePlan;
+    weeklyResetAt?: string;
 }
 
 export interface PlanLimits {
-    auditsPerMonth: number;
+    scansPerWeek: number;          // -1 = unlimited
     showScripts: boolean;          // view-source with exact HTML position — Premium only
     showLineNumbers: boolean;      // line number column in tag table — Premium only
     showViolationDetails: boolean; // LGPD violation details — Pro+
@@ -25,7 +31,7 @@ export interface PlanLimits {
     aiChatMessagesPerDay: number;  // -1 = unlimited
     realTimeAnalysis: boolean;     // real-time mode tab — Premium only
     dashboardDetails: 'basic' | 'partial' | 'full';
-    visibilityPercentage: number;  // 10 / 70 / 100
+    visibilityPercentage: number;  // 30 / 70 / 100
 }
 
 export const PLAN_CONFIGS: Record<PlanType, {
@@ -41,27 +47,26 @@ export const PLAN_CONFIGS: Record<PlanType, {
     free: {
         name: 'Free',
         price: 0,
-        priceLabel: 'Free',
+        priceLabel: 'Grátis',
         badge: '🆓',
         color: 'from-gray-400 to-gray-500',
         features: [
-            '1 auditoria simples/mês',
+            '10 escaneamentos por semana',
             'Dashboard básico',
-            '10% de visibilidade dos dados',
+            '30% de visibilidade dos dados',
             'Contagem de tags detectadas',
             'Score geral resumido',
             'Chat IA limitado (5 msg/dia)'
         ],
         blockedFeatures: [
             'Exportação PDF / JSON / Excel',
-            'Detalhes de violações LGPD',
-            'Números de linha / posição exata',
-            'View-source avançado (debugging)',
-            'Deep Scan multi-página',
-            'Real-time mode'
+            'Detalhes de violações LGPD/GDPR',
+            'Histórico completo de escaneamentos',
+            'View-source avançado',
+            'Localização exata no HTML'
         ],
         limits: {
-            auditsPerMonth: 1,
+            scansPerWeek: 10,
             showScripts: false,
             showLineNumbers: false,
             showViolationDetails: false,
@@ -74,31 +79,35 @@ export const PLAN_CONFIGS: Record<PlanType, {
             aiChatMessagesPerDay: 5,
             realTimeAnalysis: false,
             dashboardDetails: 'basic',
-            visibilityPercentage: 10
+            visibilityPercentage: 30
         }
     },
     pro: {
         name: 'Pro',
-        price: 19,
-        priceLabel: 'USD $19/mês',
+        price: 49.90,
+        priceLabel: 'R$ 49,90/mês',
         badge: '⭐',
         color: 'from-blue-500 to-indigo-600',
         features: [
-            '2 auditorias completas/mês',
+            '50 escaneamentos por semana',
+            'Dashboard detalhado',
             '70% de visibilidade dos dados',
             'Detalhes completos de violações',
             'Exportação PDF e JSON',
-            'Chat IA ilimitado'
+            'Chat IA ilimitado',
+            'Recomendações de correção',
+            'Análise de tags, eventos e privacidade'
         ],
         blockedFeatures: [
             'View-source avançado (posição exata no HTML)',
             'Números de linha / debugging de código',
             'Real-time mode',
+            'Deep Scan multi-página',
             'Exportação Excel',
-            'Histórico completo'
+            'Prioridade de suporte'
         ],
         limits: {
-            auditsPerMonth: 2,
+            scansPerWeek: 50,
             showScripts: false,
             showLineNumbers: false,
             showViolationDetails: true,
@@ -116,24 +125,27 @@ export const PLAN_CONFIGS: Record<PlanType, {
     },
     premium: {
         name: 'Premium',
-        price: 49,
-        priceLabel: 'USD $49/mês',
+        price: 149.90,
+        priceLabel: 'R$ 149,90/mês',
         badge: '👑',
         color: 'from-amber-500 to-orange-600',
         features: [
-            '3 auditorias/mês',
+            '200 escaneamentos por semana',
             '100% de visibilidade dos dados',
+            'Tudo do plano Pro',
             'View-source avançado — posição exata no HTML',
             'Números de linha e debugging de código',
             'Real-time mode (Omnibug-style)',
             'Deep Scan multi-página',
-            'Histórico completo de auditorias',
+            'Histórico completo de escaneamentos',
             'Exportação PDF / JSON / Excel',
-            'Prioridade de suporte'
+            'Prioridade de suporte',
+            'Recomendações avançadas de correção',
+            'Análise completa de LGPD/GDPR'
         ],
         blockedFeatures: [],
         limits: {
-            auditsPerMonth: 3,
+            scansPerWeek: 200,
             showScripts: true,
             showLineNumbers: true,
             showViolationDetails: true,
@@ -151,18 +163,36 @@ export const PLAN_CONFIGS: Record<PlanType, {
     }
 };
 
+// Admin limits — unlocks everything
+const ADMIN_LIMITS: PlanLimits = {
+    scansPerWeek: -1,
+    showScripts: true,
+    showLineNumbers: true,
+    showViolationDetails: true,
+    showHistory: true,
+    jsonExport: true,
+    pdfExport: true,
+    excelExport: true,
+    deepAnalysis: true,
+    aiChat: true,
+    aiChatMessagesPerDay: -1,
+    realTimeAnalysis: true,
+    dashboardDetails: 'full',
+    visibilityPercentage: 100,
+};
+
 // Upgrade copy persuasiva por plano
 export const UPGRADE_COPY = {
     free: {
-        title: '🔒 Você está vendo apenas 10%',
+        title: '🔒 Você está vendo apenas 30%',
         subtitle: 'Desbloqueie violações, PDF, JSON e 70% dos dados com o Pro',
-        cta: 'Assinar Pro — USD $19/mês',
-        urgency: '⚡ Análise completa, 2 auditorias/mês'
+        cta: 'Assinar Pro — R$ 49,90/mês',
+        urgency: '⚡ Análise completa, 50 escaneamentos por semana'
     },
     pro: {
         title: '⭐ Falta pouco para o máximo',
         subtitle: 'Acesse view-source, linha de código, Excel e real-time com o Premium',
-        cta: 'Upgrade para Premium — USD $49/mês',
+        cta: 'Upgrade para Premium — R$ 149,90/mês',
         urgency: '🔥 View-source avançado + Excel + Real-time'
     }
 };
@@ -170,7 +200,7 @@ export const UPGRADE_COPY = {
 export const BLURRED_MESSAGES = {
     scripts: 'View-source avançado com posição exata no HTML é exclusivo do Premium',
     showLineNumbers: 'Números de linha disponíveis apenas no Premium',
-    history: 'Histórico de auditorias disponível apenas no Premium',
+    history: 'Histórico de escaneamentos disponível apenas no Premium',
     details: 'Detalhes de violações disponíveis no plano Pro ou superior',
     realtime: 'Análise em tempo real é exclusiva do Premium',
     jsonExport: 'Exportação JSON disponível a partir do plano Pro',
@@ -179,9 +209,25 @@ export const BLURRED_MESSAGES = {
     deepAnalysis: 'Deep Scan avançado disponível apenas no Premium'
 };
 
+/**
+ * Compute the effective plan for feature gating.
+ * Admin preview mode can simulate any plan for testing.
+ */
+export function getEffectivePlan(
+    user: { is_admin?: boolean; plan?: string } | null,
+    adminPreviewPlan: PlanType | null
+): EffectivePlan {
+    if (user?.is_admin && adminPreviewPlan) return adminPreviewPlan;
+    if (user?.is_admin) return 'admin';
+    return (user?.plan as PlanType) || 'free';
+}
+
 interface PlanContextType {
     plan: UserPlan;
     limits: PlanLimits;
+    effectivePlan: EffectivePlan;
+    adminPreviewPlan: PlanType | null;
+    setAdminPreviewPlan: (plan: PlanType | null) => void;
     isFeatureAvailable: (feature: keyof PlanLimits) => boolean;
     canPerformAudit: () => boolean;
     useAudit: () => void;
@@ -212,6 +258,9 @@ interface PlanProviderProps {
 }
 
 export const PlanProvider = ({ children }: PlanProviderProps) => {
+    const { user } = useAuth();
+    const [adminPreviewPlan, setAdminPreviewPlan] = useState<PlanType | null>(null);
+
     const [plan, setPlan] = useState<UserPlan>(() => {
         const saved = localStorage.getItem('gtm-audit-plan');
         if (saved) {
@@ -225,8 +274,8 @@ export const PlanProvider = ({ children }: PlanProviderProps) => {
                     return {
                         type,
                         name: PLAN_CONFIGS[type].name,
-                        auditsRemaining: PLAN_CONFIGS[type].limits.auditsPerMonth,
-                        auditsLimit: PLAN_CONFIGS[type].limits.auditsPerMonth,
+                        scansRemaining: PLAN_CONFIGS[type].limits.scansPerWeek,
+                        scansLimit: PLAN_CONFIGS[type].limits.scansPerWeek,
                         features: PLAN_CONFIGS[type].features || []
                     };
                 }
@@ -244,8 +293,8 @@ export const PlanProvider = ({ children }: PlanProviderProps) => {
         return {
             type: 'free',
             name: 'Free',
-            auditsRemaining: PLAN_CONFIGS.free.limits.auditsPerMonth,
-            auditsLimit: PLAN_CONFIGS.free.limits.auditsPerMonth,
+            scansRemaining: PLAN_CONFIGS.free.limits.scansPerWeek,
+            scansLimit: PLAN_CONFIGS.free.limits.scansPerWeek,
             features: ['basic_audit', 'ai_chat_limited']
         };
     }
@@ -260,30 +309,61 @@ export const PlanProvider = ({ children }: PlanProviderProps) => {
         localStorage.setItem('gtm-audit-selected-plan', newPlan);
     };
 
-    const limits = plan && plan.type && PLAN_CONFIGS[plan.type]
-        ? PLAN_CONFIGS[plan.type].limits
-        : PLAN_CONFIGS.free.limits;
+    // Sync plan from authenticated user data
+    useEffect(() => {
+        if (user) {
+            const userPlanType = (user.plan as PlanType) || 'free';
+            const isAdmin = Boolean(user.is_admin);
+            const scansLimit = user.scans_limit ?? PLAN_CONFIGS[userPlanType]?.limits.scansPerWeek ?? 10;
+            const scansUsed = user.scans_used ?? 0;
+
+            setPlan({
+                type: userPlanType,
+                name: isAdmin ? 'Admin' : (PLAN_CONFIGS[userPlanType]?.name || 'Free'),
+                scansRemaining: scansLimit === -1 ? -1 : Math.max(0, scansLimit - scansUsed),
+                scansLimit: scansLimit,
+                isAdmin: isAdmin,
+                subscriptionStatus: user.subscription_status,
+                effectivePlan: user.effective_plan as EffectivePlan,
+                features: PLAN_CONFIGS[userPlanType]?.features || [],
+            });
+        }
+    }, [user]);
+
+    // Compute effective plan for feature gating
+    const effectivePlan = getEffectivePlan(
+        user ? { is_admin: user.is_admin, plan: user.plan } : (plan.isAdmin ? { is_admin: true, plan: plan.type } : null),
+        adminPreviewPlan
+    );
+
+    // Resolve limits based on effective plan
+    const limits: PlanLimits = (() => {
+        if (effectivePlan === 'admin') return ADMIN_LIMITS;
+        return PLAN_CONFIGS[effectivePlan as PlanType]?.limits || PLAN_CONFIGS.free.limits;
+    })();
 
     useEffect(() => {
         localStorage.setItem('gtm-audit-plan', JSON.stringify(plan));
     }, [plan]);
 
-    // Reset audits mensalmente
+    // Reset scans weekly (for non-authenticated fallback)
     useEffect(() => {
+        if (user) return; // Skip reset if user is loaded from backend
         const lastReset = localStorage.getItem('gtm-audit-last-reset');
         const now = new Date();
-        const currentMonth = `${now.getFullYear()}-${now.getMonth()}`;
+        const currentWeek = `${now.getFullYear()}-W${Math.ceil((now.getDate() + new Date(now.getFullYear(), now.getMonth(), 1).getDay()) / 7)}-${now.getMonth()}`;
 
-        if (lastReset !== currentMonth) {
+        if (lastReset !== currentWeek) {
             setPlan(prev => ({
                 ...prev,
-                auditsRemaining: PLAN_CONFIGS[prev.type].limits.auditsPerMonth
+                scansRemaining: PLAN_CONFIGS[prev.type].limits.scansPerWeek
             }));
-            localStorage.setItem('gtm-audit-last-reset', currentMonth);
+            localStorage.setItem('gtm-audit-last-reset', currentWeek);
         }
-    }, []);
+    }, [user]);
 
     const isFeatureAvailable = (feature: keyof PlanLimits): boolean => {
+        if (effectivePlan === 'admin') return true;
         const value = limits[feature];
         if (typeof value === 'boolean') return value;
         if (typeof value === 'number') return value !== 0;
@@ -295,32 +375,36 @@ export const PlanProvider = ({ children }: PlanProviderProps) => {
     };
 
     const canPerformAudit = (): boolean => {
-        return plan.auditsRemaining > 0;
+        if (effectivePlan === 'admin' || plan.isAdmin) return true;
+        return limits.scansPerWeek === -1 || plan.scansRemaining > 0;
     };
 
     const useAudit = () => {
+        if (effectivePlan === 'admin' || plan.isAdmin) return; // Admin never consumes credits
         setPlan(prev => ({
             ...prev,
-            auditsRemaining: Math.max(0, prev.auditsRemaining - 1)
+            scansRemaining: prev.scansLimit === -1 ? -1 : Math.max(0, prev.scansRemaining - 1)
         }));
     };
 
     const upgradePlan = (newPlan: PlanType) => {
         const config = PLAN_CONFIGS[newPlan];
-        setPlan({
+        setPlan(prev => ({
+            ...prev,
             type: newPlan,
             name: config.name,
-            auditsRemaining: config.limits.auditsPerMonth,
-            auditsLimit: config.limits.auditsPerMonth,
+            scansRemaining: config.limits.scansPerWeek,
+            scansLimit: config.limits.scansPerWeek,
             features: Object.entries(config.limits)
                 .filter(([_, v]) => v === true || (typeof v === 'number' && v > 0))
                 .map(([k]) => k)
-        });
+        }));
         setShowUpgradeModal(false);
     };
 
     const getUsagePercentage = (): number => {
-        return ((plan.auditsLimit - plan.auditsRemaining) / plan.auditsLimit) * 100;
+        if (plan.scansLimit === -1) return 0;
+        return ((plan.scansLimit - plan.scansRemaining) / plan.scansLimit) * 100;
     };
 
     const getVisibility = (): number => {
@@ -331,6 +415,9 @@ export const PlanProvider = ({ children }: PlanProviderProps) => {
         <PlanContext.Provider value={{
             plan,
             limits,
+            effectivePlan,
+            adminPreviewPlan,
+            setAdminPreviewPlan,
             isFeatureAvailable,
             canPerformAudit,
             useAudit,
