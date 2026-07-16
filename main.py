@@ -76,41 +76,87 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 @app.exception_handler(RequestValidationError)
-async def auth_validation_exception_handler(request: Request, exc: RequestValidationError):
-    if request.url.path.startswith("/api/auth/"):
-        return JSONResponse(
-            {
-                "success": False,
-                "message": "Verifique seus dados e tente novamente.",
-                "errorCode": "VALIDATION_FAILED",
-                "errors": exc.errors(),
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    import traceback
+    if import_meta_dev():
+        traceback.print_exc()
+    return JSONResponse(
+        {
+            "success": False,
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "Dados inválidos.",
+                "user_message": "Verifique seus dados e tente novamente.",
+                "path": str(request.url.path),
+                "method": request.method,
+                "details": exc.errors(),
             },
-            status_code=422,
-        )
-    raise exc
+        },
+        status_code=422,
+    )
 
 
 @app.exception_handler(Exception)
-async def auth_unhandled_exception_handler(request: Request, exc: Exception):
-    if request.url.path.startswith("/api/auth/"):
-        return JSONResponse(
-            {
-                "success": False,
-                "message": "Não foi possível criar sua conta. Tente novamente.",
-                "errorCode": "SIGNUP_FAILED",
-                "errors": [],
+async def global_exception_handler(request: Request, exc: Exception):
+    import traceback
+    # Always print full traceback to backend terminal — never hide errors
+    traceback.print_exc()
+    return JSONResponse(
+        {
+            "success": False,
+            "error": {
+                "code": "INTERNAL_SERVER_ERROR",
+                "message": "Erro interno da API.",
+                "user_message": (
+                    "A API encontrou um erro interno. "
+                    "Verifique os logs do servidor para identificar a causa real."
+                ),
+                "path": str(request.url.path),
+                "method": request.method,
+                "exception": type(exc).__name__,
+                "debug_hint": "Veja o traceback no terminal do backend.",
             },
-            status_code=500,
-        )
-    raise exc
+        },
+        status_code=500,
+    )
+
+
+def import_meta_dev():
+    """Check if we're in development mode."""
+    return os.getenv("ENVIRONMENT", "development") == "development"
+
+
+# ── Health check ──
+@app.get("/health")
+async def health_check():
+    """Health check endpoint — verifies DB, env vars, and API status."""
+    checks = {
+        "status": "ok",
+        "database": "unknown",
+        "google_api_key": bool(GOOGLE_API_KEY),
+        "supabase_jwt_secret": bool(os.getenv("SUPABASE_JWT_SECRET", "")),
+        "admin_email": os.getenv("ADMIN_TEST_EMAIL", "not set"),
+        "environment": os.getenv("ENVIRONMENT", "not set"),
+    }
+    try:
+        from db.database import SessionLocal
+        db = SessionLocal()
+        db.execute("SELECT 1" if hasattr(db, 'execute') else None)
+        db.close()
+        checks["database"] = "ok"
+    except Exception as e:
+        checks["database"] = f"error: {str(e)[:100]}"
+        checks["status"] = "degraded"
+    return checks
+
 
 # Registra rotas da API
 app.include_router(auth.router)
 app.include_router(payments.router)
 app.include_router(scans.router)
 app.include_router(audit.router)
+
 
 # Servir assets do frontend (Vite builda para /assets/)
 app.mount("/assets", StaticFiles(directory=os.path.join(STATIC_DIR, "assets")), name="assets")
