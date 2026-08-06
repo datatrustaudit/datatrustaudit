@@ -1,0 +1,46 @@
+# DataTrust Audit — dependências de produção
+# Gerado a partir dos imports reais do código (api/, audit_engine/, db/, worker/, main.py).
+
+# --- Web / API ---
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.32,<1.0
+python-multipart>=0.0.18,<1.0
+pydantic[email]>=2.9,<3.0
+
+# --- Configuração ---
+python-dotenv>=1.0,<2.0
+
+# --- Autenticação ---
+python-jose[cryptography]>=3.3,<4.0
+passlib>=1.7.4,<2.0
+# bcrypt <4.1: passlib 1.7.4 lê bcrypt.__about__, removido em 4.1+
+bcrypt>=4.0,<4.1
+
+# --- Banco ---
+SQLAlchemy>=2.0,<3.0
+alembic>=1.14,<2.0
+psycopg[binary]>=3.2,<4.0
+
+# --- Fila assíncrona ---
+celery[redis]>=5.4,<6.0
+
+# --- Scanner ---
+playwright>=1.49,<2.0
+requests>=2.32,<3.0
+beautifulsoup4>=4.12,<5.0
+
+# --- Exportação de relatórios ---
+reportlab>=4.2,<5.0
+openpyxl>=3.1,<4.0
+
+# --- IA (chat) ---
+google-genai>=0.8,<2.0
+
+# --- Pagamentos ---
+mercadopago>=2.2,<3.0
+
+# --- Rate limiting ---
+slowapi>=0.1.9,<1.0
+
+# --- Testes ---
+pytest>=8.3,<9.0

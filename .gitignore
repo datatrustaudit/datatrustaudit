@@ -1,0 +1,69 @@
+# ─── Segredos ────────────────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ─── Banco de dados ──────────────────────────────────────────────────────────
+# gtmaudit.db chegou a ser versionado com 6 usuários reais, hashes de senha,
+# pagamentos e formulários de contato. Banco não entra no repositório.
+*.db
+*.sqlite
+*.sqlite3
+db/*.db
+db/tags.json
+
+# ─── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# ─── Node / frontend ─────────────────────────────────────────────────────────
+node_modules/
+static/node_modules/
+static/dist/
+.npm
+.eslintcache
+
+# ─── Playwright ──────────────────────────────────────────────────────────────
+playwright-report/
+test-results/
+
+# ─── Sobras de recuperação e versões antigas ─────────────────────────────────
+# Pastas de código morto mantidas no disco por segurança, mas fora do controle
+# de versão. Podem ser apagadas do disco quando não forem mais necessárias.
+legacy_attic/
+static_broken/
+db_broken/
+audit_engine_old/
+main_broken.py
+run_backup.py
+response.html
+# scripts de inspeção com caminho absoluto de outra máquina (d:\FISTPOWER\...)
+db_check.py
+db_schema.py
+# arquivos restaurados da Lixeira do Windows ($R…)
+$R*
+
+# ─── Sistema operacional / editor ────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*~
