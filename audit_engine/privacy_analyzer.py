@@ -251,6 +251,28 @@ def analyze_privacy(
             total_min += r["min_fine"]
             total_max += r["max_fine"]
 
+        # Rastreamento após recusa é a violação mais grave que este produto
+        # consegue provar: não é configuração errada, é a decisão do titular
+        # ignorada. Por isso entra com faixa própria, acima do resto.
+        for achado in list(getattr(storage, "achados_da_recusa", []) or []):
+            if achado.get("status") == "ok":
+                continue
+            violations.append(PrivacyViolation(
+                tag="Consentimento",
+                violation=achado["description"],
+                article="Consent Requirement",
+                description=achado["label"],
+                severity="critical",
+                confidence=CONFIDENCE_HIGH,
+            ))
+            consent_risks.append(achado["label"])
+            if achado.get("check") == "tracking_after_rejection":
+                total_min += 20_000
+                total_max += 150_000
+            else:
+                total_min += _RISK_TABLE["no_cmp"]["min_fine"]
+                total_max += _RISK_TABLE["no_cmp"]["max_fine"]
+
         for problema in list(getattr(storage, "problemas_de_ordem", []) or []):
             violations.append(PrivacyViolation(
                 tag="Ordem de carregamento",

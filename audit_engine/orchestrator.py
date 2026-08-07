@@ -19,7 +19,7 @@ from .privacy_analyzer import detect_jurisdiction, analyze_privacy
 from .duplicate_detector import detect_duplicates
 from .score_engine import compute_scores
 from .recommendation_engine import generate_recommendations
-from .storage_auditor import auditar_armazenamento, auditar_ordem_do_consent_mode
+from .storage_auditor import auditar_armazenamento, auditar_ordem_do_consent_mode, auditar_recusa
 
 
 def _build_data_quality_notes(
@@ -248,6 +248,24 @@ def run_audit(
         has_cmp_para_storage = consent_result.cmp_detected if consent_result else False
         storage_result = auditar_armazenamento(scan, has_cmp_para_storage)
         storage_result.problemas_de_ordem = auditar_ordem_do_consent_mode(html)
+
+        # Teste do "Recusar": mede o que o site faz DEPOIS de o usuário negar
+        # consentimento. É a única evidência que distingui má configuração de
+        # decisão do titular ignorada.
+        recusa = getattr(scan, "consent_rejection", None)
+        if recusa is not None:
+            storage_result.achados_da_recusa = auditar_recusa(recusa, has_cmp_para_storage)
+            storage_result.recusa = recusa.to_dict() if hasattr(recusa, "to_dict") else None
+            if consent_result is not None:
+                for achado in storage_result.achados_da_recusa:
+                    consent_result.findings.append(ConsentFinding(
+                        check=achado["check"],
+                        label=achado["label"],
+                        status=achado["status"],
+                        description=achado["description"],
+                        recommendation=achado.get("recommendation", ""),
+                        confidence=CONFIDENCE_HIGH,
+                    ))
         if consent_result is not None and storage_result.problemas_de_ordem:
             for problema in storage_result.problemas_de_ordem:
                 consent_result.findings.append(ConsentFinding(

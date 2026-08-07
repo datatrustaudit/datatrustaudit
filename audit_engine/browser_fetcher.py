@@ -166,6 +166,11 @@ class BrowserScanResult:
     local_storage: Dict[str, str] = field(default_factory=dict)
     session_storage: Dict[str, str] = field(default_factory=dict)
 
+    # Resultado de clicar em "Recusar" — ver audit_engine/consent_interaction.py.
+    # É o que separa "o site rastreia antes do aceite" de "o site rastreia mesmo
+    # depois da recusa", que é violação deliberada.
+    consent_rejection: Optional[Any] = None
+
     # Meta
     page_title: str = ""
     load_time_ms: int = 0
@@ -293,7 +298,7 @@ _COLLECT_SCRIPT = """
 """
 
 
-async def _browser_scan_async(url: str, timeout_ms: int = 30000) -> BrowserScanResult:
+async def _browser_scan_async(url: str, timeout_ms: int = 30000, testar_recusa: bool = True) -> BrowserScanResult:
     """Run the actual Playwright scan asynchronously."""
     from playwright.async_api import async_playwright, TimeoutError as PwTimeout
 
@@ -430,15 +435,65 @@ async def _browser_scan_async(url: str, timeout_ms: int = 30000) -> BrowserScanR
 
         result.load_time_ms = int((time.time() - t0) * 1000)
         result.page_title = await page.title()
-        result.intercepted_requests = intercepted
+        result.intercepted_requests = list(intercepted)
         result.all_script_urls = list(dict.fromkeys(script_urls))  # deduplicated
+
+        # ── Segunda fase: clicar em "Recusar" e medir o que acontece depois ──
+        # Toda ferramenta de auditoria mede só o estado inicial. A violação que
+        # de fato se pune é o rastreamento que continua DEPOIS de o usuário
+        # negar consentimento — e é isso que esta fase captura.
+        if testar_recusa:
+            try:
+                from .consent_interaction import tentar_recusar
+
+                marca = len(intercepted)          # separa o antes do depois
+                cookies_antes = {(c.get("name"), c.get("domain")) for c in (result.cookies or [])}
+
+                recusa = await tentar_recusar(page)
+
+                if recusa.conseguiu_recusar:
+                    try:
+                        cookies_depois = await context.cookies()
+                        recusa.cookies_apos_recusa = [
+                            c for c in cookies_depois
+                            if (c.get("name"), c.get("domain")) not in cookies_antes
+                        ]
+                    except Exception:
+                        pass
+
+                    # requisições disparadas a partir do clique
+                    recusa.requisicoes_apos_recusa = [
+                        {"url": r.url, "domain": r.domain, "path": r.path, "method": r.method}
+                        for r in intercepted[marca:]
+                    ]
+
+                    try:
+                        estado = await page.evaluate(_COLLECT_SCRIPT)
+                        depois = (estado or {}).get("localStorage", {}) or {}
+                        antes = result.local_storage or {}
+                        recusa.storage_apos_recusa = {
+                            k: v for k, v in depois.items() if k not in antes
+                        }
+                    except Exception:
+                        pass
+
+                result.consent_rejection = recusa
+                # a lista final inclui o que veio depois da recusa
+                result.intercepted_requests = list(intercepted)
+            except Exception as e:
+                print(f"[browser_fetcher] consent rejection test error: {e}")
 
         await browser.close()
 
     return result
 
 
-def browser_scan(url: str, timeout_ms: int = 30000, deep_scan: bool = False) -> BrowserScanResult:
+def browser_scan(
+    url: str,
+    timeout_ms: int = 30000,
+    deep_scan: bool = False,
+    testar_recusa: bool = True,
+) -> BrowserScanResult:
     """
     Public entry point. Runs browser scan with multiple fallback attempts.
 
@@ -447,6 +502,10 @@ def browser_scan(url: str, timeout_ms: int = 30000, deep_scan: bool = False) -> 
     Attempt 3: Static HTML fallback
 
     Falls back to static HTML fetch if Playwright is unavailable or fails.
+
+    testar_recusa: além de medir a página como ela carrega, clica em "Recusar"
+    no banner de consentimento e mede de novo. O que aparecer depois disso é
+    rastreamento com o consentimento negado.
     """
     import concurrent.futures
     from datetime import datetime
@@ -458,7 +517,9 @@ def browser_scan(url: str, timeout_ms: int = 30000, deep_scan: bool = False) -> 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            return loop.run_until_complete(_browser_scan_async(url, timeout_ms))
+            return loop.run_until_complete(
+                _browser_scan_async(url, timeout_ms, testar_recusa=testar_recusa)
+            )
         finally:
             loop.close()
 

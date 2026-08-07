@@ -111,6 +111,9 @@ class ResultadoDeArmazenamento:
     linha_do_tempo: List[EventoDeRede] = field(default_factory=list)
     primeiro_disparo_ms: Optional[int] = None
     problemas_de_ordem: List[Dict[str, Any]] = field(default_factory=list)
+    # Resultado de clicar em "Recusar": ver auditar_recusa()
+    achados_da_recusa: List[Dict[str, Any]] = field(default_factory=list)
+    recusa: Optional[Dict[str, Any]] = None
 
     @property
     def total_achados(self) -> int:
@@ -123,6 +126,8 @@ class ResultadoDeArmazenamento:
             "firingTimeline": [e.to_dict() for e in self.linha_do_tempo],
             "firstTrackerFiredMs": self.primeiro_disparo_ms,
             "orderIssues": self.problemas_de_ordem,
+            "rejectionFindings": self.achados_da_recusa,
+            "rejectionTest": self.recusa,
             "totalFindings": self.total_achados,
         }
 
@@ -238,6 +243,112 @@ def auditar_armazenamento(scan, tem_cmp: bool) -> ResultadoDeArmazenamento:
         resultado.primeiro_disparo_ms = 0
 
     return resultado
+
+
+def auditar_recusa(recusa, tem_cmp: bool) -> List[Dict[str, Any]]:
+    """Transforma o teste de recusa em achados para o laudo.
+
+    Três situações, em ordem de gravidade:
+
+    1. Rastreamento DEPOIS da recusa — o usuário disse não e o site coletou
+       assim mesmo. Não é má configuração: é a decisão do titular ignorada.
+    2. Banner sem opção de recusar, só "Aceitar" — consentimento não é livre
+       se o único caminho é concordar (dark pattern vedado pela LGPD e pelo
+       EDPB).
+    3. Nenhum controle de consentimento encontrado.
+    """
+    achados: List[Dict[str, Any]] = []
+    if recusa is None or not getattr(recusa, "tentado", False):
+        return achados
+
+    cookies_depois = list(getattr(recusa, "cookies_apos_recusa", None) or [])
+    requisicoes_depois = list(getattr(recusa, "requisicoes_apos_recusa", None) or [])
+    storage_depois = dict(getattr(recusa, "storage_apos_recusa", None) or {})
+
+    if getattr(recusa, "conseguiu_recusar", False):
+        cookies_de_rastreio = [
+            c for c in cookies_depois if _identifica_cookie(c.get("name", ""))
+        ]
+
+        if cookies_de_rastreio or requisicoes_depois or storage_depois:
+            partes = []
+            if cookies_de_rastreio:
+                nomes = ", ".join(c.get("name", "?") for c in cookies_de_rastreio[:6])
+                partes.append(f"{len(cookies_de_rastreio)} cookie(s) de rastreamento gravados ({nomes})")
+            if requisicoes_depois:
+                dominios = sorted({r.get("domain", "?") for r in requisicoes_depois})[:6]
+                partes.append(
+                    f"{len(requisicoes_depois)} requisição(ões) a endpoint de rastreamento "
+                    f"({', '.join(dominios)})"
+                )
+            if storage_depois:
+                partes.append(f"{len(storage_depois)} chave(s) gravadas em armazenamento local")
+
+            achados.append({
+                "check": "tracking_after_rejection",
+                "label": "Rastreamento após recusa de consentimento",
+                "status": "critical",
+                "description": (
+                    "Após clicar em recusar"
+                    + (f" ({recusa.cmp_identificado})" if getattr(recusa, "cmp_identificado", None) else "")
+                    + ", o site continuou coletando: " + "; ".join(partes) + ". "
+                    "A recusa do titular não foi respeitada — a coleta seguiu contra a decisão manifestada."
+                ),
+                "recommendation": (
+                    "Bloqueie o disparo das tags até haver consentimento afirmativo. "
+                    "No GTM, use gatilhos condicionados ao estado de consentimento e o "
+                    "Consent Mode com todos os sinais em 'denied' por padrão."
+                ),
+                "evidence": {
+                    "cookies": [c.get("name") for c in cookies_de_rastreio][:20],
+                    "requests": [r.get("url", "")[:200] for r in requisicoes_depois][:20],
+                    "storageKeys": list(storage_depois.keys())[:20],
+                },
+            })
+        else:
+            achados.append({
+                "check": "rejection_respected",
+                "label": "Recusa respeitada",
+                "status": "ok",
+                "description": (
+                    "Após a recusa, não se observou gravação de cookie de rastreamento "
+                    "nem requisição a endpoint de coleta. O bloqueio aparenta estar correto."
+                ),
+                "recommendation": "",
+                "evidence": {},
+            })
+
+    elif getattr(recusa, "tem_opcao_de_aceitar", False) and not getattr(recusa, "tem_opcao_de_recusar", False):
+        achados.append({
+            "check": "no_reject_option",
+            "label": "Banner sem opção de recusar",
+            "status": "critical",
+            "description": (
+                "O aviso de cookies oferece apenas o caminho de aceitar; não foi encontrado "
+                "controle equivalente para recusar. O consentimento precisa ser livre e "
+                "inequívoco — recusar tem que ser tão fácil quanto aceitar."
+            ),
+            "recommendation": (
+                "Inclua um botão 'Recusar' (ou 'Apenas necessários') no primeiro nível do "
+                "banner, com o mesmo destaque visual do botão de aceitar."
+            ),
+            "evidence": {"buttonLabels": list(getattr(recusa, "rotulos_encontrados", []) or [])[:12]},
+        })
+
+    elif not tem_cmp:
+        achados.append({
+            "check": "no_consent_control",
+            "label": "Sem controle de consentimento",
+            "status": "critical",
+            "description": (
+                "Nenhum mecanismo de consentimento foi encontrado na página: não há como "
+                "o visitante aceitar nem recusar a coleta."
+            ),
+            "recommendation": "Implemente uma CMP que bloqueie as tags antes do consentimento.",
+            "evidence": {},
+        })
+
+    return achados
 
 
 def auditar_ordem_do_consent_mode(html: str) -> List[Dict[str, Any]]:
