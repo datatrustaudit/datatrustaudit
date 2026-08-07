@@ -1,6 +1,6 @@
 import asyncio
 import socket
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, fields as dc_fields, is_dataclass
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends
@@ -48,10 +48,15 @@ def _friendly_message(code: str) -> str:
 def _safe_dict(value: Any) -> Any:
     if value is None:
         return None
-    if is_dataclass(value):
+    if is_dataclass(value) and not isinstance(value, type):
         if hasattr(value, "to_dict"):
             return value.to_dict()
-        return {k: _safe_dict(v) for k, v in asdict(value).items()}
+        # Percorre campo a campo em vez de usar asdict(): asdict converte os
+        # dataclasses aninhados sozinho e descarta o to_dict() de cada um,
+        # devolvendo snake_case onde este módulo lê camelCase. Eram 18 campos
+        # da resposta saindo sempre vazios — "consentDetected" aparecia False
+        # em site com CMP, e a exposição de risco vinha em branco.
+        return {campo.name: _safe_dict(getattr(value, campo.name)) for campo in dc_fields(value)}
     if isinstance(value, list):
         return [_safe_dict(item) for item in value]
     if isinstance(value, tuple):

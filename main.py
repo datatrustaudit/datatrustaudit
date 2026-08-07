@@ -182,7 +182,11 @@ async def health_check():
     try:
         from db.database import SessionLocal
         db = SessionLocal()
-        db.execute("SELECT 1" if hasattr(db, 'execute') else None)
+        # SQLAlchemy 2.0 recusa SQL cru em string: sem text() o health check
+        # reportava o banco como "error" mesmo com o banco funcionando, e o
+        # deploy podia considerar a aplicação insalubre.
+        from sqlalchemy import text
+        db.execute(text("SELECT 1"))
         db.close()
         checks["database"] = "ok"
     except Exception as e:

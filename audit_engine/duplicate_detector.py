@@ -108,8 +108,25 @@ def detect_duplicates(
         ))
 
     # ── 7. Duplicate events (from event auditor) ──────────────────────────────
+    # Eventos que disparam várias vezes POR DESIGN não são duplicata: scroll a
+    # 25/50/75/100%, cada clique, cada temporizador. Reportá-los como problema
+    # enche o laudo de alarme falso e faz o cliente duvidar do resto.
+    EVENTOS_REPETIDOS_POR_DESIGN = {
+        # disparam a cada interação do usuário
+        "gtm.scrollDepth", "gtm.click", "gtm.linkClick", "gtm.timer",
+        "gtm.formSubmit", "gtm.elementVisibility", "gtm.video", "gtm.historyChange",
+        "scroll", "click", "video_progress", "timer", "user_engagement",
+        "form_start", "view_item_list", "view_promotion", "select_promotion",
+        # ciclo de vida do container: um por container carregado. Vários
+        # containers já são apontados como duplicata de tag ("GTM x3") —
+        # repetir aqui é o mesmo achado contado duas vezes.
+        "gtm.dom", "gtm.load", "gtm.js", "gtm.init", "gtm.init_consent",
+    }
+
     event_counts = Counter(ev.name for ev in events)
     for event_name, count in event_counts.items():
+        if event_name in EVENTOS_REPETIDOS_POR_DESIGN:
+            continue
         if count > 1:
             severity = "critical" if event_name in ("purchase", "begin_checkout") else "warning"
             findings.append(DuplicateFinding(

@@ -115,6 +115,32 @@ class InterceptedRequest:
     timestamp: float = field(default_factory=time.time)
 
 
+def _corpo_da_requisicao(request) -> Optional[str]:
+    """Corpo da requisição como texto, sem deixar payload binário derrubar a captura.
+
+    `request.post_data` decodifica como UTF-8 e levanta UnicodeDecodeError em
+    corpo binário — que é justamente o caso dos beacons modernos (gzip,
+    protobuf). A exceção estourava dentro do handler de interceptação, então a
+    requisição se perdia: some a prova de que aquela tag enviou dados, que é o
+    achado mais importante do laudo.
+    """
+    try:
+        dados = request.post_data
+        if dados:
+            return dados[:500]
+    except (UnicodeDecodeError, Exception):
+        pass
+
+    # Payload binário: registra o tamanho, que já indica que houve envio.
+    try:
+        bruto = request.post_data_buffer
+        if bruto:
+            return f"<binário: {len(bruto)} bytes>"
+    except Exception:
+        pass
+    return None
+
+
 @dataclass
 class BrowserScanResult:
     """Full result from a browser-based page scan."""
@@ -318,7 +344,7 @@ async def _browser_scan_async(url: str, timeout_ms: int = 30000) -> BrowserScanR
                     method=request.method,
                     domain=parsed.netloc,
                     path=parsed.path,
-                    post_data=request.post_data[:500] if request.post_data else None,
+                    post_data=_corpo_da_requisicao(request),
                     resource_type=request.resource_type,
                 ))
 

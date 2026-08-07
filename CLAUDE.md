@@ -8,12 +8,17 @@ FastAPI + SQLAlchemy + Playwright no backend, React/Vite (shadcn) em `static/`.
 ```bash
 pip install -r requirements.txt
 playwright install chromium
-cp .env.example .env      # preencher SECRET_KEY — a aplicação não sobe sem ela
-alembic upgrade head
+cp .env.example .env          # preencher SECRET_KEY — a aplicação não sobe sem ela
+python scripts/setup_db.py    # cria OU atualiza o banco, preservando os dados
 uvicorn main:app --reload
 ```
 
-Testes: `pytest` (113 casos, um por bug já corrigido — ver `tests/`).
+Use `scripts/setup_db.py`, não `alembic upgrade head` direto: o banco em uso foi
+criado por `create_all` antes do Alembic e não tem a tabela `alembic_version`,
+então um upgrade direto tentaria recriar tudo e falharia com "table already
+exists". O script detecta isso, carimba a revisão inicial e aplica só o que falta.
+
+Testes: `pytest` (120 casos, um por bug já corrigido — ver `tests/`).
 
 ## Convenções
 
@@ -147,6 +152,29 @@ autenticação, teste os dois caminhos.
 É de propósito (auditoria grátis sem cadastro). Para rota que exige login use
 `get_current_active_user` — usar o primeiro e acessar `current_user.id` gera
 500 em vez de 401.
+
+### `request.post_data` explode em beacon binário
+
+O Playwright decodifica o corpo como UTF-8; beacon de analytics manda gzip ou
+protobuf e levanta `UnicodeDecodeError` **dentro do handler de interceptação** —
+a requisição inteira se perde, e com ela a prova de que a tag enviou dados.
+Use `_corpo_da_requisicao()` do `browser_fetcher`, que cai para
+`post_data_buffer` e registra o tamanho.
+
+### Evento repetido nem sempre é duplicata
+
+`gtm.scrollDepth`, `gtm.click` e `gtm.timer` disparam várias vezes por design;
+`gtm.dom` e `gtm.load` disparam um por container. Reportá-los enche o laudo de
+alarme falso — e alarme falso faz o cliente duvidar dos achados verdadeiros.
+A lista fica em `EVENTOS_REPETIDOS_POR_DESIGN`, em `duplicate_detector.py`.
+`purchase` e `begin_checkout` duplicados continuam críticos: inflam conversão.
+
+### `_safe_dict` não pode usar `asdict()`
+
+`asdict()` converte os dataclasses aninhados sozinho e descarta o `to_dict()`
+camelCase de cada um. Eram 18 campos da resposta de `/api/audit` saindo vazios
+— `consentDetected` vinha `False` em site com CMP e a exposição de risco vinha
+em branco. Percorra os campos com `dataclasses.fields()`.
 
 ### Emoji em `print()` derruba requisição no Windows
 

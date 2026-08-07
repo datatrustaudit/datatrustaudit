@@ -44,6 +44,12 @@ class _Scan:
         self.session_storage = {}
 
 
+class _Evento:
+    """EventFinding mínimo — o detector de duplicatas só olha o nome."""
+    def __init__(self, nome):
+        self.name = nome
+
+
 def _cookie(nome, dias=365, http_only=False):
     return {
         "name": nome,
@@ -218,3 +224,41 @@ class TestIntegracaoNoLaudo:
         assert any(p["check"] == "consent_default_after_config" for p in r.storage.problemas_de_ordem)
         textos = " ".join(v.violation for v in r.privacy.violations)
         assert "Consent Mode" in textos
+
+
+class TestFalsoPositivoDeDuplicata:
+    """Evento que dispara várias vezes por design não é duplicata.
+
+    scrollDepth dispara a 25/50/75/100%, click dispara a cada clique. Reportar
+    isso como problema enche o laudo de alarme falso — e laudo com alarme falso
+    faz o cliente duvidar dos achados verdadeiros.
+    """
+
+    def test_scroll_depth_repetido_nao_e_duplicata(self):
+        from audit_engine.duplicate_detector import detect_duplicates
+
+        eventos = [_Evento("gtm.scrollDepth") for _ in range(6)]
+        achados = detect_duplicates("<html></html>", [], eventos)
+        assert not any(a.name == "gtm.scrollDepth" for a in achados)
+
+    @pytest.mark.parametrize("nome", ["gtm.click", "gtm.timer", "scroll", "user_engagement"])
+    def test_outros_eventos_repetidos_por_design(self, nome):
+        from audit_engine.duplicate_detector import detect_duplicates
+
+        achados = detect_duplicates("<html></html>", [], [_Evento(nome), _Evento(nome)])
+        assert not any(a.name == nome for a in achados)
+
+    def test_purchase_duplicado_continua_sendo_critico(self):
+        """Este sim é problema real: infla conversão e distorce faturamento."""
+        from audit_engine.duplicate_detector import detect_duplicates
+
+        achados = detect_duplicates("<html></html>", [], [_Evento("purchase"), _Evento("purchase")])
+        purchase = [a for a in achados if a.name == "purchase"]
+        assert purchase, "purchase duplicado deveria ser apontado"
+        assert purchase[0].severity == "critical"
+
+    def test_evento_comum_duplicado_continua_sendo_apontado(self):
+        from audit_engine.duplicate_detector import detect_duplicates
+
+        achados = detect_duplicates("<html></html>", [], [_Evento("page_view"), _Evento("page_view")])
+        assert any(a.name == "page_view" for a in achados)
