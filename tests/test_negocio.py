@@ -24,10 +24,57 @@ class TestPrecos:
     PRICE_PREMIUM_BRL. Nunca batiam, então valia o default embutido — premium
     era cobrado a 297 com o .env configurado a 247."""
 
-    def test_preco_vem_das_variaveis_com_sufixo_brl(self):
+    def test_preco_mensal_vem_das_variaveis_com_sufixo_brl(self):
         from api.payments import PRICES
-        assert PRICES["pro"] == 97.0
-        assert PRICES["premium"] == 247.0
+        assert PRICES["monthly"]["pro"] == 97.0
+        assert PRICES["monthly"]["premium"] == 247.0
+
+    def test_preco_anual_tem_desconto_sobre_o_mensal(self):
+        from api.payments import PRICES
+        for plano in ("pro", "premium"):
+            anual = PRICES["annual"][plano]
+            doze_meses = PRICES["monthly"][plano] * 12
+            assert 0 < anual < doze_meses, f"{plano}: anual ({anual}) deveria ser menor que 12x mensal ({doze_meses})"
+
+    def test_endpoint_de_planos_e_a_fonte_unica_do_frontend(self, client):
+        """Havia três tabelas de preço divergentes: api/payments.py,
+        SubscriptionContext.tsx e pricing.config.ts. O cliente via R$ 49,90 na
+        tela e o checkout cobrava R$ 97."""
+        from api.payments import PRICES
+        corpo = client.get("/api/payments/plans").json()
+        assert corpo["currency"] == "BRL"
+        for plano in ("free", "pro", "premium"):
+            assert corpo["plans"][plano]["monthly"] == PRICES["monthly"][plano]
+            assert corpo["plans"][plano]["annual"] == PRICES["annual"][plano]
+
+
+class TestCicloDeCobranca:
+    def test_ciclo_invalido_e_recusado(self, client, usuario_logado):
+        headers, _ = usuario_logado
+        r = client.post("/api/payments/create-preference",
+                        json={"plan": "pro", "billing_cycle": "decenal"}, headers=headers)
+        assert r.status_code == 400
+
+    def test_plano_invalido_e_recusado(self, client, usuario_logado):
+        headers, _ = usuario_logado
+        r = client.post("/api/payments/create-preference",
+                        json={"plan": "vitalicio"}, headers=headers)
+        assert r.status_code == 400
+
+    def test_checkout_exige_autenticacao(self, client):
+        r = client.post("/api/payments/create-preference", json={"plan": "pro"})
+        assert r.status_code == 401
+
+    def test_validade_anual_e_maior_que_a_mensal(self, db):
+        """O ciclo viaja no external_reference; sem ele, quem pagasse o anual
+        receberia validade de 30 dias."""
+        from api.payments import _ativar_plano
+        mensal = _usuario(db, "mensal@exemplo-teste.com")
+        anual = _usuario(db, "anual@exemplo-teste.com")
+        _ativar_plano(db, mensal, "pro", "monthly")
+        _ativar_plano(db, anual, "pro", "annual")
+        db.commit()
+        assert anual.subscription.current_period_end > mensal.subscription.current_period_end
 
 
 class TestValidadeDaAssinatura:

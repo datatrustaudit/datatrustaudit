@@ -13,7 +13,7 @@ alembic upgrade head
 uvicorn main:app --reload
 ```
 
-Testes: `pytest` (60 casos, um por bug já corrigido — ver `tests/`).
+Testes: `pytest` (67 casos, um por bug já corrigido — ver `tests/`).
 
 ## Convenções
 
@@ -50,6 +50,18 @@ via `asdict` e **ignora** o `to_dict()` camelCase de `audit_engine/models.py`.
 Ler `estimatedRiskExposure` ou `totalViolations` de `raw_data` devolve vazio
 silenciosamente. Já fez o gating do plano free não esconder nada e o PDF sair
 sem violações. O motor legado de `main.py` usa camelCase — os dois convivem.
+
+### Preço tem uma fonte só: `api/payments.PRICES`
+
+O frontend lê de `GET /api/payments/plans` (hook `usePricing`). Não crie tabela
+de preço no front: já houve três divergentes (`api/payments.py`,
+`SubscriptionContext.tsx` e `pricing.config.ts`) e a tela mostrava R$ 49,90
+enquanto o checkout cobrava R$ 97. `PLAN_PRICING` do
+`SubscriptionContext.tsx` só sobrevive como fallback de primeira renderização.
+
+O ciclo (`monthly`/`annual`) viaja no `external_reference` do Mercado Pago,
+no formato `{user_id}|{plan}|{cycle}` — é ele que define a validade carimbada
+pelo webhook. Mexer nesse formato quebra a liberação automática do plano.
 
 ### Plano nunca vem do cliente
 
@@ -112,10 +124,10 @@ com TLD real nos testes.
 
 - `DATABASE_URL` ainda em SQLite. Com Playwright em paralelo dá
   `database is locked`. Migrar para o Postgres do Supabase (credenciais no `.env`).
-- Cobrança: o frontend (`Checkout.tsx`) redireciona para a Kiwify, mas não existe
-  webhook da Kiwify no backend — quem paga por lá depende de ativação manual.
-  O backend tem Mercado Pago pronto (`/api/payments`), com HMAC no webhook;
-  falta o frontend usá-lo e as credenciais `MP_ACCESS_TOKEN` / `MP_WEBHOOK_SECRET`.
+- Cobrança: falta preencher `MP_ACCESS_TOKEN` e `MP_WEBHOOK_SECRET` no `.env` e
+  apontar o webhook do Mercado Pago para `POST /api/payments/webhook`. Sem o
+  primeiro, o checkout responde 503; sem o segundo, o webhook aceita POST de
+  qualquer origem (e avisa no log).
 - Celery está configurado mas não é usado: `api/scans.py` chama a task via
   `BackgroundTasks`, então o Chromium sobe dentro do processo web, sem pool nem
   teto de concorrência.

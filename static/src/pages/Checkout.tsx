@@ -4,7 +4,8 @@ import { useAuth } from '@/context/AuthContext';
 import { useLocale, localizePrice } from '@/hooks/useLocale';
 import { useI18n } from '@/context/I18nContext';
 import { useSubscription, PLAN_PRICING, BillingCycle, SubscriptionPlan } from '@/context/SubscriptionContext';
-import { getCheckoutUrl } from '@/config/pricing.config';
+import { apiRequest } from '@/lib/apiClient';
+import { usePricing } from '@/hooks/usePricing';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/use-toast';
@@ -79,10 +80,28 @@ const CheckoutPage = () => {
     const localeKey: 'en' | 'pt' = isEn ? 'en' : 'pt';
     const L = (obj: { en: string; pt: string }) => obj[localeKey] ?? obj.en;
 
+    // Preço do servidor: é ele que o Mercado Pago vai cobrar (sempre em BRL).
+    // A tabela local (PLAN_PRICING) serve de fallback até a resposta chegar,
+    // mas exibir um número diferente do que será cobrado é o bug que existia
+    // aqui — a tela mostrava R$ 49,90 e o checkout cobrava R$ 97.
+    const { pricing: serverPricing } = usePricing();
+    const serverPlan = serverPricing?.plans?.[planId as 'pro' | 'premium'];
+    const serverTotalBrl = serverPlan ? (isAnnual ? serverPlan.annual : serverPlan.monthly) : null;
+    const serverMonthlyBrl = serverPlan
+        ? (isAnnual ? serverPlan.monthly_equivalent_annual : serverPlan.monthly)
+        : null;
+
+    const formatBrl = (valor: number) =>
+        new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
+
     // Monthly equivalent for display
     const monthlyEquivUsd = isAnnual ? Math.round((pricing.usd / 12) * 100) / 100 : pricing.usd;
-    const monthlyEquivPrice = localizePrice(monthlyEquivUsd, locale.currencyCode, locale.locale);
-    const totalDuePrice = localizePrice(pricing.usd, locale.currencyCode, locale.locale);
+    const monthlyEquivPrice = serverMonthlyBrl !== null
+        ? formatBrl(serverMonthlyBrl)
+        : localizePrice(monthlyEquivUsd, locale.currencyCode, locale.locale);
+    const totalDuePrice = serverTotalBrl !== null
+        ? formatBrl(serverTotalBrl)
+        : localizePrice(pricing.usd, locale.currencyCode, locale.locale);
 
     // Next renewal date
     const renewalDate = new Date();
@@ -127,24 +146,46 @@ const CheckoutPage = () => {
             localStorage.setItem('gtm-checkout-state', JSON.stringify(checkoutState));
             localStorage.setItem('gtm-selected-plan', planId);
             localStorage.setItem('gtm-billing-cycle', cycleParam);
-            
-            // Get Kiwify checkout URL
-            const billing = isAnnual ? 'annual' : 'monthly';
-            const checkoutUrl = getCheckoutUrl(planId as any, billing, user?.email);
-            
-            if (!checkoutUrl) {
-                throw new Error(isEn 
-                    ? 'Checkout URL not configured. Please contact support.'
-                    : 'URL de checkout não configurada. Entre em contato com o suporte.');
+
+            // O pagamento passa pelo backend: /api/payments/create-preference cria
+            // a preferência no Mercado Pago com o preço vindo do .env e amarra o
+            // external_reference ao id do usuário. É esse vínculo que permite ao
+            // webhook liberar o plano sozinho.
+            // Antes o botão redirecionava direto para um link fixo da Kiwify, e
+            // como não existe webhook da Kiwify no backend, quem pagava ficava
+            // esperando ativação manual.
+            if (!isAuthenticated || !token) {
+                navigate(`/auth?redirect=/checkout?plan=${planId}&cycle=${cycleParam}`);
+                return;
+            }
+
+            const preference = await apiRequest<{ id: string; init_point: string }>(
+                '/api/payments/create-preference',
+                {
+                    method: 'POST',
+                    token,
+                    body: { plan: planId, billing_cycle: cycleParam },
+                    context: 'checkout',
+                }
+            );
+
+            if (!preference?.init_point) {
+                throw new Error(isEn
+                    ? 'Payment provider did not return a checkout link. Please try again.'
+                    : 'O provedor de pagamento não devolveu o link de checkout. Tente novamente.');
             }
 
             markPending(planId, cycleParam);
-            
-            // Redirect to Kiwify secure checkout
-            window.location.href = checkoutUrl;
+
+            // Redirect to Mercado Pago secure checkout
+            window.location.href = preference.init_point;
         } catch (err: any) {
             console.error('Checkout error:', err);
-            setError(err.message || 'Erro ao processar checkout');
+            setError(
+                err?.info?.userMessage
+                || err.message
+                || (isEn ? 'Could not start the payment.' : 'Não foi possível iniciar o pagamento.')
+            );
             setIsLoading(false);
         }
     };
@@ -279,7 +320,7 @@ const CheckoutPage = () => {
                         </div>
                     )}
 
-                    {/* Kiwify payment info */}
+                    {/* Mercado Pago payment info */}
                     <div className="bg-white/5 border border-white/10 rounded-2xl p-6 backdrop-blur-sm">
                         <div className="text-white/40 text-xs uppercase tracking-widest font-medium mb-4">
                             {isEn ? 'Payment' : 'Pagamento'}
@@ -305,8 +346,8 @@ const CheckoutPage = () => {
                             <AlertCircle className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
                             <p className="text-blue-300/80 text-xs">
                                 {isEn
-                                    ? 'You will be redirected to the secure Kiwify checkout. Access will be activated after payment confirmation or manual activation by admin.'
-                                    : 'Você será redirecionado ao checkout seguro da Kiwify. O acesso será liberado após confirmação do pagamento ou ativação manual pelo admin.'}
+                                    ? 'You will be redirected to the secure Mercado Pago checkout. Your plan is released automatically as soon as the payment is confirmed.'
+                                    : 'Você será redirecionado ao checkout seguro do Mercado Pago. Seu plano é liberado automaticamente assim que o pagamento for confirmado.'}
                             </p>
                         </div>
                     </div>
@@ -341,7 +382,7 @@ const CheckoutPage = () => {
                         <span>•</span>
                         <span>{isEn ? '30-day guarantee' : 'Garantia 30 dias'}</span>
                         <span>•</span>
-                        <span className="flex items-center gap-1"><ExternalLink className="w-3 h-3" /> Kiwify</span>
+                        <span className="flex items-center gap-1"><ExternalLink className="w-3 h-3" /> Mercado Pago</span>
                     </div>
 
                     <p className="text-center text-white/15 text-xs mt-4">
