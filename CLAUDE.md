@@ -18,7 +18,7 @@ criado por `create_all` antes do Alembic e não tem a tabela `alembic_version`,
 então um upgrade direto tentaria recriar tudo e falharia com "table already
 exists". O script detecta isso, carimba a revisão inicial e aplica só o que falta.
 
-Testes: `pytest` (120 casos, um por bug já corrigido — ver `tests/`).
+Testes: `pytest` (160 casos, um por bug já corrigido — ver `tests/`).
 
 ## Convenções
 
@@ -79,6 +79,30 @@ No `VENDOR_CATALOG`, `url_patterns` deve cobrir **o script de carga e o
 endpoint de coleta** (o beacon). Só com o beacon dá para provar que a tag
 enviou dados — e é assim que se detecta tag injetada pelo GTM, que nunca
 aparece no HTML.
+
+### Rótulo de botão: casar por substring solta quebra o laudo
+
+`consent_interaction.classifica_rotulo` decide se um botão significa recusar.
+A primeira versão usava substring: contra a bbc.com ela clicou na manchete
+*"Man City reject Barcelona's £38.5m bid"* porque continha "reject" — o
+scanner navegava para a notícia e reportava recusa bem-sucedida. Pelo mesmo
+motivo lia "Follow BBC on facebook" como aceite, já que "ok" cabe em
+"facebook".
+
+Regra atual: termo de uma palavra só vale se for o rótulo **inteiro**; termo
+de duas ou mais vale como trecho, em rótulo de até 45 caracteres. O clique usa
+texto exato, nunca regex montada com todos os termos. Ao acrescentar termo em
+`TEXTOS_DE_RECUSA`, rode `tests/test_recusa_de_consentimento.py` — lá estão as
+manchetes reais que quebraram.
+
+### CMP no código não significa banner na tela
+
+`consent_auditor` detecta a CMP por assinatura no HTML; isso não prova que o
+aviso apareceu. terra.com.br, uol.com.br, magazineluiza.com.br e
+estadao.com.br não exibem controle algum para visitante brasileiro (banner
+costuma vir restrito à União Europeia). O achado `cmp_present_no_ui` cobre
+esse caso, e ele é mais grave que a ausência de CMP: passa impressão de
+conformidade sem nunca pedir nada.
 
 ### O scanner nunca clica em "aceitar" — e é isso que dá valor ao laudo
 

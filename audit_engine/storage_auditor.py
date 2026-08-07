@@ -318,6 +318,32 @@ def auditar_recusa(recusa, tem_cmp: bool) -> List[Dict[str, Any]]:
                 "evidence": {},
             })
 
+    elif tem_cmp and not getattr(recusa, "tem_opcao_de_aceitar", False) \
+            and not getattr(recusa, "tem_opcao_de_recusar", False):
+        # Caso observado em portais brasileiros de grande porte: o script da CMP
+        # está na página (o detector acha a assinatura), mas nenhum controle de
+        # consentimento é exibido ao visitante. Na prática é pior do que não ter
+        # CMP — passa a impressão de conformidade sem nunca pedir nada.
+        achados.append({
+            "check": "cmp_present_no_ui",
+            "label": "CMP instalado, mas nenhum controle exibido",
+            "status": "critical",
+            "description": (
+                "A plataforma de consentimento está presente no código da página, porém "
+                "nenhum botão de aceitar ou recusar foi exibido ao visitante durante a "
+                "visita. Na prática o rastreamento ocorre sem que o titular tenha "
+                "qualquer oportunidade de se manifestar — a CMP existe, mas não cumpre "
+                "a função. Verifique se o banner está restrito por região "
+                "(configuração comum: exibir apenas na União Europeia)."
+            ),
+            "recommendation": (
+                "Configure a CMP para exibir o aviso a todos os visitantes sujeitos à "
+                "LGPD, não apenas aos da União Europeia, e confirme que o banner "
+                "realmente renderiza — script carregado não significa aviso exibido."
+            ),
+            "evidence": {"buttonLabels": list(getattr(recusa, "rotulos_encontrados", []) or [])[:12]},
+        })
+
     elif getattr(recusa, "tem_opcao_de_aceitar", False) and not getattr(recusa, "tem_opcao_de_recusar", False):
         achados.append({
             "check": "no_reject_option",

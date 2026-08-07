@@ -250,6 +250,23 @@ class TestAchadosNoLaudo:
         achados = auditar_recusa(recusa, tem_cmp=True)
         assert achados[0]["check"] == "rejection_respected"
 
+    def test_cmp_no_codigo_sem_banner_na_tela(self):
+        """Caso real: terra.com.br tem CMP no código e não exibe controle algum.
+
+        É pior do que não ter CMP — passa impressão de conformidade sem nunca
+        pedir nada ao visitante. Costuma ser banner restrito à União Europeia.
+        """
+        recusa = self._Recusa(tem_opcao_de_aceitar=False, tem_opcao_de_recusar=False)
+        achados = auditar_recusa(recusa, tem_cmp=True)
+        assert achados[0]["check"] == "cmp_present_no_ui"
+        assert achados[0]["status"] == "critical"
+
+    def test_sem_cmp_e_sem_banner_e_outro_achado(self):
+        """Sem CMP nenhum o diagnóstico é diferente: não há o que configurar."""
+        recusa = self._Recusa(tem_opcao_de_aceitar=False, tem_opcao_de_recusar=False)
+        achados = auditar_recusa(recusa, tem_cmp=False)
+        assert achados[0]["check"] == "no_consent_control"
+
     def test_sem_teste_executado_nao_gera_achado(self):
         assert auditar_recusa(None, tem_cmp=True) == []
 
