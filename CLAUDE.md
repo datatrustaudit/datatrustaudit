@@ -13,7 +13,7 @@ alembic upgrade head
 uvicorn main:app --reload
 ```
 
-Testes: `pytest` (67 casos, um por bug já corrigido — ver `tests/`).
+Testes: `pytest` (80 casos, um por bug já corrigido — ver `tests/`).
 
 ## Convenções
 
@@ -104,6 +104,14 @@ autenticação, teste os dois caminhos.
 É de propósito (auditoria grátis sem cadastro). Para rota que exige login use
 `get_current_active_user` — usar o primeiro e acessar `current_user.id` gera
 500 em vez de 401.
+
+### Emoji em `print()` derruba requisição no Windows
+
+O console usa cp1252 e o código tem emoji em vários logs. Um print de emoji
+levanta `UnicodeEncodeError` — e quando está dentro de um `except`, a exceção
+de log substitui a original e a rota devolve 500. Foi assim que o fallback por
+regras do `/chat` ficou inalcançável. `main.py` reconfigura stdout/stderr para
+UTF-8 no import; ainda assim, não coloque emoji em log dentro de `except`.
 
 ### passlib 1.7.4 e bcrypt
 

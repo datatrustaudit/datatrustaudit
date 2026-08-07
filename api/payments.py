@@ -230,12 +230,20 @@ async def mp_webhook(
     if not payment_id:
         return {"status": "ignored"}
 
-    if MP_WEBHOOK_SECRET:
-        if not _assinatura_valida(str(payment_id), x_signature or "", x_request_id or ""):
-            raise HTTPException(status_code=401, detail="Assinatura do webhook inválida.")
-    else:
-        # Sem segredo configurado não há como distinguir o MP de um terceiro.
-        print("[payments] AVISO: MP_WEBHOOK_SECRET não configurado — webhook sem verificação de origem.")
+    # Falha fechado: sem o segredo não há como distinguir o Mercado Pago de um
+    # terceiro qualquer, e cada requisição aceita vira uma consulta à API do MP
+    # com um id escolhido por quem chamou. Aceitar "por enquanto" é o tipo de
+    # configuração pendente que chega em produção sem ninguém perceber — o
+    # webhook responde 503 até MP_WEBHOOK_SECRET estar definido.
+    if not MP_WEBHOOK_SECRET:
+        print("[payments] ERRO: MP_WEBHOOK_SECRET não configurado — webhook recusado.")
+        raise HTTPException(
+            status_code=503,
+            detail="Webhook não configurado. Defina MP_WEBHOOK_SECRET.",
+        )
+
+    if not _assinatura_valida(str(payment_id), x_signature or "", x_request_id or ""):
+        raise HTTPException(status_code=401, detail="Assinatura do webhook inválida.")
 
     if not sdk:
         return {"status": "mp_not_configured"}

@@ -120,6 +120,21 @@ class TestWebhookMercadoPago:
         db.refresh(u)
         assert u.plan == "pro"
 
+    def test_webhook_sem_segredo_configurado_recusa(self, client):
+        """Falha fechado.
+
+        Antes, sem MP_WEBHOOK_SECRET a rota aceitava POST de qualquer origem e
+        só registrava um aviso no log — cada requisição aceita vira uma consulta
+        à API do Mercado Pago com um id escolhido por quem chamou.
+        """
+        r = client.post("/api/payments/webhook",
+                        json={"type": "payment", "data": {"id": "123"}})
+        assert r.status_code == 503, f"esperava 503, veio {r.status_code}: {r.text}"
+
+    def test_webhook_ignora_evento_que_nao_e_pagamento(self, client):
+        r = client.post("/api/payments/webhook", json={"type": "plan", "data": {"id": "1"}})
+        assert r.json()["status"] == "ignored"
+
     def test_assinatura_hmac(self, monkeypatch):
         """MP_WEBHOOK_SECRET era lido no topo do módulo e nunca usado: a rota
         aceitava POST de qualquer origem."""

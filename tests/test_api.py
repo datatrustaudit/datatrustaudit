@@ -107,6 +107,60 @@ class TestCadastroELogin:
         assert 429 in codigos, f"sem rate limit no login: {codigos}"
 
 
+class TestEntradasMalformadas:
+    """Erro de entrada do cliente não pode virar 500.
+
+    `await request.json()` levantava em corpo inválido e a exceção caía no
+    except genérico da rota, devolvendo 500 — o que polui o monitoramento e
+    esconde falhas reais do servidor no meio do ruído.
+    """
+
+    @pytest.mark.parametrize("rota", ["/analyze", "/deep-analyze", "/chat"])
+    def test_json_malformado_da_400(self, client, rota):
+        r = client.post(rota, content=b"{isto nao e json", headers={"Content-Type": "application/json"})
+        assert r.status_code == 400, f"{rota} devolveu {r.status_code}"
+
+    @pytest.mark.parametrize("rota", ["/analyze", "/deep-analyze"])
+    def test_corpo_que_nao_e_objeto_da_400(self, client, rota):
+        r = client.post(rota, content=b'"apenas uma string"', headers={"Content-Type": "application/json"})
+        assert r.status_code == 400
+
+    def test_scan_id_nao_numerico_da_422(self, client):
+        assert client.get("/api/scans/abc").status_code == 422
+
+    def test_url_gigante_e_recusada(self, client):
+        r = client.post("/api/audit", json={"url": "https://exemplo.com/" + "a" * 10000})
+        assert r.status_code == 400
+
+
+class TestChat:
+    """O chat tem fallback por regras justamente para não depender do Gemini.
+
+    O fallback estava morto no Windows: quando a chamada ao Gemini falhava (chave
+    inválida, cota estourada), o `except` fazia print de uma string com emoji, o
+    console cp1252 levantava UnicodeEncodeError, a exceção de log substituía a
+    original e a rota devolvia 500 em vez da resposta por regras.
+    """
+
+    def test_responde_mesmo_sem_gemini(self, client):
+        r = client.post("/chat", json={"message": "o que e multa da LGPD?"})
+        assert r.status_code == 200, r.text
+        corpo = r.json()
+        assert corpo["status"] == "ok"
+        assert corpo["response"], "resposta vazia"
+
+    def test_mensagem_vazia_da_400(self, client):
+        assert client.post("/chat", json={"message": "   "}).status_code == 400
+
+    def test_mensagem_gigante_e_truncada_sem_erro(self, client):
+        r = client.post("/chat", json={"message": "a" * 50000})
+        assert r.status_code == 200
+
+    def test_contexto_de_tipo_errado_nao_derruba(self, client):
+        r = client.post("/chat", json={"message": "oi", "context": "isto devia ser objeto"})
+        assert r.status_code == 200
+
+
 class TestIDOR:
     def test_scan_anonimo_nao_e_legivel_por_terceiro(self, client, db, usuario_logado):
         """Scan com user_id NULL pulava a checagem de dono; os ids são sequenciais."""

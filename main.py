@@ -1,6 +1,19 @@
 import os
+import sys
 import json
 import re
+
+# O console do Windows usa cp1252 por padrão, e o código imprime emoji em vários
+# pontos de log. Um print de emoji levanta UnicodeEncodeError — e como vários
+# desses prints estão DENTRO de blocos except, a exceção de log substituía o
+# erro original e derrubava a requisição.
+# Efeito concreto: o fallback do /chat (respostas por regra, quando o Gemini
+# falha) nunca era alcançado no Windows; a rota devolvia 500 em vez da resposta.
+for _fluxo in (sys.stdout, sys.stderr):
+    try:
+        _fluxo.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass  # fluxo redirecionado ou sem suporte: segue sem reconfigurar
 from fastapi import FastAPI, Request, Depends
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -1510,7 +1523,9 @@ scanner = PlaywrightAuditScanner()
 @limiter.limit(RATE_LIMIT_SCAN)
 async def analyze_url(request: Request, current_user: Optional[User] = Depends(get_current_user)):
     try:
-        data = await request.json()
+        data = await _ler_json(request)
+        if data is None:
+            return JSONResponse({"status": "error", "msg": "Corpo da requisição inválido."}, status_code=400)
         # O plano vem do banco, nunca do corpo da requisição: mandar
         # {"plan": "full"} devolvia o relatório premium inteiro sem login.
         plan = resolve_effective_plan(current_user)
@@ -1545,6 +1560,20 @@ async def analyze_url(request: Request, current_user: Optional[User] = Depends(g
         return JSONResponse({"status": "error", "msg": "Erro interno ao processar a auditoria."}, status_code=500)
         
 
+async def _ler_json(request: Request) -> Optional[dict]:
+    """Corpo JSON da requisição, ou None se vier malformado.
+
+    `await request.json()` levanta em corpo inválido; sem tratamento, a exceção
+    caía no except genérico da rota e virava 500 — erro de entrada do cliente
+    reportado como falha do servidor, poluindo o monitoramento.
+    """
+    try:
+        corpo = await request.json()
+    except Exception:
+        return None
+    return corpo if isinstance(corpo, dict) else None
+
+
 MAX_DEEP_SCAN_PAGES = 3
 
 
@@ -1553,7 +1582,9 @@ MAX_DEEP_SCAN_PAGES = 3
 async def deep_analyze(request: Request, current_user: Optional[User] = Depends(get_current_user)):
     """Realiza auditoria em múltiplas páginas do mesmo domínio (Real Deep Scan)"""
     try:
-        data = await request.json()
+        data = await _ler_json(request)
+        if data is None:
+            return JSONResponse({"status": "error", "msg": "Corpo da requisição inválido."}, status_code=400)
         plan = resolve_effective_plan(current_user)
 
         try:
@@ -1737,7 +1768,9 @@ async def chat(request: Request, current_user: Optional[User] = Depends(get_curr
     fatura da casa.
     """
     try:
-        data = await request.json()
+        data = await _ler_json(request)
+        if data is None:
+            return JSONResponse({"status": "error", "msg": "Corpo da requisição inválido."}, status_code=400)
         message = (data.get("message") or "")[:MAX_CHAT_MESSAGE_CHARS]
         context = data.get("context", {})
         if not isinstance(context, dict):
@@ -1759,10 +1792,14 @@ async def chat(request: Request, current_user: Optional[User] = Depends(get_curr
             "source": source
         })
     except Exception as e:
-        print(f"❌ Erro no chat: {e}")
+        try:
+            print(f"[chat] erro inesperado: {e}")
+        except Exception:
+            pass
+        # a mensagem crua expunha detalhe interno (inclusive trecho de chave)
         return JSONResponse({
             "status": "error",
-            "msg": str(e)
+            "msg": "Nao foi possivel responder agora. Tente novamente."
         }, status_code=500)
 
 
@@ -1809,7 +1846,12 @@ async def generate_gemini_response(message: str, context: Dict) -> tuple:
         return response.text, "gemini_programmer_agent"
         
     except Exception as e:
-        print(f"⚠️ Erro no Gemini, usando fallback: {e}")
+        # sem emoji e sem deixar o log estourar: um UnicodeEncodeError aqui
+        # engolia o fallback inteiro e a rota devolvia 500
+        try:
+            print(f"[chat] Gemini indisponivel, usando fallback por regras: {e}")
+        except Exception:
+            pass
         # Fallback para regras se Gemini falhar
         return generate_chat_response(message, context), "rules_fallback"
 
