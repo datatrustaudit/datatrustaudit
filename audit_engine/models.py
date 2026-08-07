@@ -459,6 +459,9 @@ class AuditResult:
     consent: Optional[ConsentAuditResult] = None
     privacy: Optional[PrivacyAnalysisResult] = None
     duplicates: List[DuplicateFinding] = field(default_factory=list)
+    # Cookies/storage gravados sem aceite e ordem real de disparo.
+    # Ver audit_engine/storage_auditor.py.
+    storage: Optional[Any] = None
 
     # Scoring + recommendations
     scores: Optional[AuditScores] = None

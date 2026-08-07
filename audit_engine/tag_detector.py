@@ -418,6 +418,65 @@ def _extract_source_block(html_lines: List[str], line_number: int, context: int 
     return "\n".join(html_lines[start:end])
 
 
+# ─────────────────────────────────────────────
+# Rastreamento em domínio próprio (server-side / first-party)
+#
+# GA4 server-side e o gateway da CAPI da Meta rodam em subdomínio do próprio
+# cliente (metrics.loja.com.br), justamente para escapar de bloqueadores — e
+# escapavam também desta auditoria, que casa por domínio do fornecedor.
+# A identificação aqui é pelo FORMATO do payload, que a plataforma não muda:
+# é o mesmo protocolo, só o host é outro.
+# ─────────────────────────────────────────────
+ASSINATURAS_DE_PAYLOAD = [
+    {
+        "vendor_id": "ga4",
+        "nome": "Google Analytics 4 (server-side / domínio próprio)",
+        "caminho": re.compile(r"/(g|mp)/collect", re.IGNORECASE),
+        "exigidos": [re.compile(r"[?&]v=2(&|$)"), re.compile(r"[?&]tid=G-", re.IGNORECASE)],
+    },
+    {
+        "vendor_id": "meta_pixel",
+        "nome": "Meta Pixel (CAPI gateway / domínio próprio)",
+        "caminho": re.compile(r"/tr/?(\?|$)", re.IGNORECASE),
+        "exigidos": [re.compile(r"[?&]id=\d{10,}"), re.compile(r"[?&]ev=", re.IGNORECASE)],
+    },
+]
+
+# Hosts oficiais: se o pedido saiu para cá, já foi detectado pelo caminho normal
+_HOSTS_OFICIAIS = re.compile(
+    r"(google-analytics|googletagmanager|analytics\.google|facebook\.com|facebook\.net)",
+    re.IGNORECASE,
+)
+
+
+def detectar_rastreamento_em_dominio_proprio(scan) -> List[dict]:
+    """Requisições com assinatura de rastreador, mas em host que não é do fornecedor."""
+    achados: List[dict] = []
+    vistos = set()
+
+    for req in (getattr(scan, "intercepted_requests", None) or []):
+        url = getattr(req, "url", "") or ""
+        if not url or _HOSTS_OFICIAIS.search(url):
+            continue
+        for assinatura in ASSINATURAS_DE_PAYLOAD:
+            if not assinatura["caminho"].search(url):
+                continue
+            if all(padrao.search(url) for padrao in assinatura["exigidos"]):
+                from urllib.parse import urlparse as _parse
+                host = _parse(url).netloc
+                chave = (assinatura["vendor_id"], host)
+                if chave in vistos:
+                    continue
+                vistos.add(chave)
+                achados.append({
+                    "vendor_id": assinatura["vendor_id"],
+                    "nome": assinatura["nome"],
+                    "host": host,
+                    "url": url[:200],
+                })
+    return achados
+
+
 def detect_tags(html: str, scan=None) -> List[TagFinding]:
     """
     Multi-method tag detection engine.
@@ -571,6 +630,38 @@ def detect_tags(html: str, scan=None) -> List[TagFinding]:
         )
 
         findings[vendor_id] = finding
+
+    # ── 4. Rastreamento em domínio próprio (server-side / CAPI gateway) ──────
+    # Detectado pela assinatura do payload: o host é do cliente, mas o
+    # protocolo é o do fornecedor. Sem isto, a auditoria dava o site como
+    # limpo justamente onde o rastreamento foi montado para não ser visto.
+    for achado in detectar_rastreamento_em_dominio_proprio(scan) if scan else []:
+        vendor_id = achado["vendor_id"]
+        vendor = VENDOR_CATALOG.get(vendor_id, {})
+        ja_detectada = findings.get(vendor_id)
+        if ja_detectada is not None:
+            # a mesma tag já apareceu pelo caminho normal: registra o host próprio
+            ja_detectada.matched_pattern = (
+                f"{ja_detectada.matched_pattern or ''} | first-party: {achado['host']}"
+            )[:200]
+            continue
+
+        findings[vendor_id] = TagFinding(
+            id=vendor_id,
+            name=achado["nome"],
+            vendor=vendor.get("vendor", "Desconhecido"),
+            type=vendor.get("type", "analytics"),
+            confidence=CONFIDENCE_HIGH,   # payload no formato do fornecedor
+            detection_method=DETECT_NETWORK,
+            occurrence_count=1,
+            line_number=None,
+            source_block=None,
+            matched_pattern=achado["url"],
+            tag_id=None,
+            data_collected=vendor.get("data_collected", ["Dados de navegação"]),
+            privacy_risk=vendor.get("privacy_risk", "high"),
+            position=10_000_000,   # sem posição no HTML: vai para o fim da lista
+        )
 
     # Sort by source position (network-intercepted go after HTML-detected)
     return sorted(findings.values(), key=lambda f: f.position)

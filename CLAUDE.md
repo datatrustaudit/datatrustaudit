@@ -13,7 +13,7 @@ alembic upgrade head
 uvicorn main:app --reload
 ```
 
-Testes: `pytest` (93 casos, um por bug já corrigido — ver `tests/`).
+Testes: `pytest` (113 casos, um por bug já corrigido — ver `tests/`).
 
 ## Convenções
 
@@ -74,6 +74,25 @@ No `VENDOR_CATALOG`, `url_patterns` deve cobrir **o script de carga e o
 endpoint de coleta** (o beacon). Só com o beacon dá para provar que a tag
 enviou dados — e é assim que se detecta tag injetada pelo GTM, que nunca
 aparece no HTML.
+
+### O scanner nunca clica em "aceitar" — e é isso que dá valor ao laudo
+
+Tudo observado durante a varredura aconteceu **sem consentimento**: cookie
+gravado, chave de localStorage escrita, requisição a endpoint de rastreio.
+Isso é evidência direta, e vale mais do que inferir ordem por posição no HTML.
+`audit_engine/storage_auditor.py` é onde essa leitura acontece.
+
+Ao mexer no `browser_fetcher`, preserve a captura de `context.cookies()` (e não
+`document.cookie`, que não enxerga HttpOnly), do localStorage e do
+`timestamp` de cada requisição — os três alimentam o laudo.
+
+### Chaves de tag no PDF e no XLSX: leia nos dois formatos
+
+`raw_data` é snake_case (`is_before_consent`, `privacy_risk`, `line_number`) e
+a resposta da API é camelCase. O PDF e o XLSX liam só camelCase, então as
+colunas "Risk", "Found on Line" e "Loaded Before Consent?" mostravam o valor
+padrão em todo relatório. Use o helper `_campo()` de `api/exports.py`, que
+aceita os dois.
 
 ### Preço tem uma fonte só: `api/payments.PRICES`
 
@@ -166,15 +185,12 @@ com TLD real nos testes.
 - `main.py` mantém um motor de auditoria próprio, paralelo ao `audit_engine/`.
 - O frontend manda URLs de clientes para proxies de terceiros (`allorigins`,
   `cors-anywhere`, `thingproxy`) — sem contrato, num produto de compliance.
-- Rastreamento em domínio próprio (GA4 server-side, Meta CAPI gateway) não é
-  detectado: o catálogo casa por domínio do fornecedor. Detectar exigiria
-  inspecionar o formato do payload, não a URL.
-- Cookies e localStorage não são capturados pelo scanner — num produto de
-  auditoria de cookies. `context.cookies()` do Playwright resolveria, e cookie
-  gravado antes do aceite é a evidência mais forte num laudo LGPD/GDPR.
-- `InterceptedRequest.timestamp` é capturado e nunca usado. Com ele dá para
-  dizer "o pixel disparou aos 380ms, o banner apareceu aos 900ms" — evidência
-  em vez de indício.
+- O catálogo de cookies e de chaves de storage em `storage_auditor.py` é uma
+  lista fixa: cobre os rastreadores comuns, mas cookie de fornecedor menos
+  conhecido passa despercebido. Ampliar conforme aparecerem casos reais.
+- A detecção em domínio próprio cobre GA4 server-side e o gateway da CAPI da
+  Meta, por assinatura de payload. Outros fornecedores com proxy próprio ainda
+  escapam.
 - `static/dist/` é build antigo; precisa de rebuild para refletir `static/src/`.
 - `legacy_attic/`, `static_broken/`, `db_broken/`, `audit_engine_old/` seguem no
   disco, fora do git. Podem ser apagados quando não forem mais necessários.

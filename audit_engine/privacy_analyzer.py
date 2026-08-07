@@ -100,6 +100,12 @@ def detect_jurisdiction(html: str, url: str) -> dict:
 # ─────────────────────────────────────────────
 
 _RISK_TABLE = {
+    "storage_without_consent": {
+        "article": "Consent Requirement",
+        "description": "Cookie ou armazenamento local de rastreamento gravado sem consentimento",
+        "min_fine": 8_000,
+        "max_fine": 60_000,
+    },
     "no_cmp": {
         "article": "Consent Requirement",
         "description": "Tracking without a consent management mechanism",
@@ -138,6 +144,7 @@ def analyze_privacy(
     has_consent_tool: bool,
     tags_before_consent: List[TagFinding],
     jurisdiction: dict,
+    storage=None,
 ) -> PrivacyAnalysisResult:
 
     law  = jurisdiction["law"]
@@ -206,6 +213,55 @@ def analyze_privacy(
             consent_risks.append(f"{tag.name} firing before consent")
             total_min += r["min_fine"]
             total_max += r["max_fine"]
+
+    # ── Cookies e storage gravados sem aceite ─────────────────────────────────
+    # O scanner nunca clica em "aceitar": o que estiver gravado foi gravado sem
+    # consentimento. É a evidência mais forte de um laudo — não depende de
+    # inferir ordem por posição no HTML.
+    if storage is not None:
+        r = _RISK_TABLE["storage_without_consent"]
+        for achado in list(getattr(storage, "cookies_sem_consentimento", []) or []):
+            violations.append(PrivacyViolation(
+                tag=f"{achado.dono} — cookie {achado.nome}",
+                violation=(
+                    f"Cookie '{achado.nome}' ({achado.dono}) gravado no navegador sem consentimento. "
+                    f"{achado.detalhe}. Finalidade observada: {achado.finalidade}."
+                ),
+                article=r["article"],
+                description=r["description"],
+                severity="critical",
+                confidence=CONFIDENCE_HIGH,
+            ))
+            consent_risks.append(f"Cookie {achado.nome} gravado sem consentimento")
+            total_min += r["min_fine"]
+            total_max += r["max_fine"]
+
+        for achado in list(getattr(storage, "storage_sem_consentimento", []) or []):
+            violations.append(PrivacyViolation(
+                tag=f"{achado.dono} — {achado.tipo}",
+                violation=(
+                    f"Chave '{achado.nome}' gravada em {achado.tipo} sem consentimento. "
+                    f"{achado.detalhe}."
+                ),
+                article=r["article"],
+                description=r["description"],
+                severity=achado.severidade,
+                confidence=CONFIDENCE_HIGH,
+            ))
+            total_min += r["min_fine"]
+            total_max += r["max_fine"]
+
+        for problema in list(getattr(storage, "problemas_de_ordem", []) or []):
+            violations.append(PrivacyViolation(
+                tag="Ordem de carregamento",
+                violation=problema["description"],
+                article="Consent-First Behaviour",
+                description=problema["label"],
+                severity="critical" if problema["status"] == "critical" else "high",
+                confidence=CONFIDENCE_HIGH,
+            ))
+            total_min += _RISK_TABLE["tracking_before_consent"]["min_fine"]
+            total_max += _RISK_TABLE["tracking_before_consent"]["max_fine"]
 
     # ── Universal Analytics ────────────────────────────────────────────────────
     if has_ua:

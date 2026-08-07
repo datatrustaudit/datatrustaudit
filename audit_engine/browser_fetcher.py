@@ -132,6 +132,14 @@ class BrowserScanResult:
     fbq_calls: List[Dict[str, Any]] = field(default_factory=list)      # fbq('track', ...)
     consent_signals: Dict[str, Any] = field(default_factory=dict)
 
+    # Armazenamento gravado no navegador SEM nenhum aceite — o scanner nunca
+    # clica em "aceitar", então tudo que aparece aqui foi gravado sem
+    # consentimento. É a evidência mais direta num laudo LGPD/GDPR, e não era
+    # capturado: o produto auditava "cookies" sem ler um cookie sequer.
+    cookies: List[Dict[str, Any]] = field(default_factory=list)
+    local_storage: Dict[str, str] = field(default_factory=dict)
+    session_storage: Dict[str, str] = field(default_factory=dict)
+
     # Meta
     page_title: str = ""
     load_time_ms: int = 0
@@ -203,7 +211,24 @@ _COLLECT_SCRIPT = """
         capturedFbq: [],
         consentSignals: {},
         windowKeys: [],
+        localStorage: {},
+        sessionStorage: {},
     };
+
+    // Armazenamento gravado sem nenhum aceite: rastreamento moderno usa
+    // localStorage justamente para escapar de auditoria baseada em cookie.
+    try {
+        for (var i = 0; i < window.localStorage.length; i++) {
+            var k = window.localStorage.key(i);
+            result.localStorage[k] = String(window.localStorage.getItem(k)).slice(0, 300);
+        }
+    } catch (e) {}
+    try {
+        for (var j = 0; j < window.sessionStorage.length; j++) {
+            var sk = window.sessionStorage.key(j);
+            result.sessionStorage[sk] = String(window.sessionStorage.getItem(sk)).slice(0, 300);
+        }
+    } catch (e) {}
 
     // Collect whatever is in dataLayer now
     try {
@@ -364,8 +389,18 @@ async def _browser_scan_async(url: str, timeout_ms: int = 30000) -> BrowserScanR
                 result.fbq_calls = js_state.get("capturedFbq", [])
                 # consent signals
                 result.consent_signals = js_state.get("consentSignals", {})
+                result.local_storage = js_state.get("localStorage", {}) or {}
+                result.session_storage = js_state.get("sessionStorage", {}) or {}
         except Exception as e:
             print(f"[browser_fetcher] JS collection error: {e}")
+
+        # Cookies gravados sem nenhum aceite. Vem do contexto do navegador, e
+        # não de document.cookie, para alcançar também os HttpOnly — que são
+        # exatamente os que o JS não enxerga.
+        try:
+            result.cookies = await context.cookies()
+        except Exception as e:
+            print(f"[browser_fetcher] cookie collection error: {e}")
 
         result.load_time_ms = int((time.time() - t0) * 1000)
         result.page_title = await page.title()

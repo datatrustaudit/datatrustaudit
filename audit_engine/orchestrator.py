@@ -8,7 +8,7 @@ can use both rendered HTML and runtime data (network requests, dataLayer, etc.).
 from datetime import datetime
 from typing import List, Optional
 
-from .models import AuditResult, DataQualityNote, TagFinding
+from .models import AuditResult, DataQualityNote, TagFinding, ConsentFinding, CONFIDENCE_HIGH
 from .browser_fetcher import BrowserScanResult
 from .tag_detector import detect_tags
 from .gtm_analyzer import analyze_gtm
@@ -19,6 +19,7 @@ from .privacy_analyzer import detect_jurisdiction, analyze_privacy
 from .duplicate_detector import detect_duplicates
 from .score_engine import compute_scores
 from .recommendation_engine import generate_recommendations
+from .storage_auditor import auditar_armazenamento, auditar_ordem_do_consent_mode
 
 
 def _build_data_quality_notes(
@@ -240,11 +241,34 @@ def run_audit(
         print(f"[audit_engine] Consent auditor error: {e}")
         consent_result = None
 
+    # ── 6b. Cookies, storage e ordem real de disparo ─────────────────────────
+    # O scanner nunca clica em "aceitar": tudo observado aqui aconteceu sem
+    # consentimento. É evidência direta, e não inferência por posição no HTML.
+    try:
+        has_cmp_para_storage = consent_result.cmp_detected if consent_result else False
+        storage_result = auditar_armazenamento(scan, has_cmp_para_storage)
+        storage_result.problemas_de_ordem = auditar_ordem_do_consent_mode(html)
+        if consent_result is not None and storage_result.problemas_de_ordem:
+            for problema in storage_result.problemas_de_ordem:
+                consent_result.findings.append(ConsentFinding(
+                    check=problema["check"],
+                    label=problema["label"],
+                    status=problema["status"],
+                    description=problema["description"],
+                    recommendation=problema["recommendation"],
+                    confidence=CONFIDENCE_HIGH,
+                ))
+    except Exception as e:
+        print(f"[audit_engine] Storage auditor error: {e}")
+        storage_result = None
+
     # ── 7. Privacy / compliance analysis ─────────────────────────────────────
     try:
         jurisdiction = detect_jurisdiction(html, url)
         has_consent_tool = consent_result.cmp_detected if consent_result else False
-        privacy_result = analyze_privacy(tags, has_consent_tool, tags_before_consent, jurisdiction)
+        privacy_result = analyze_privacy(
+            tags, has_consent_tool, tags_before_consent, jurisdiction, storage=storage_result
+        )
     except Exception as e:
         print(f"[audit_engine] Privacy analyzer error: {e}")
         jurisdiction = {"law": "General Privacy", "region": "Unknown", "law_full": "General Privacy"}
@@ -296,6 +320,7 @@ def run_audit(
         consent=consent_result,
         privacy=privacy_result,
         duplicates=duplicates,
+        storage=storage_result,
         scores=scores,
         recommendations=recommendations,
         data_quality_notes=dq_notes,
