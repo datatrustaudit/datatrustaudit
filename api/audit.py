@@ -1,25 +1,30 @@
 import asyncio
-import ipaddress
-import re
 import socket
 from dataclasses import asdict, is_dataclass
 from typing import Any, Dict, List, Optional
-from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
-from api.auth import get_current_user
+from api.auth import get_current_user, resolve_effective_plan
 from audit_engine.browser_fetcher import browser_scan
 from audit_engine.orchestrator import run_audit
-from audit_engine.credit_rules import should_consume_scan_credit, get_evidence_count
-from db.models import User
+from audit_engine.credit_rules import (
+    should_consume_scan_credit,
+    get_evidence_count,
+    can_perform_scan,
+    get_weekly_limit,
+)
+from audit_engine.url_guard import validate_public_url, UnsafeURLError
+from db.database import get_db
+from db.models import User, Scan, utcnow
 
 
 router = APIRouter(prefix="/api/audit", tags=["Audit"])
 
-VALID_PLANS = {"free", "pro", "premium"}
 FETCH_TIMEOUT_MS = 25000
 
 
@@ -38,36 +43,6 @@ def _friendly_message(code: str) -> str:
         "DNS_FAILURE": "Could not resolve the website domain. Please check the URL.",
     }
     return messages.get(code, messages["FETCH_FAILED"])
-
-
-def normalize_url(raw_url: str) -> str:
-    value = (raw_url or "").strip()
-    if not value:
-        raise ValueError("INVALID_URL")
-
-    if not re.match(r"^https?://", value, re.IGNORECASE):
-        value = f"https://{value}"
-
-    parsed = urlparse(value)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError("INVALID_URL")
-
-    hostname = parsed.hostname or ""
-    if not hostname or "." not in hostname:
-        raise ValueError("INVALID_URL")
-
-    if hostname.lower() in {"localhost", "localhost.localdomain"}:
-        raise ValueError("INVALID_URL")
-
-    try:
-        ip = ipaddress.ip_address(hostname)
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast:
-            raise ValueError("INVALID_URL")
-    except ValueError as exc:
-        if str(exc) == "INVALID_URL":
-            raise
-
-    return value
 
 
 def _safe_dict(value: Any) -> Any:
@@ -319,27 +294,41 @@ def _failed_response(code: str, errors: Optional[List[Dict[str, Any]]] = None, s
     )
 
 
-def _resolve_plan(payload_plan: str, current_user: Optional[User]) -> str:
-    if current_user is not None:
-        user_plan = getattr(current_user, "plan", None)
-        if user_plan in VALID_PLANS:
-            return user_plan
-
-    plan = (payload_plan or "free").lower()
-    if plan == "full":
-        plan = "premium"
-    return plan if plan in VALID_PLANS else "free"
-
-
 @router.post("")
 @router.post("/")
-async def run_direct_audit(payload: AuditRequest, current_user: Optional[User] = Depends(get_current_user)):
+async def run_direct_audit(
+    payload: AuditRequest,
+    current_user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     try:
-        url = normalize_url(payload.url)
-    except ValueError:
+        url = validate_public_url(payload.url)
+    except UnsafeURLError:
         return _failed_response("INVALID_URL", status_code=400)
 
-    plan = _resolve_plan(payload.plan or "free", current_user)
+    # payload.plan é ignorado de propósito: quem não está logado é sempre free.
+    plan = resolve_effective_plan(current_user)
+
+    # Cota semanal — só para quem tem conta; o visitante anônimo é contido pelo
+    # rate limit por IP em main.py.
+    if current_user is not None:
+        from api.scans import contar_scans_da_semana
+
+        is_admin = bool(getattr(current_user, "is_admin", False))
+        usados = contar_scans_da_semana(db, current_user.id)
+        if not can_perform_scan(plan, usados, is_admin):
+            limite = get_weekly_limit(plan, is_admin)
+            return JSONResponse(
+                {
+                    "success": False,
+                    "status": "failed",
+                    "errorCode": "LIMIT_REACHED",
+                    "message": f"Limite semanal atingido ({usados}/{limite} auditorias para o plano {plan}). Faça upgrade para continuar.",
+                    "scansUsed": usados,
+                    "scansLimit": limite,
+                },
+                status_code=403,
+            )
 
     try:
         scan = await asyncio.wait_for(
@@ -374,6 +363,38 @@ async def run_direct_audit(payload: AuditRequest, current_user: Optional[User] =
                 response["errorCode"] = "FETCH_FAILED"
                 response["message"] = _friendly_message("FETCH_FAILED")
 
+        # Persiste o resultado. Este endpoint é o que o frontend usa de fato, e
+        # não gravava nada: sem linha em `scans`, o histórico ficava vazio, a
+        # cota do plano nunca subia e o front recebia scan_id undefined — a
+        # exportação chamava /api/exports/pdf/undefined.
+        response["scan_id"] = _persist_scan(db, current_user, url, audit_result, response)
+
         return JSONResponse(response)
     except Exception as exc:
         return _failed_response("FETCH_FAILED", [{"message": str(exc)}])
+
+
+def _persist_scan(db: Session, current_user: Optional[User], url: str, audit_result, response: dict) -> Optional[int]:
+    """Grava o scan e devolve o id. Nunca derruba a auditoria já concluída."""
+    try:
+        scores = getattr(audit_result, "scores", None)
+        registro = Scan(
+            user_id=current_user.id if current_user else None,
+            url=url,
+            status="completed" if response.get("success") else "failed",
+            completed_at=utcnow(),
+            scan_method=getattr(audit_result, "scan_method", None),
+            score=getattr(scores, "overall", None) if scores else response.get("score"),
+            raw_data=jsonable_encoder(audit_result),
+            # crédito só é consumido quando a auditoria produziu evidência real
+            scan_credit_consumed=bool(response.get("success")),
+        )
+        db.add(registro)
+        db.commit()
+        db.refresh(registro)
+        return registro.id
+    except Exception as exc:
+        db.rollback()
+        # o relatório já está pronto; perder o registro não pode custar a resposta
+        print(f"[audit] falha ao persistir scan de {url}: {exc}")
+        return None

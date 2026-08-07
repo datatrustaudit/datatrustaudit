@@ -1,13 +1,13 @@
 import os
 import json
 import re
-import io
-import tempfile
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
@@ -41,7 +41,14 @@ STATIC_DIR = os.path.join(BASE_DIR, "static", "dist")  # Vite builds to dist fol
 # Storage and DB
 from db.database import engine, get_db, sync_sqlite_schema
 from db.models import Base, User, Scan, Payment
-from api import auth, payments, scans, audit
+from api import auth, payments, scans, audit, exports
+from api.auth import get_current_user, get_current_active_user, resolve_effective_plan
+from audit_engine.url_guard import validate_public_url, UnsafeURLError
+
+# Rate limiting — cada scan sobe um Chromium (sem teto, um punhado de
+# requisições simultâneas derruba o servidor por memória) e /chat gasta cota
+# paga do Gemini a cada chamada.
+from api.rate_limit import limiter, RATE_LIMIT_SCAN, RATE_LIMIT_DEEP_SCAN, RATE_LIMIT_CHAT
 
 DB_PATH = os.path.join(BASE_DIR, "db", "tags.json")
 
@@ -49,12 +56,17 @@ DB_PATH = os.path.join(BASE_DIR, "db", "tags.json")
 async def lifespan(app: FastAPI):
     # Startup
     print(" DataTrust Audit API starting...")
-    try:
-        Base.metadata.create_all(bind=engine)
-        sync_sqlite_schema()
-        print(" Database tables created via SQLAlchemy")
-    except Exception as e:
-        print(f" Could not sync DB on startup: {e}")
+    # O esquema é aplicado por migration: `alembic upgrade head`.
+    # create_all() cria tabela que falta, mas não altera tabela existente —
+    # numa base já criada, uma coluna nova simplesmente não aparecia e o erro
+    # só surgia em runtime, no primeiro INSERT.
+    if os.getenv("DB_AUTO_CREATE", "0") == "1":
+        try:
+            Base.metadata.create_all(bind=engine)
+            sync_sqlite_schema()
+            print(" [dev] Tabelas criadas via create_all (DB_AUTO_CREATE=1)")
+        except Exception as e:
+            print(f" Could not sync DB on startup: {e}")
         
     yield
     # Shutdown
@@ -68,12 +80,27 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS: allow_origins=["*"] junto de allow_credentials=True é combinação
+# proibida pela spec — o Starlette passa a refletir a origem de quem chamar,
+# ou seja, qualquer site poderia fazer requisição autenticada em nome do
+# usuário logado. A lista sai do ambiente; o front é servido pela mesma
+# origem da API, então em produção normalmente basta o domínio próprio.
+_allowed_origins = [
+    o.strip() for o in os.getenv("CORS_ALLOW_ORIGINS", "").split(",") if o.strip()
+]
+if not _allowed_origins:
+    _frontend = os.getenv("FRONTEND_URL", "").strip() or os.getenv("VITE_APP_URL", "").strip()
+    _allowed_origins = [_frontend] if _frontend else ["http://localhost:8080"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 @app.exception_handler(RequestValidationError)
@@ -156,6 +183,7 @@ app.include_router(auth.router)
 app.include_router(payments.router)
 app.include_router(scans.router)
 app.include_router(audit.router)
+app.include_router(exports.router)
 
 
 # Servir assets do frontend (Vite builda para /assets/)
@@ -169,17 +197,6 @@ async def serve_index():
         os.path.join(STATIC_DIR, "index.html"),
         headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"},
     )
-
-@app.get("/{full_path:path}")
-async def serve_spa(full_path: str):
-    """Fallback route for SPA navigation"""
-    if full_path.startswith("assets/") or full_path.startswith("api/") or full_path.startswith("docs"):
-        return JSONResponse({"error": "not found"}, status_code=404)
-    return FileResponse(
-        os.path.join(STATIC_DIR, "index.html"),
-        headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"},
-    )
-
 
 @app.get("/favicon.ico")
 async def serve_favicon():
@@ -676,19 +693,6 @@ PRIVACY_RISKS = {
         "fine_range": (2000, 10000)
     }
 }
-
-
-def load_db() -> List[Dict]:
-    if not os.path.isfile(DB_PATH):
-        with open(DB_PATH, "w") as f:
-            json.dump([], f)
-    with open(DB_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def save_db(data: List[Dict]) -> None:
-    with open(DB_PATH, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
 
 
 def detect_tags(html: str) -> List[Dict[str, Any]]:
@@ -1441,28 +1445,6 @@ def smart_fetch(url: str, timeout: int = 20) -> str:
 # ============================================================
 
 
-@app.get("/")
-def root():
-    index_path = os.path.join(STATIC_DIR, "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
-    # Fallback se não existir dist
-    return JSONResponse({
-        "status": "ok",
-        "message": "DataTrust Audit API v2.0",
-        "docs": "/docs"
-    })
-
-
-@app.get("/health")
-def health():
-    return JSONResponse({
-        "status": "healthy",
-        "version": "2.0.0",
-        "timestamp": datetime.now().isoformat()
-    })
-
-
 def plan_strip_report(report: dict, plan: str) -> None:
     """Strip report payload server-side based on plan entitlement.
     
@@ -1472,7 +1454,12 @@ def plan_strip_report(report: dict, plan: str) -> None:
     pro   → 70% tags (violation details OK), still no lineNumber / view-source data
     full  → no stripping
     """
-    if plan == "full":
+    # O nome do plano sem corte é "premium" — é o que o banco grava.
+    # A comparação era com "full", string que o banco nunca produz: o
+    # cliente premium pagante caía no corte de "pro" e recebia 70% do
+    # relatório, enquanto quem mandasse {"plan": "full"} no corpo da
+    # requisição levava tudo de graça.
+    if plan == "premium":
         return  # Premium users get everything
 
     tags = report.get("tags", [])
@@ -1520,57 +1507,67 @@ from audit_engine.scanner import PlaywrightAuditScanner
 scanner = PlaywrightAuditScanner()
 
 @app.post("/analyze")
-async def analyze_url(request: Request):
+@limiter.limit(RATE_LIMIT_SCAN)
+async def analyze_url(request: Request, current_user: Optional[User] = Depends(get_current_user)):
     try:
         data = await request.json()
-        target_url = data.get("url", "").strip()
-        plan = data.get("plan", "free")
-        
-        if not target_url:
-            return JSONResponse({"status": "error", "msg": "URL não fornecida"}, status_code=400)
-            
-        if not target_url.startswith(("http://", "https://")):
-            target_url = "https://" + target_url
-            
+        # O plano vem do banco, nunca do corpo da requisição: mandar
+        # {"plan": "full"} devolvia o relatório premium inteiro sem login.
+        plan = resolve_effective_plan(current_user)
+
+        try:
+            target_url = validate_public_url(data.get("url", ""))
+        except UnsafeURLError as e:
+            return JSONResponse({"status": "error", "msg": str(e)}, status_code=400)
+
         scan_results = await scanner.scan(target_url)
         if scan_results.get("error") and not scan_results.get("html"):
-            return JSONResponse({"status": "error", "msg": f"Fala ao carregar página: {scan_results['error']}"}, status_code=500)
-            
+            return JSONResponse({"status": "error", "msg": f"Falha ao carregar página: {scan_results['error']}"}, status_code=502)
+
         report = generate_audit_report(scan_results)
-        
+
         # Add raw metrics for premium users if needed
         report["metrics"] = {
             "consoleWarnings": len(scan_results.get("console_messages", [])),
             "networkRequests": len(scan_results.get("network_requests", []))
         }
-        
+
         # Strip details if plan is free
         plan_strip_report(report, plan)
-        
+
         return JSONResponse(report)
 
-        
+
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return JSONResponse({"status": "error", "msg": str(e)}, status_code=500)
+        # a mensagem crua expõe caminho de arquivo e estrutura interna
+        return JSONResponse({"status": "error", "msg": "Erro interno ao processar a auditoria."}, status_code=500)
         
 
+MAX_DEEP_SCAN_PAGES = 3
+
+
 @app.post("/deep-analyze")
-async def deep_analyze(request: Request):
+@limiter.limit(RATE_LIMIT_DEEP_SCAN)
+async def deep_analyze(request: Request, current_user: Optional[User] = Depends(get_current_user)):
     """Realiza auditoria em múltiplas páginas do mesmo domínio (Real Deep Scan)"""
     try:
         data = await request.json()
-        base_url = data.get("url", "").strip()
-        
-        if not base_url:
-            return JSONResponse({"status": "error", "msg": "URL não fornecida"}, status_code=400)
-            
-        if not base_url.startswith(("http://", "https://")):
-            base_url = "https://" + base_url
-            
+        plan = resolve_effective_plan(current_user)
+
+        try:
+            base_url = validate_public_url(data.get("url", ""))
+        except UnsafeURLError as e:
+            return JSONResponse({"status": "error", "msg": str(e)}, status_code=400)
+
         # 1. Auditar página inicial
         scan_results = await scanner.scan(base_url)
+        if scan_results.get("error") and not scan_results.get("html"):
+            return JSONResponse(
+                {"status": "error", "msg": f"Falha ao carregar página: {scan_results['error']}"},
+                status_code=502,
+            )
         base_report = generate_audit_report(scan_results)
         soup = BeautifulSoup(scan_results.get("html", ""), 'html.parser')
         domain = urlparse(base_url).netloc
@@ -1582,76 +1579,142 @@ async def deep_analyze(request: Request):
                 full_url = urljoin(base_url, href)
                 # Evitar âncoras e a própria base_url
                 if '#' not in full_url and full_url != base_url and full_url != base_url + '/':
-                    links.append(full_url)
+                    # só o mesmo host: urljoin com href absoluto pode sair do domínio
+                    if urlparse(full_url).netloc == domain:
+                        links.append(full_url)
         
-        # Pegar as 3 primeiras links únicos e interessantes
-        target_links = list(set(links))[:3]
-        
+        target_links = sorted(set(links))[:MAX_DEEP_SCAN_PAGES]
+
+        # As sub-páginas passam pelo mesmo scanner Playwright da página base.
+        # Antes usavam requests.get com uma variável `headers` que não existia
+        # em escopo nenhum: o NameError caía num `except:` vazio e o Deep Scan
+        # devolvia silenciosamente só a página inicial, contando como multi-página.
         sub_reports = [base_report]
+        falhas = []
         for link in target_links:
             try:
-                sub_res = requests.get(link, timeout=10, headers=headers)
-                if sub_res.status_code == 200:
-                    sub_reports.append(generate_audit_report(sub_res.text, link))
-            except:
-                continue
-                
-        # 3. Consolidar resultados
-        total_violations = sum(r["lgpdAnalysis"]["totalViolations"] for r in sub_reports)
-        avg_score = sum(r["score"] for r in sub_reports) / len(sub_reports)
+                sub_scan = await scanner.scan(link)
+                if sub_scan.get("error") and not sub_scan.get("html"):
+                    falhas.append({"url": link, "motivo": sub_scan["error"]})
+                    continue
+                sub_reports.append(generate_audit_report(sub_scan))
+            except Exception as e:
+                # nada falha em silêncio: a falha vai no retorno
+                print(f"[deep-analyze] falha ao auditar {link}: {e}")
+                falhas.append({"url": link, "motivo": str(e)})
+
+        # 3. Consolidar resultados — a chave é "privacy"; "lgpdAnalysis" nunca
+        # existiu no relatório e estourava KeyError, derrubando o endpoint inteiro.
+        total_violations = sum(
+            (r.get("privacy") or {}).get("totalViolations", 0) for r in sub_reports
+        )
+        scores = [r.get("score", 0) for r in sub_reports]
+        avg_score = sum(scores) / len(scores) if scores else 0
         all_tags = []
         for r in sub_reports:
-            all_tags.extend(r["tags"])
-            
+            all_tags.extend(r.get("tags") or [])
+
         # Remover duplicatas de tags baseadas em nome
-        unique_tags = {t["name"]: t for t in all_tags}.values()
-        
+        unique_tags = list({t.get("name"): t for t in all_tags}.values())
+
         deep_report = {
             "url": base_url,
             "timestamp": datetime.now().isoformat(),
             "pagesAudited": len(sub_reports),
-            "urls": [r["url"] for r in sub_reports],
+            "pagesFailed": falhas,
+            "urls": [r.get("url") for r in sub_reports],
             "totalViolations": total_violations,
             "averageScore": round(avg_score, 1),
             "uniqueTagsFound": len(unique_tags),
-            "consolidatedTags": list(unique_tags),
+            "consolidatedTags": unique_tags,
             "pageReports": sub_reports
         }
-        
+
+        for report in deep_report["pageReports"]:
+            plan_strip_report(report, plan)
+
         return JSONResponse({
             "status": "ok",
             "result": deep_report
         })
-        
+
     except Exception as e:
-        return JSONResponse({"status": "error", "msg": str(e)}, status_code=500)
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"status": "error", "msg": "Erro interno ao processar o deep scan."}, status_code=500)
 
 
 @app.get("/history")
-def history():
-    """Retorna histórico de auditorias"""
-    history_data = load_db()
-    return JSONResponse({
-        "history": history_data[::-1],  # Mais recentes primeiro
-        "total": len(history_data)
-    })
+def history(current_user: User = Depends(get_current_active_user), db=Depends(get_db)):
+    """Retorna o histórico de auditorias do usuário autenticado.
+
+    Antes lia db/tags.json — um arquivo global, sem dono e sem autenticação,
+    que nenhum endpoint jamais escrevia (save_db só era chamado com lista
+    vazia no DELETE). Ou seja: devolvia [] para todo mundo, e o
+    AuditComparator do frontend ficava permanentemente vazio.
+    O histórico real sempre esteve na tabela `scans`.
+    """
+    scans = (
+        db.query(Scan)
+        .filter(Scan.user_id == current_user.id)
+        .order_by(Scan.created_at.desc())
+        .limit(100)
+        .all()
+    )
+
+    itens = []
+    for s in scans:
+        raw = s.raw_data or {}
+        privacy = raw.get("privacy") or {}
+        itens.append({
+            "id": s.id,
+            "url": s.url,
+            "timestamp": s.created_at.isoformat() if s.created_at else None,
+            "status": s.status,
+            "score": s.score,
+            # chave mantida para compatibilidade com o AuditComparator já buildado
+            "lgpdAnalysis": {
+                "complianceScore": privacy.get("compliance_score", s.score or 0),
+                "totalViolations": privacy.get("total_violations", 0),
+            },
+            "detectedTags": raw.get("tags") or [],
+        })
+
+    return JSONResponse({"history": itens, "total": len(itens)})
 
 
 @app.delete("/history")
-def clear_history():
-    """Limpa histórico de auditorias"""
-    save_db([])
+def clear_history(current_user: User = Depends(get_current_active_user), db=Depends(get_db)):
+    """Limpa o histórico do próprio usuário.
+
+    Era público: qualquer `curl -X DELETE /history` zerava o arquivo global.
+    """
+    apagados = db.query(Scan).filter(Scan.user_id == current_user.id).delete()
+    db.commit()
     return JSONResponse({
         "status": "ok",
-        "message": "Histórico limpo"
+        "message": f"{apagados} auditoria(s) removida(s) do histórico."
     })
 
 
 @app.get("/lgpd-info")
 def lgpd_info():
-    """Retorna informações sobre artigos LGPD"""
+    """Retorna informações sobre artigos LGPD
+
+    Referenciava LGPD_ARTICLES, nome que nunca existiu no módulo — um
+    NameError garantido. Nunca apareceu porque o catch-all "/{full_path:path}"
+    era declarado antes e engolia a rota: ela devolvia o index.html e o erro
+    ficava latente. A estrutura de verdade é PRIVACY_RISKS.
+    """
     return JSONResponse({
-        "articles": LGPD_ARTICLES,
+        "articles": {
+            chave: {
+                "article": risco["article"],
+                "description": risco["description"],
+                "fine_range": list(risco["fine_range"]),
+            }
+            for chave, risco in PRIVACY_RISKS.items()
+        },
         "patterns": {k: {
             "name": v["name"],
             "type": v["type"],
@@ -1660,242 +1723,27 @@ def lgpd_info():
     })
 
 
-# ============================================================
-# EXPORT ENDPOINTS - PDF e Excel
-# ============================================================
-
-@app.post("/export/pdf")
-async def export_pdf(request: Request):
-    """Gera relatório PDF profissional da auditoria"""
-    try:
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib import colors
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-        from reportlab.lib.units import cm
-        
-        data = await request.json()
-        audit_result = data.get("result", {})
-        
-        if not audit_result:
-            return JSONResponse({"status": "error", "msg": "Dados de auditoria não fornecidos"}, status_code=400)
-        
-        # Criar PDF em memória
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=2*cm, bottomMargin=2*cm)
-        elements = []
-        styles = getSampleStyleSheet()
-        
-        # Estilo personalizado
-        title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=24, textColor=colors.HexColor('#1e40af'), spaceAfter=20)
-        subtitle_style = ParagraphStyle('CustomSubtitle', parent=styles['Heading2'], fontSize=14, textColor=colors.HexColor('#475569'), spaceAfter=10)
-        normal_style = ParagraphStyle('CustomNormal', parent=styles['Normal'], fontSize=10, spaceAfter=8)
-        
-        # Cabeçalho
-        elements.append(Paragraph("DataTrust Audit - Relatório de Auditoria", title_style))
-        elements.append(Paragraph(f"URL: {audit_result.get('url', 'N/A')}", subtitle_style))
-        elements.append(Paragraph(f"Data: {audit_result.get('timestamp', datetime.now().isoformat())[:10]}", normal_style))
-        elements.append(Spacer(1, 20))
-        
-        # Score
-        score = audit_result.get('score', 0)
-        score_color = colors.green if score >= 70 else colors.orange if score >= 40 else colors.red
-        elements.append(Paragraph(f"<b>Score de Conformidade LGPD:</b> <font color='{score_color}'>{score}%</font>", styles['Heading2']))
-        elements.append(Spacer(1, 15))
-        
-        # Resumo
-        summary = audit_result.get('summary', {})
-        elements.append(Paragraph("<b>Resumo da Auditoria</b>", styles['Heading2']))
-        summary_data = [
-            ["Total de Tags", str(summary.get('totalTags', 0))],
-            ["CMP Detectado", "Sim" if summary.get('consentDetected') else "Não"],
-            ["Consent Mode v2", "Sim" if summary.get('consentModeV2') else "Não"],
-            ["Violações LGPD", str(summary.get('violationsCount', 0))],
-            ["Multa Estimada", summary.get('estimatedFine', 'R$ 0')]
-        ]
-        summary_table = Table(summary_data, colWidths=[8*cm, 8*cm])
-        summary_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#f1f5f9')),
-            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
-            ('PADDING', (0, 0), (-1, -1), 8),
-        ]))
-        elements.append(summary_table)
-        elements.append(Spacer(1, 20))
-        
-        # Tags detectadas
-        tags = audit_result.get('tags', [])
-        if tags:
-            elements.append(Paragraph("<b>Tags Detectadas</b>", styles['Heading2']))
-            tag_data = [["Tag", "Tipo", "Risco LGPD", "Linha"]]
-            for tag in tags[:15]:  # Limitar a 15 tags
-                tag_data.append([
-                    tag.get('name', 'N/A'),
-                    tag.get('type', 'N/A'),
-                    tag.get('lgpdRisk', 'N/A'),
-                    str(tag.get('lineNumber', 'N/A'))
-                ])
-            tag_table = Table(tag_data, colWidths=[6*cm, 4*cm, 3*cm, 3*cm])
-            tag_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1e40af')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
-                ('PADDING', (0, 0), (-1, -1), 6),
-                ('FONTSIZE', (0, 0), (-1, -1), 9),
-            ]))
-            elements.append(tag_table)
-            elements.append(Spacer(1, 20))
-        
-        # Violações LGPD
-        violations = audit_result.get('lgpdAnalysis', {}).get('violations', [])
-        if violations:
-            elements.append(Paragraph("<b>Violações LGPD Detectadas</b>", styles['Heading2']))
-            for v in violations[:10]:  # Limitar a 10 violações
-                elements.append(Paragraph(f"• <b>{v.get('tag', 'N/A')}</b> - {v.get('violation', 'N/A')}", normal_style))
-                elements.append(Paragraph(f"  Artigo: {v.get('article', 'N/A')} | Multa: {v.get('estimatedFine', 'N/A')}", 
-                    ParagraphStyle('Small', parent=normal_style, fontSize=9, textColor=colors.HexColor('#64748b'))))
-        
-        # Rodapé
-        elements.append(Spacer(1, 30))
-        elements.append(Paragraph("Relatório gerado por DataTrust Audit v2.0", 
-            ParagraphStyle('Footer', parent=normal_style, fontSize=8, textColor=colors.HexColor('#94a3b8'))))
-        
-        doc.build(elements)
-        buffer.seek(0)
-        
-        filename = f"gtm-audit-{audit_result.get('url', 'unknown').replace('https://', '').replace('/', '_')[:30]}.pdf"
-        
-        return StreamingResponse(
-            buffer,
-            media_type="application/pdf",
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
-        )
-        
-    except Exception as e:
-        print(f"❌ Erro ao gerar PDF: {e}")
-        return JSONResponse({"status": "error", "msg": str(e)}, status_code=500)
-
-
-@app.post("/export/excel")
-async def export_excel(request: Request):
-    """Gera relatório Excel detalhado da auditoria"""
-    try:
-        from openpyxl import Workbook
-        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-        from openpyxl.utils import get_column_letter
-        
-        data = await request.json()
-        audit_result = data.get("result", {})
-        
-        if not audit_result:
-            return JSONResponse({"status": "error", "msg": "Dados de auditoria não fornecidos"}, status_code=400)
-        
-        wb = Workbook()
-        
-        # ===== Aba: Resumo =====
-        ws_summary = wb.active
-        ws_summary.title = "Resumo"
-        
-        # Estilos
-        header_fill = PatternFill(start_color="1e40af", end_color="1e40af", fill_type="solid")
-        header_font = Font(color="FFFFFF", bold=True)
-        thin_border = Border(
-            left=Side(style='thin'), right=Side(style='thin'),
-            top=Side(style='thin'), bottom=Side(style='thin')
-        )
-        
-        # Título
-        ws_summary['A1'] = "DataTrust Audit - Relatório de Auditoria"
-        ws_summary['A1'].font = Font(size=18, bold=True, color="1e40af")
-        ws_summary.merge_cells('A1:D1')
-        
-        ws_summary['A3'] = "URL:"
-        ws_summary['B3'] = audit_result.get('url', 'N/A')
-        ws_summary['A4'] = "Data:"
-        ws_summary['B4'] = audit_result.get('timestamp', '')[:10]
-        ws_summary['A5'] = "Score LGPD:"
-        ws_summary['B5'] = f"{audit_result.get('score', 0)}%"
-        
-        summary = audit_result.get('summary', {})
-        ws_summary['A7'] = "Total de Tags:"
-        ws_summary['B7'] = summary.get('totalTags', 0)
-        ws_summary['A8'] = "CMP Detectado:"
-        ws_summary['B8'] = "Sim" if summary.get('consentDetected') else "Não"
-        ws_summary['A9'] = "Consent Mode v2:"
-        ws_summary['B9'] = "Sim" if summary.get('consentModeV2') else "Não"
-        ws_summary['A10'] = "Total Violações:"
-        ws_summary['B10'] = summary.get('violationsCount', 0)
-        ws_summary['A11'] = "Multa Estimada:"
-        ws_summary['B11'] = summary.get('estimatedFine', 'R$ 0')
-        
-        # ===== Aba: Tags =====
-        ws_tags = wb.create_sheet("Tags Detectadas")
-        headers = ["Nome", "Tipo", "Risco LGPD", "Linha", "ID Detectado", "Antes do Consentimento"]
-        for col, header in enumerate(headers, 1):
-            cell = ws_tags.cell(row=1, column=col, value=header)
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.border = thin_border
-        
-        tags = audit_result.get('tags', [])
-        for row, tag in enumerate(tags, 2):
-            ws_tags.cell(row=row, column=1, value=tag.get('name', '')).border = thin_border
-            ws_tags.cell(row=row, column=2, value=tag.get('type', '')).border = thin_border
-            ws_tags.cell(row=row, column=3, value=tag.get('lgpdRisk', '')).border = thin_border
-            ws_tags.cell(row=row, column=4, value=tag.get('lineNumber', '')).border = thin_border
-            ws_tags.cell(row=row, column=5, value=tag.get('tagId', '')).border = thin_border
-            ws_tags.cell(row=row, column=6, value="Sim" if tag.get('isBeforeConsent') else "Não").border = thin_border
-        
-        # Ajustar largura das colunas
-        for col in range(1, 7):
-            ws_tags.column_dimensions[get_column_letter(col)].width = 20
-        
-        # ===== Aba: Violações =====
-        ws_violations = wb.create_sheet("Violações LGPD")
-        v_headers = ["Tag", "Violação", "Artigo LGPD", "Severidade", "Multa Estimada"]
-        for col, header in enumerate(v_headers, 1):
-            cell = ws_violations.cell(row=1, column=col, value=header)
-            cell.fill = PatternFill(start_color="dc2626", end_color="dc2626", fill_type="solid")
-            cell.font = header_font
-            cell.border = thin_border
-        
-        violations = audit_result.get('lgpdAnalysis', {}).get('violations', [])
-        for row, v in enumerate(violations, 2):
-            ws_violations.cell(row=row, column=1, value=v.get('tag', '')).border = thin_border
-            ws_violations.cell(row=row, column=2, value=v.get('violation', '')).border = thin_border
-            ws_violations.cell(row=row, column=3, value=v.get('article', '')).border = thin_border
-            ws_violations.cell(row=row, column=4, value=v.get('severity', '')).border = thin_border
-            ws_violations.cell(row=row, column=5, value=v.get('estimatedFine', '')).border = thin_border
-        
-        for col in range(1, 6):
-            ws_violations.column_dimensions[get_column_letter(col)].width = 25
-        
-        # Salvar em memória
-        buffer = io.BytesIO()
-        wb.save(buffer)
-        buffer.seek(0)
-        
-        filename = f"gtm-audit-{audit_result.get('url', 'unknown').replace('https://', '').replace('/', '_')[:30]}.xlsx"
-        
-        return StreamingResponse(
-            buffer,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
-        )
-        
-    except Exception as e:
-        print(f"❌ Erro ao gerar Excel: {e}")
-        return JSONResponse({"status": "error", "msg": str(e)}, status_code=500)
+MAX_CHAT_MESSAGE_CHARS = 2000
 
 
 @app.post("/chat")
-async def chat(request: Request):
-    """Chat endpoint com Gemini AI como orquestrador inteligente"""
+@limiter.limit(RATE_LIMIT_CHAT)
+async def chat(request: Request, current_user: Optional[User] = Depends(get_current_user)):
+    """Chat endpoint com Gemini AI como orquestrador inteligente
+
+    Rota pública por produto (o visitante conversa sobre a auditoria grátis),
+    mas cada chamada consome cota paga do Gemini — sem teto por IP e sem limite
+    de tamanho, qualquer um usava a GOOGLE_API_KEY como LLM de graça na
+    fatura da casa.
+    """
     try:
         data = await request.json()
-        message = data.get("message", "")
+        message = (data.get("message") or "")[:MAX_CHAT_MESSAGE_CHARS]
         context = data.get("context", {})
+        if not isinstance(context, dict):
+            context = {}
+        if not message.strip():
+            return JSONResponse({"status": "error", "msg": "Mensagem vazia."}, status_code=400)
         
         # Se Gemini está configurado, usa IA
         if gemini_client:
@@ -2072,6 +1920,26 @@ Posso ajudar com:
 
 O que você gostaria de saber?"""
 
+
+
+# ============================================================
+# SPA FALLBACK — TEM QUE SER A ÚLTIMA ROTA DO ARQUIVO
+# ============================================================
+# Starlette resolve rotas na ordem de registro: a primeira que casa vence.
+# Como "/{full_path:path}" casa com qualquer GET, registrá-la antes de
+# /history, /lgpd-info, /favicon.ico e /robots.txt engolia todas elas — e
+# escondeu por meses o NameError de LGPD_ARTICLES em /lgpd-info.
+# Não declare nenhum @app.get abaixo daqui.
+
+@app.get("/{full_path:path}")
+async def serve_spa(full_path: str):
+    """Fallback route for SPA navigation"""
+    if full_path.startswith("assets/") or full_path.startswith("api/") or full_path.startswith("docs"):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return FileResponse(
+        os.path.join(STATIC_DIR, "index.html"),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"},
+    )
 
 if __name__ == "__main__":
     import uvicorn

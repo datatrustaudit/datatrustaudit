@@ -3,24 +3,68 @@ from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from pydantic import BaseModel, EmailStr
 
+from api.rate_limit import limiter, RATE_LIMIT_LOGIN, RATE_LIMIT_REGISTER
 from db.database import get_db
-from db.models import User
+from db.models import User, utcnow
 
 # Configuration
-SECRET_KEY = os.getenv("SECRET_KEY", "super-secret-key-change-in-production")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 7 days
+# Sem valor padrão de propósito: com o fallback anterior
+# ("super-secret-key-change-in-production"), qualquer deploy que subisse sem a
+# variável definida usava uma chave pública — e quem a conhecesse assinava um
+# JWT válido para qualquer e-mail, virando qualquer usuário do sistema.
+# Falhar no boot é melhor do que subir autenticação de mentira.
+SECRET_KEY = os.getenv("SECRET_KEY", "").strip()
+MIN_SECRET_KEY_LENGTH = 32
+
+if not SECRET_KEY:
+    raise RuntimeError(
+        "SECRET_KEY não definida. Gere uma com: python -c \"import secrets; print(secrets.token_urlsafe(48))\" "
+        "e coloque no .env antes de subir a aplicação."
+    )
+if len(SECRET_KEY) < MIN_SECRET_KEY_LENGTH:
+    raise RuntimeError(
+        f"SECRET_KEY curta demais ({len(SECRET_KEY)} caracteres; mínimo {MIN_SECRET_KEY_LENGTH})."
+    )
+
+ALGORITHM = os.getenv("ALGORITHM", "HS256")
+# Estava fixo em 7 dias no código, ignorando a variável de mesmo nome no .env.
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", str(60 * 24)))
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
+
+MIN_PASSWORD_LENGTH = 8
+MAX_PASSWORD_LENGTH = 128  # bcrypt trunca em 72 bytes; acima disso é só custo de CPU
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/token", auto_error=False)
+
+# Hash descartável para gastar o mesmo tempo quando o e-mail não existe: sem
+# isso, login de e-mail inexistente responde na hora e o de e-mail real só
+# depois de um bcrypt — a diferença revela quem tem conta.
+_DUMMY_HASH = pwd_context.hash("timing-attack-placeholder")
+
+VALID_PLANS = {"free", "pro", "premium"}
+
+
+def resolve_effective_plan(current_user: Optional[User]) -> str:
+    """Plano válido para esta requisição — decidido só pelo banco.
+
+    Nunca aceita o plano vindo do corpo da requisição. Antes, tanto /analyze
+    quanto /api/audit usavam o campo `plan` do cliente quando não havia usuário
+    logado: mandar {"plan": "premium"} (ou "full" em /analyze) devolvia o
+    relatório pago inteiro, sem login e sem pagamento.
+    """
+    if current_user is None:
+        return "free"
+    plan = getattr(current_user, "plan", None)
+    return plan if plan in VALID_PLANS else "free"
+
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -70,9 +114,9 @@ def get_password_hash(password):
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = utcnow() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
+        expire = utcnow() + timedelta(minutes=15)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -158,14 +202,26 @@ def _get_scans_limit(user: User) -> int:
         return -1
     return WEEKLY_SCAN_LIMITS.get(user.plan, 10)
 
-def _serialize_user(user: User) -> dict:
-    """Build user response dict with admin fields."""
+def _serialize_user(user: User, db: Optional[Session] = None) -> dict:
+    """Build user response dict with admin fields.
+
+    Com `db`, `scans_used` vem da contagem real da tabela `scans` — a mesma
+    fonte que o limite usa. Sem isso, o valor vinha de
+    Subscription.weekly_scan_count, campo que nenhum fluxo incrementa: o painel
+    mostrava 0 auditorias usadas enquanto o usuário já levava 403 por limite.
+    """
+    if db is not None:
+        from api.scans import contar_scans_da_semana
+        scans_used = contar_scans_da_semana(db, user.id)
+    else:
+        scans_used = user.scans_used
+
     return {
         "id": user.id,
         "email": user.email,
         "name": user.name,
         "plan": user.plan,
-        "scans_used": user.scans_used,
+        "scans_used": scans_used,
         "is_admin": bool(user.is_admin),
         "subscription_status": user.subscription_status or "inactive",
         "effective_plan": user.effective_plan,
@@ -175,21 +231,30 @@ def _serialize_user(user: User) -> dict:
 # --- Routes ---
 
 @router.post("/register", response_model=Token)
-def register_user(user: UserCreate, db: Session = Depends(get_db)):
+@limiter.limit(RATE_LIMIT_REGISTER)
+def register_user(request: Request, user: UserCreate, db: Session = Depends(get_db)):
     if not user.name or not user.name.strip():
         return auth_error("Verifique seus dados e tente novamente.", "NAME_REQUIRED", 422)
 
-    if len(user.password or "") < 6:
-        return auth_error("Verifique seus dados e tente novamente.", "PASSWORD_TOO_SHORT", 422)
+    if len(user.password or "") < MIN_PASSWORD_LENGTH:
+        return auth_error(
+            f"A senha precisa ter pelo menos {MIN_PASSWORD_LENGTH} caracteres.",
+            "PASSWORD_TOO_SHORT", 422,
+        )
+    if len(user.password or "") > MAX_PASSWORD_LENGTH:
+        return auth_error("Senha longa demais.", "PASSWORD_TOO_LONG", 422)
 
     try:
-        db_user = db.query(User).filter(User.email == user.email).first()
+        # e-mail normalizado: sem isso, Ale@x.com e ale@x.com viram duas contas
+        # e o login por uma delas não encontra a outra.
+        email = user.email.strip().lower()
+        db_user = db.query(User).filter(User.email == email).first()
         if db_user:
             return auth_error("Este e-mail já pode estar cadastrado.", "EMAIL_ALREADY_REGISTERED", 409)
 
         hashed_password = get_password_hash(user.password)
         new_user = User(
-            email=user.email,
+            email=email,
             hashed_password=hashed_password,
             name=user.name.strip(),
             plan="free"
@@ -214,9 +279,17 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
         return auth_error("Não foi possível criar sua conta. Tente novamente.", "SIGNUP_FAILED", 500)
 
 @router.post("/token", response_model=Token)
-def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
+@limiter.limit(RATE_LIMIT_LOGIN)
+def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == form_data.username.strip().lower()).first()
+
+    # Verifica a senha mesmo sem usuário, contra um hash descartável, para que
+    # e-mail existente e inexistente levem o mesmo tempo de resposta.
+    senha_confere = verify_password(
+        form_data.password, user.hashed_password if user else _DUMMY_HASH
+    )
+
+    if not user or not senha_confere:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -229,5 +302,8 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
     return {"access_token": access_token, "token_type": "bearer"}
 
 @router.get("/me")
-def read_users_me(current_user: User = Depends(get_current_active_user)):
-    return _serialize_user(current_user)
+def read_users_me(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    return _serialize_user(current_user, db)
