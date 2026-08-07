@@ -179,10 +179,23 @@ def analyze_privacy(
                 "advertising_tracker" if tag.type == "advertising" else "tracking_before_consent"
             )
             r = _RISK_TABLE.get(risk_key, _RISK_TABLE["tracking_before_consent"])
+            # Sem CMP não existe "antes do consentimento": não há consentimento
+            # nenhum. Dizer "carregou antes do sinal" nesse caso confunde o
+            # leitor do laudo e subestima a gravidade.
+            if has_consent_tool:
+                descricao_violacao = (
+                    f"Observed loading before consent signal (line {tag.line_number or 'unknown'}). "
+                    f"Observed technical behaviour — potential {law} non-compliance pattern."
+                )
+            else:
+                descricao_violacao = (
+                    f"Tracking active with no consent mechanism on the page "
+                    f"(line {tag.line_number or 'unknown'}). Data is collected before the user "
+                    f"has any opportunity to agree — {law} requires a legal basis prior to collection."
+                )
             violations.append(PrivacyViolation(
                 tag=tag.name,
-                violation=f"Observed loading before consent signal (line {tag.line_number or 'unknown'}). "
-                          f"Observed technical behaviour — potential {law} non-compliance pattern.",
+                violation=descricao_violacao,
                 article=r["article"],
                 description=r["description"],
                 severity=tag.privacy_risk,

@@ -65,7 +65,7 @@ VENDOR_CATALOG = {
         "type": "advertising",
         "privacy_risk": "critical",
         "data_collected": ["Browser fingerprint", "Purchase behaviour", "Cross-site remarketing"],
-        "url_patterns": [r"connect\.facebook\.net.*fbevents\.js"],
+        "url_patterns": [r"connect\.facebook\.net.*fbevents\.js", r"facebook\.com/tr"],
         "source_patterns": [r"fbq\s*\(\s*['\"]init['\"]", r"facebook\.net/en_US/fbevents"],
         "id_pattern": r"fbq\s*\(\s*['\"]init['\"][\s\S]*?['\"](\d{15,16})['\"]",
     },
@@ -75,7 +75,7 @@ VENDOR_CATALOG = {
         "type": "advertising",
         "privacy_risk": "high",
         "data_collected": ["Conversions", "Remarketing data", "Custom audiences"],
-        "url_patterns": [r"googleads\.g\.doubleclick\.net"],
+        "url_patterns": [r"googleads\.g\.doubleclick\.net", r"googleadservices\.com", r"google\.com/pagead"],
         "source_patterns": [r"AW-\d{9,11}", r"gtag\s*\(\s*['\"]event['\"][\s\S]*?['\"]conversion['\"]"],
         "id_pattern": r"AW-\d{9,11}",
     },
@@ -95,7 +95,7 @@ VENDOR_CATALOG = {
         "type": "heatmap",
         "privacy_risk": "critical",
         "data_collected": ["Session recordings", "Heatmaps", "Form data"],
-        "url_patterns": [r"static\.hotjar\.com"],
+        "url_patterns": [r"static\.hotjar\.com", r"vars\.hotjar\.com", r"insights\.hotjar\.com"],
         "source_patterns": [r"hjid\s*:", r"hj\s*\(\s*['\"]trigger['\"]", r"hotjar\.com"],
         "id_pattern": r"hjid\s*:\s*(\d{5,})",
     },
@@ -105,7 +105,7 @@ VENDOR_CATALOG = {
         "type": "heatmap",
         "privacy_risk": "high",
         "data_collected": ["Session recordings", "Click maps", "Scroll depth"],
-        "url_patterns": [r"clarity\.ms/tag"],
+        "url_patterns": [r"clarity\.ms/tag", r"clarity\.ms/collect"],
         "source_patterns": [r"clarity\s*\(\s*['\"]set['\"]", r"clarity\.ms"],
         "id_pattern": r"clarity\s*\(\s*['\"]set['\"][\s\S]*?['\"]([a-z0-9]{10,})['\"]",
     },
@@ -115,7 +115,7 @@ VENDOR_CATALOG = {
         "type": "advertising",
         "privacy_risk": "critical",
         "data_collected": ["Conversion events", "Remarketing", "Audiences"],
-        "url_patterns": [r"analytics\.tiktok\.com"],
+        "url_patterns": [r"analytics\.tiktok\.com", r"analytics\.tiktok\.com/api"],
         "source_patterns": [r"ttq\.track", r"ttq\.identify", r"ttq\.load"],
         "id_pattern": None,
     },
@@ -125,7 +125,7 @@ VENDOR_CATALOG = {
         "type": "advertising",
         "privacy_risk": "high",
         "data_collected": ["B2B conversions", "Professional remarketing"],
-        "url_patterns": [r"snap\.licdn\.com", r"linkedin\.com/px"],
+        "url_patterns": [r"snap\.licdn\.com", r"linkedin\.com/px", r"px\.ads\.linkedin\.com"],
         "source_patterns": [r"_linkedin_partner_id"],
         "id_pattern": r"_linkedin_partner_id\s*=\s*['\"]?(\d+)",
     },
@@ -135,7 +135,7 @@ VENDOR_CATALOG = {
         "type": "advertising",
         "privacy_risk": "high",
         "data_collected": ["Conversions", "Remarketing", "Interest audiences"],
-        "url_patterns": [r"s\.pinimg\.com/ct/core\.js"],
+        "url_patterns": [r"s\.pinimg\.com/ct/core\.js", r"ct\.pinterest\.com"],
         "source_patterns": [r"pintrk\s*\(", r"pinterest\.com/ct/"],
         "id_pattern": None,
     },
@@ -145,7 +145,7 @@ VENDOR_CATALOG = {
         "type": "advertising",
         "privacy_risk": "high",
         "data_collected": ["Conversions", "Tailored audiences", "Remarketing"],
-        "url_patterns": [r"static\.ads-twitter\.com"],
+        "url_patterns": [r"static\.ads-twitter\.com", r"t\.co/i/adsct", r"analytics\.twitter\.com"],
         "source_patterns": [r"twq\s*\(", r"twitter\.com/i/adsct"],
         "id_pattern": None,
     },
@@ -155,7 +155,7 @@ VENDOR_CATALOG = {
         "type": "advertising",
         "privacy_risk": "high",
         "data_collected": ["Conversions", "Remarketing", "Snapchat audiences"],
-        "url_patterns": [r"sc-static\.net/scevent\.min\.js"],
+        "url_patterns": [r"sc-static\.net/scevent\.min\.js", r"tr\.snapchat\.com"],
         "source_patterns": [r"snaptr\s*\(", r"tr\.snapchat\.com"],
         "id_pattern": None,
     },
@@ -165,8 +165,8 @@ VENDOR_CATALOG = {
         "type": "analytics",
         "privacy_risk": "high",
         "data_collected": ["Custom events", "User identity", "Navigation properties"],
-        "url_patterns": [r"cdn\.segment\.com"],
-        "source_patterns": [r"analytics\.identify\s*\(", r"analytics\.track\s*\("],
+        "url_patterns": [r"cdn\.segment\.com", r"api\.segment\.io"],
+        "source_patterns": [r"analytics\.identify\s*\(", r"analytics\.track\s*\(", r"analytics\.load\s*\(", r"analytics\.page\s*\("],
         "id_pattern": None,
     },
     "amplitude": {
@@ -175,7 +175,7 @@ VENDOR_CATALOG = {
         "type": "analytics",
         "privacy_risk": "high",
         "data_collected": ["Product events", "Cohorts", "User journey"],
-        "url_patterns": [r"cdn\.amplitude\.com"],
+        "url_patterns": [r"cdn\.amplitude\.com", r"api\.amplitude\.com", r"api2\.amplitude\.com"],
         "source_patterns": [r"amplitude\.getInstance", r"amplitude\.logEvent"],
         "id_pattern": None,
     },
@@ -185,7 +185,7 @@ VENDOR_CATALOG = {
         "type": "analytics",
         "privacy_risk": "high",
         "data_collected": ["Product events", "User profile", "Funnels"],
-        "url_patterns": [r"cdn\.mxpnl\.com"],
+        "url_patterns": [r"cdn\.mxpnl\.com", r"api\.mixpanel\.com"],
         "source_patterns": [r"mixpanel\.init\s*\(", r"mixpanel\.track\s*\("],
         "id_pattern": None,
     },
@@ -335,8 +335,18 @@ VENDOR_CATALOG = {
         "type": "advertising",
         "privacy_risk": "critical",
         "data_collected": ["Retargeting", "Purchase behaviour", "Products viewed"],
-        "url_patterns": [r"static\.criteo\.net", r"criteo\.com"],
+        "url_patterns": [r"static\.criteo\.net", r"criteo\.com", r"sslwidget\.criteo\.com", r"dis\.criteo\.com"],
         "source_patterns": [r"criteo_q\.push", r"Criteo\.events"],
+        "id_pattern": None,
+    },
+    "rd_station": {
+        "name": "RD Station",
+        "vendor": "RD Station",
+        "type": "marketing",
+        "privacy_risk": "high",
+        "data_collected": ["Lead identification", "Email", "Navigation behaviour", "Conversion forms"],
+        "url_patterns": [r"d335luupugsy2\.cloudfront\.net", r"rdstation\.com\.br", r"rd-station"],
+        "source_patterns": [r"RDStationForms", r"rdstation", r"_rdsts"],
         "id_pattern": None,
     },
     "klaviyo": {
@@ -426,12 +436,22 @@ def detect_tags(html: str, scan=None) -> List[TagFinding]:
     html_lines = html.split("\n")
 
     # Collect all external script src attributes
+    # A busca avança o offset a cada script: com re.search a partir do início,
+    # dois <script> de mesmo src recebiam a MESMA posição — o relatório
+    # apontava sempre a primeira linha, e o mesmo snippet colado duas vezes
+    # (que carrega a tag duas vezes) era contado como uma instalação só.
     script_srcs: List[tuple] = []  # (src, position_in_html, line_number)
+    _offset_por_src: dict = {}
     for script in soup.find_all("script", src=True):
         src = script.get("src", "")
         escaped = re.escape(src[:50])
-        m = re.search(escaped, html)
-        pos = m.start() if m else 0
+        inicio = _offset_por_src.get(src, 0)
+        m = re.search(escaped, html[inicio:]) if inicio < len(html) else None
+        if m:
+            pos = inicio + m.start()
+            _offset_por_src[src] = pos + max(1, len(src[:50]))
+        else:
+            pos = 0
         line = _find_line_number(html, pos)
         script_srcs.append((src, pos, line))
 
@@ -449,13 +469,23 @@ def detect_tags(html: str, scan=None) -> List[TagFinding]:
         best_line = None
         best_block = None
         best_pattern_matched = None
-        occurrence_count = 0
+        # Instalações distintas, não número de padrões que casaram. Somar os
+        # três níveis contava a MESMA tag várias vezes: o snippet padrão do GA4
+        # casa por URL do script e por padrão no código, o que dava
+        # occurrence_count=2 para uma única instalação correta — e o
+        # duplicate_detector acusava "GA4 duplicado, consolide" num site que
+        # não tinha duplicata nenhuma.
+        # Conta elementos <script> distintos do HTML — por posição, não por URL:
+        # o mesmo snippet colado duas vezes carrega a tag duas vezes e é
+        # duplicata de verdade.
+        posicoes_de_script = set()
+        ids_distintos = set()    # IDs de conta distintos no HTML (G-…, GTM-…, AW-…)
 
         # ── 1. URL-based detection (HIGH confidence) ─────────────────────────
         for url_pat in vendor.get("url_patterns", []):
             for src, pos, line in script_srcs:
                 if re.search(url_pat, src, re.IGNORECASE):
-                    occurrence_count += 1
+                    posicoes_de_script.add((src, pos))
                     if best_confidence != CONFIDENCE_HIGH:
                         best_confidence = CONFIDENCE_HIGH
                         best_method = DETECT_SCRIPT_URL
@@ -471,7 +501,6 @@ def detect_tags(html: str, scan=None) -> List[TagFinding]:
                 for m in matches:
                     pos = m.start()
                     line = _find_line_number(html, pos)
-                    occurrence_count += 1
                     if best_confidence is None:
                         best_confidence = CONFIDENCE_MEDIUM
                         best_method = DETECT_SOURCE
@@ -485,8 +514,9 @@ def detect_tags(html: str, scan=None) -> List[TagFinding]:
             for req in scan.intercepted_requests:
                 for url_pat in vendor.get("url_patterns", []):
                     if re.search(url_pat, req.url, re.IGNORECASE):
-                        occurrence_count += 1
-                        # Network = conclusive proof the tag fired — always HIGH
+                        # A rede prova que a tag disparou, mas NÃO é uma
+                        # instalação a mais: uma única tag gera dezenas de
+                        # requisições. Contá-las inflava a duplicata.
                         best_confidence = CONFIDENCE_HIGH
                         best_method = DETECT_NETWORK
                         if not best_pattern_matched:
@@ -497,11 +527,31 @@ def detect_tags(html: str, scan=None) -> List[TagFinding]:
         if best_confidence is None:
             continue
 
-        # Deduplicate occurrence_count
-        occurrence_count = max(1, occurrence_count // 2 if occurrence_count > 2 else occurrence_count)
-
         # Extract tag ID from HTML
         tag_id = _extract_id(html, vendor.get("id_pattern"))
+
+        # Quantas contas distintas deste vendor aparecem na página. Dois IDs
+        # diferentes (dois G-…) são duplicata de verdade; o mesmo ID repetido
+        # no src e no gtag('config') é uma instalação só.
+        id_pattern = vendor.get("id_pattern")
+        if id_pattern:
+            ids_distintos = {m.group(0) for m in re.finditer(id_pattern, html, re.IGNORECASE)}
+
+        # Se a tag foi vista só pela rede, o ID está na URL da requisição — era
+        # procurado apenas no HTML, e o relatório saía sem dizer qual conta.
+        if not tag_id and id_pattern and scan and hasattr(scan, "intercepted_requests"):
+            for req in scan.intercepted_requests:
+                for url_pat in vendor.get("url_patterns", []):
+                    if re.search(url_pat, req.url, re.IGNORECASE):
+                        achado = re.search(id_pattern, req.url, re.IGNORECASE)
+                        if achado:
+                            tag_id = achado.group(0)
+                            ids_distintos.add(tag_id)
+                        break
+                if tag_id:
+                    break
+
+        occurrence_count = max(len(posicoes_de_script), len(ids_distintos), 1)
 
         finding = TagFinding(
             id=vendor_id,

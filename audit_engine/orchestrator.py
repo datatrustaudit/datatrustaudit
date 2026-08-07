@@ -92,8 +92,46 @@ def _build_data_quality_notes(
     return notes
 
 
-def _find_tags_before_consent(html: str, tags: List[TagFinding]) -> List[TagFinding]:
-    """Identify tags that appear BEFORE the first CMP signal in the HTML source."""
+TIPOS_QUE_EXIGEM_CONSENTIMENTO = ("analytics", "advertising", "heatmap", "marketing")
+
+
+def _disparou_durante_o_scan(tag: TagFinding, scan) -> bool:
+    """A tag chegou a fazer requisição de rede durante a varredura?
+
+    O scanner nunca clica em "aceitar". Então qualquer requisição a um endpoint
+    de rastreamento observada durante a visita é prova de que a tag disparou
+    sem consentimento — independente de existir banner na página.
+    """
+    import re
+    from .tag_detector import VENDOR_CATALOG
+
+    requisicoes = getattr(scan, "intercepted_requests", None) or []
+    if not requisicoes:
+        return False
+
+    padroes = (VENDOR_CATALOG.get(tag.id) or {}).get("url_patterns") or []
+    for req in requisicoes:
+        url = getattr(req, "url", "") or ""
+        for padrao in padroes:
+            if re.search(padrao, url, re.IGNORECASE):
+                return True
+    return False
+
+
+def _find_tags_before_consent(html: str, tags: List[TagFinding], scan=None) -> List[TagFinding]:
+    """Tags que rodam sem consentimento válido.
+
+    Duas correções sobre a versão anterior, que só comparava posições no HTML:
+
+    1. Sem CMP na página, a função devolvia lista vazia — ou seja, no PIOR caso
+       jurídico (nenhum consentimento, tudo disparando) o relatório não
+       apontava uma tag sequer. Sem CMP, todo rastreador está irregular.
+
+    2. Com CMP, bastava o script do banner aparecer antes das tags para o
+       resultado sair limpo. Posição no HTML não prova bloqueio: o CMP pode
+       carregar primeiro e não bloquear nada. Agora a evidência de rede
+       (a tag disparou durante a visita, sem ninguém aceitar) também conta.
+    """
     import re
     cmp_signals = [
         r"consent\.cookiebot\.com",
@@ -111,16 +149,23 @@ def _find_tags_before_consent(html: str, tags: List[TagFinding]) -> List[TagFind
         if m and (cmp_pos is None or m.start() < cmp_pos):
             cmp_pos = m.start()
 
+    rastreadores = [
+        t for t in tags
+        if t.type != "consent" and t.type in TIPOS_QUE_EXIGEM_CONSENTIMENTO
+    ]
+
+    # Sem CMP não existe consentimento a respeitar: todo rastreador é irregular.
     if cmp_pos is None:
-        return []
+        return rastreadores
 
     before = []
-    for tag in tags:
-        if tag.type == "consent":
-            continue
-        if tag.type in ("analytics", "advertising", "heatmap", "marketing") and tag.position is not None:
-            if tag.position < cmp_pos:
-                before.append(tag)
+    for tag in rastreadores:
+        # (a) declarada antes do banner no código-fonte
+        posicionada_antes = tag.position is not None and tag.position < cmp_pos
+        # (b) disparou de fato durante a visita, sem aceite — o banner não bloqueou
+        disparou_sem_aceite = _disparou_durante_o_scan(tag, scan) if scan else False
+        if posicionada_antes or disparou_sem_aceite:
+            before.append(tag)
     return before
 
 
@@ -153,7 +198,15 @@ def run_audit(
 
     # ── 2. Tags before consent ────────────────────────────────────────────────
     try:
-        tags_before_consent = _find_tags_before_consent(html, tags)
+        tags_before_consent = _find_tags_before_consent(html, tags, scan=scan)
+        # Marca o flag em cada tag. Ele existia no modelo e nunca era escrito:
+        # ficava False para todo mundo, e é justamente o que alimenta a coluna
+        # "Loaded Before Consent?" do Excel, a linha "Antes do Cookie" do PDF e
+        # a contagem de violações do Dashboard. O relatório entregue ao cliente
+        # respondia "Não" mesmo num site sem nenhum consentimento.
+        irregulares = {id(t) for t in tags_before_consent}
+        for tag in tags:
+            tag.is_before_consent = id(tag) in irregulares
     except Exception:
         tags_before_consent = []
 

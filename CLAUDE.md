@@ -13,7 +13,7 @@ alembic upgrade head
 uvicorn main:app --reload
 ```
 
-Testes: `pytest` (80 casos, um por bug já corrigido — ver `tests/`).
+Testes: `pytest` (93 casos, um por bug já corrigido — ver `tests/`).
 
 ## Convenções
 
@@ -50,6 +50,30 @@ via `asdict` e **ignora** o `to_dict()` camelCase de `audit_engine/models.py`.
 Ler `estimatedRiskExposure` ou `totalViolations` de `raw_data` devolve vazio
 silenciosamente. Já fez o gating do plano free não esconder nada e o PDF sair
 sem violações. O motor legado de `main.py` usa camelCase — os dois convivem.
+
+### O motor: falso positivo custa mais que falso negativo
+
+Duas armadilhas já produziram laudo errado, e as duas passam despercebidas
+porque o resultado "parece" plausível:
+
+- **`occurrence_count` conta instalações, não regex que casaram.** Somar os
+  níveis de detecção fazia uma instalação correta virar 2 e o produto acusava
+  duplicata inexistente. Ao mexer em `tag_detector`, verifique que 1 tag
+  instalada corretamente continua dando `occurrence_count == 1`.
+- **Posição no HTML não prova bloqueio de consentimento.** Um CMP declarado
+  antes das tags não garante que ele bloqueia nada. A prova é a rede: o scanner
+  nunca clica em "aceitar", então requisição a endpoint de rastreio durante a
+  visita é disparo sem consentimento. Sem CMP na página, todo rastreador é
+  irregular — não devolva lista vazia.
+
+`is_before_consent` precisa ser escrito no orchestrator: ele alimenta a coluna
+do Excel, a linha do PDF e a contagem do Dashboard. Ficou `False` por muito
+tempo e o laudo respondia "Não" para todo site.
+
+No `VENDOR_CATALOG`, `url_patterns` deve cobrir **o script de carga e o
+endpoint de coleta** (o beacon). Só com o beacon dá para provar que a tag
+enviou dados — e é assim que se detecta tag injetada pelo GTM, que nunca
+aparece no HTML.
 
 ### Preço tem uma fonte só: `api/payments.PRICES`
 
@@ -142,6 +166,15 @@ com TLD real nos testes.
 - `main.py` mantém um motor de auditoria próprio, paralelo ao `audit_engine/`.
 - O frontend manda URLs de clientes para proxies de terceiros (`allorigins`,
   `cors-anywhere`, `thingproxy`) — sem contrato, num produto de compliance.
+- Rastreamento em domínio próprio (GA4 server-side, Meta CAPI gateway) não é
+  detectado: o catálogo casa por domínio do fornecedor. Detectar exigiria
+  inspecionar o formato do payload, não a URL.
+- Cookies e localStorage não são capturados pelo scanner — num produto de
+  auditoria de cookies. `context.cookies()` do Playwright resolveria, e cookie
+  gravado antes do aceite é a evidência mais forte num laudo LGPD/GDPR.
+- `InterceptedRequest.timestamp` é capturado e nunca usado. Com ele dá para
+  dizer "o pixel disparou aos 380ms, o banner apareceu aos 900ms" — evidência
+  em vez de indício.
 - `static/dist/` é build antigo; precisa de rebuild para refletir `static/src/`.
 - `legacy_attic/`, `static_broken/`, `db_broken/`, `audit_engine_old/` seguem no
   disco, fora do git. Podem ser apagados quando não forem mais necessários.
