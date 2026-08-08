@@ -31,7 +31,12 @@ export interface PlanLimits {
     aiChatMessagesPerDay: number;  // -1 = unlimited
     realTimeAnalysis: boolean;     // real-time mode tab — Premium only
     dashboardDetails: 'basic' | 'partial' | 'full';
-    visibilityPercentage: number;  // 30 / 70 / 100
+    // 50 / 75 / 100 — precisa espelhar VISIBILIDADE_POR_PLANO de
+    // audit_engine/guia_de_correcao.py. O backend JÁ corta a lista antes de
+    // enviar; este número serve para exibir a mensagem de limite, não para
+    // cortar de novo — cortar duas vezes deixava o plano free vendo 15% do
+    // laudo em vez de 50%.
+    visibilityPercentage: number;
 }
 
 export const PLAN_CONFIGS: Record<PlanType, {
@@ -79,7 +84,7 @@ export const PLAN_CONFIGS: Record<PlanType, {
             aiChatMessagesPerDay: 5,
             realTimeAnalysis: false,
             dashboardDetails: 'basic',
-            visibilityPercentage: 30
+            visibilityPercentage: 50
         }
     },
     pro: {
@@ -120,7 +125,7 @@ export const PLAN_CONFIGS: Record<PlanType, {
             aiChatMessagesPerDay: -1,
             realTimeAnalysis: false,
             dashboardDetails: 'partial',
-            visibilityPercentage: 70
+            visibilityPercentage: 75
         }
     },
     premium: {

@@ -135,6 +135,47 @@ def _build_debugging(scan: Any, audit: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _storage_para_o_plano(storage: Any, plan: str) -> Optional[Dict[str, Any]]:
+    """Cookies, ordem de disparo e teste de recusa, cortados pelo plano.
+
+    O achado em si aparece para todo mundo — é o que dá valor ao laudo grátis e
+    motiva o upgrade. O que o plano pago libera é o detalhe: a lista completa de
+    cookies, a linha do tempo inteira e o passo a passo de correção.
+    """
+    if not isinstance(storage, dict):
+        return None
+
+    from audit_engine.guia_de_correcao import quantidade_visivel
+
+    completo = plan == "premium"
+    cookies = storage.get("cookiesWithoutConsent") or storage.get("cookies_sem_consentimento") or []
+    armazenamento = storage.get("storageWithoutConsent") or storage.get("storage_sem_consentimento") or []
+    linha_do_tempo = storage.get("firingTimeline") or storage.get("linha_do_tempo") or []
+    achados_recusa = storage.get("rejectionFindings") or storage.get("achados_da_recusa") or []
+    ordem = storage.get("orderIssues") or storage.get("problemas_de_ordem") or []
+
+    def corta(itens):
+        return itens if completo else itens[:quantidade_visivel(len(itens), plan)]
+
+    def sem_guia(achados):
+        """Plano free vê o problema; o passo a passo é do plano pago."""
+        if completo or plan == "pro":
+            return achados
+        return [{k: v for k, v in a.items() if k != "guide"} for a in achados]
+
+    return {
+        "cookiesWithoutConsent": corta(cookies),
+        "totalCookiesWithoutConsent": len(cookies),
+        "storageWithoutConsent": corta(armazenamento),
+        "firingTimeline": linha_do_tempo if completo else linha_do_tempo[:8],
+        "totalTimelineEvents": len(linha_do_tempo),
+        "rejectionFindings": sem_guia(achados_recusa),
+        "orderIssues": sem_guia(ordem),
+        "rejectionTest": storage.get("rejectionTest") or storage.get("recusa"),
+        "guidesLocked": not (completo or plan == "pro"),
+    }
+
+
 def _normalize_audit_response(url: str, plan: str, scan: Any, audit_result: Any) -> Dict[str, Any]:
     audit = _safe_dict(audit_result) or {}
     tags = audit.get("tags") or []
@@ -265,6 +306,10 @@ def _normalize_audit_response(url: str, plan: str, scan: Any, audit_result: Any)
             ],
         },
         "debugging": _build_debugging(scan, audit),
+        # Cookies sem consentimento, ordem real de disparo, teste do "Recusar" e
+        # os guias de correção. Sem expor aqui, todo esse trabalho fica no motor
+        # e nunca chega à tela do cliente.
+        "storage": _storage_para_o_plano(audit.get("storage"), plan),
         "errors": ([{"code": "PARTIAL_SCAN", "message": str(getattr(scan, "error", ""))}] if getattr(scan, "error", None) else []),
         "planLimitNotice": limit_note,
         "scanMethod": audit.get("scan_method") or getattr(scan, "scan_method", "html_fallback"),

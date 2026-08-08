@@ -99,43 +99,69 @@ def detect_jurisdiction(html: str, url: str) -> dict:
 # Risk table (jurisdiction-agnostic)
 # ─────────────────────────────────────────────
 
+# O texto daqui vai direto para o laudo entregue ao cliente. Em português,
+# citando o artigo, e dizendo o que foi observado — não a categoria abstrata do
+# problema. "Observable tracking script loading before any consent signal" não
+# diz a ninguém o que fazer na segunda-feira de manhã.
 _RISK_TABLE = {
     "storage_without_consent": {
-        "article": "Consent Requirement",
-        "description": "Cookie ou armazenamento local de rastreamento gravado sem consentimento",
+        "article": "LGPD art. 7º, I e art. 16",
+        "description": "Cookie de rastreamento gravado antes de qualquer consentimento",
         "min_fine": 8_000,
         "max_fine": 60_000,
     },
     "no_cmp": {
-        "article": "Consent Requirement",
-        "description": "Tracking without a consent management mechanism",
+        "article": "LGPD art. 7º, I",
+        "description": "Rastreamento sem mecanismo de consentimento na página",
         "min_fine": 5_000,
         "max_fine": 50_000,
     },
     "tracking_before_consent": {
-        "article": "Consent-First Behaviour",
-        "description": "Observable tracking script loading before any consent signal",
+        "article": "LGPD art. 8º, §1º",
+        "description": "Tag de rastreamento disparando antes da manifestação do titular",
         "min_fine": 10_000,
         "max_fine": 50_000,
     },
     "critical_tracker": {
-        "article": "High-Risk Tracking",
-        "description": "Use of intrusive tracking tools (session recording, fingerprinting)",
+        "article": "LGPD art. 6º, VII e art. 46",
+        "description": "Ferramenta de alto impacto — gravação de sessão ou identificação persistente",
         "min_fine": 15_000,
         "max_fine": 50_000,
     },
     "advertising_tracker": {
-        "article": "Third-Party Data Sharing",
-        "description": "Advertising/remarketing scripts without confirmed consent",
+        "article": "LGPD art. 7º, I e art. 33",
+        "description": "Compartilhamento com plataforma de publicidade sem consentimento",
         "min_fine": 10_000,
         "max_fine": 40_000,
     },
     "obsolete_ua": {
-        "article": "Data Security Obligation",
-        "description": "Use of discontinued tracking technology (Universal Analytics)",
+        "article": "LGPD art. 46",
+        "description": "Tecnologia descontinuada em uso (Universal Analytics)",
         "min_fine": 5_000,
         "max_fine": 20_000,
     },
+}
+
+
+# O que cada ferramenta faz, em uma frase — para o laudo dizer POR QUE aquela
+# tag específica importa, em vez de repetir o mesmo texto para todas.
+_O_QUE_A_FERRAMENTA_FAZ = {
+    "ga4": "registra navegação, origem de tráfego e comportamento por sessão",
+    "ua": "versão descontinuada do Google Analytics — não recebe mais dados",
+    "meta_pixel": "identifica o visitante para remarketing e públicos da Meta",
+    "google_ads": "atribui conversões e alimenta listas de remarketing",
+    "tiktok_pixel": "identifica o visitante para públicos e conversões do TikTok",
+    "linkedin_insight": "identifica o visitante e o vincula ao perfil profissional",
+    "hotjar": "grava a sessão do usuário, incluindo movimento de mouse e cliques",
+    "clarity": "grava a sessão e gera mapas de calor da navegação",
+    "criteo": "monta perfil de interesse para publicidade em outros sites",
+    "pinterest": "identifica o visitante para públicos do Pinterest",
+    "snapchat_pixel": "identifica o visitante para públicos do Snapchat",
+    "twitter_x_pixel": "identifica o visitante para públicos do X/Twitter",
+    "segment": "coleta eventos e os distribui para outras ferramentas",
+    "amplitude": "registra comportamento por usuário identificado",
+    "mixpanel": "registra comportamento por usuário identificado",
+    "rd_station": "identifica leads e registra a navegação para automação de marketing",
 }
 
 
@@ -163,17 +189,24 @@ def analyze_privacy(
     # ── No CMP ────────────────────────────────────────────────────────────────
     if not has_consent_tool:
         r = _RISK_TABLE["no_cmp"]
-        if any(t.type in ("analytics", "advertising", "heatmap") for t in tags):
+        rastreadores = [t for t in tags if t.type in ("analytics", "advertising", "heatmap")]
+        if rastreadores:
+            nomes = ", ".join(t.name for t in rastreadores[:4])
+            resto = f" e mais {len(rastreadores) - 4}" if len(rastreadores) > 4 else ""
             violations.append(PrivacyViolation(
-                tag="Site",
-                violation=f"No consent management platform detected. "
-                          f"Under {law}, tracking technologies require explicit user consent before activation.",
+                tag="Página",
+                violation=(
+                    f"Nenhum controle de consentimento foi encontrado, e {len(rastreadores)} "
+                    f"ferramenta(s) de rastreamento estão ativas: {nomes}{resto}. "
+                    f"A coleta começa assim que a página carrega — o visitante não tem "
+                    f"em momento algum a chance de aceitar ou recusar."
+                ),
                 article=r["article"],
                 description=r["description"],
                 severity="critical",
                 confidence=CONFIDENCE_HIGH,
             ))
-            disclosure_gaps.append("No CMP found")
+            disclosure_gaps.append("Sem controle de consentimento na página")
             total_min += r["min_fine"]
             total_max += r["max_fine"]
 
@@ -186,19 +219,35 @@ def analyze_privacy(
                 "advertising_tracker" if tag.type == "advertising" else "tracking_before_consent"
             )
             r = _RISK_TABLE.get(risk_key, _RISK_TABLE["tracking_before_consent"])
+            # Cada violação diz o que AQUELA ferramenta faz e onde ela está.
+            # Repetir a mesma frase para todas as tags faz o laudo parecer
+            # gerado por template, e o leitor para de ler na terceira.
+            o_que_faz = _O_QUE_A_FERRAMENTA_FAZ.get(tag.id)
+            faz = f" — {o_que_faz}" if o_que_faz else ""
+
+            if tag.line_number:
+                onde = f"declarada na linha {tag.line_number} do código-fonte"
+            elif tag.detection_method == "network_request":
+                onde = "carregada dinamicamente (não aparece no código-fonte; foi vista pela requisição de rede)"
+            else:
+                onde = "presente na página"
+
+            identificacao = f" [{tag.tag_id}]" if tag.tag_id else ""
+
             # Sem CMP não existe "antes do consentimento": não há consentimento
             # nenhum. Dizer "carregou antes do sinal" nesse caso confunde o
             # leitor do laudo e subestima a gravidade.
             if has_consent_tool:
                 descricao_violacao = (
-                    f"Observed loading before consent signal (line {tag.line_number or 'unknown'}). "
-                    f"Observed technical behaviour — potential {law} non-compliance pattern."
+                    f"{tag.name}{identificacao}{faz}. Está {onde} e dispara antes de o "
+                    f"visitante manifestar consentimento — o aviso da página existe, mas "
+                    f"não bloqueia esta ferramenta."
                 )
             else:
                 descricao_violacao = (
-                    f"Tracking active with no consent mechanism on the page "
-                    f"(line {tag.line_number or 'unknown'}). Data is collected before the user "
-                    f"has any opportunity to agree — {law} requires a legal basis prior to collection."
+                    f"{tag.name}{identificacao}{faz}. Está {onde} e coleta dados sem que "
+                    f"exista qualquer controle de consentimento na página. A "
+                    f"{law} exige base legal antes da coleta, não depois."
                 )
             violations.append(PrivacyViolation(
                 tag=tag.name,
@@ -290,8 +339,12 @@ def analyze_privacy(
         r = _RISK_TABLE["obsolete_ua"]
         violations.append(PrivacyViolation(
             tag="Universal Analytics",
-            violation="Use of deprecated Universal Analytics (discontinued July 2023). "
-                      "Continued use represents a data security and regulatory risk.",
+            violation=(
+                "O Universal Analytics foi descontinuado em julho de 2023 e não recebe "
+                "mais dados: o que ele coleta hoje é descartado. Continua sendo código "
+                "sem manutenção rodando na página, e não suporta Consent Mode — então "
+                "fica de fora de qualquer estratégia de consentimento."
+            ),
             article=r["article"],
             description=r["description"],
             severity="critical",
@@ -308,10 +361,16 @@ def analyze_privacy(
     ]
     for tag in critical_no_consent[:3]:   # cap at 3 to avoid spam
         r = _RISK_TABLE["critical_tracker"]
+        o_que_faz = _O_QUE_A_FERRAMENTA_FAZ.get(tag.id)
+        faz = f" — {o_que_faz}" if o_que_faz else ""
+        coleta = ", ".join(tag.data_collected[:3]) if tag.data_collected else ""
+        detalhe_coleta = f" Dados observados: {coleta}." if coleta else ""
         violations.append(PrivacyViolation(
             tag=tag.name,
-            violation=f"High-risk tracker detected ({tag.type}) with no consent mechanism. "
-                      f"Indicative privacy exposure signal under {law}.",
+            violation=(
+                f"{tag.name}{faz}. É uma ferramenta de alto impacto rodando sem nenhum "
+                f"controle de consentimento na página.{detalhe_coleta}"
+            ),
             article=r["article"],
             description=r["description"],
             severity="critical",
