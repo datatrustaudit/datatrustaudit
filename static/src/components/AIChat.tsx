@@ -210,8 +210,21 @@ Faça sua auditoria ou me pergunte algo!`;
     ];
 
     const formatMessage = (content: string) => {
-        // Converter markdown básico para HTML
-        return content
+        // O conteúdo vai para dangerouslySetInnerHTML, então precisa ser
+        // escapado ANTES de qualquer formatação. A versão anterior injetava o
+        // texto cru: o contexto enviado ao chat inclui dados do site auditado
+        // (URL, nomes de tag), e um site malicioso podia devolver
+        // <img src=x onerror=...> que executava no navegador de quem audita.
+        const escapado = content
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+
+        // Só depois de escapado o markdown vira marcação — as tags abaixo são
+        // as únicas que este componente introduz.
+        return escapado
             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
             .replace(/\n/g, '<br />');
     };
