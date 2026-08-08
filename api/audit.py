@@ -173,14 +173,27 @@ def _normalize_audit_response(url: str, plan: str, scan: Any, audit_result: Any)
         "_fbp", "_fbc", "fr",
     ] if any((isinstance(tag, dict) and tag.get("type") in {"advertising", "marketing"}) for tag in tags) else []
 
+    # Percentual vindo de audit_engine.guia_de_correcao (fonte única).
+    from audit_engine.guia_de_correcao import quantidade_visivel, visibilidade_do_plano
+
     limit_note = None
     visible_tags = tags
-    if plan == "free":
-        visible_tags = tags[:max(1, int(len(tags) * 0.30))] if tags else []
-        limit_note = "Free plan shows 30% data visibility with limited source detail."
-    elif plan == "pro":
-        visible_tags = tags[:max(1, int(len(tags) * 0.70))] if tags else []
-        limit_note = "Pro plan shows 70% data visibility. Premium unlocks full source mapping."
+    if plan in ("free", "pro") and tags:
+        visible_tags = tags[:quantidade_visivel(len(tags), plan)]
+        percentual = int(visibilidade_do_plano(plan) * 100)
+        ocultos = len(tags) - len(visible_tags)
+        if plan == "free":
+            limit_note = (
+                f"O plano Free mostra {percentual}% dos achados"
+                + (f" — {ocultos} ficaram ocultos." if ocultos else ".")
+                + " O plano Premium libera o laudo completo, com a linha exata no código-fonte."
+            )
+        else:
+            limit_note = (
+                f"O plano Pro mostra {percentual}% dos achados"
+                + (f" — {ocultos} ficaram ocultos." if ocultos else ".")
+                + " O Premium libera o mapeamento completo do código-fonte."
+            )
 
     response = {
         "success": True,

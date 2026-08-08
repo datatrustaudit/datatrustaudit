@@ -245,6 +245,20 @@ def auditar_armazenamento(scan, tem_cmp: bool) -> ResultadoDeArmazenamento:
     return resultado
 
 
+def _com_guia(achado: Dict[str, Any]) -> Dict[str, Any]:
+    """Anexa o guia de correção ao achado.
+
+    Apontar o problema é a parte fácil; o laudo só vira útil quando diz o que
+    digitar para resolver. Ver audit_engine/guia_de_correcao.py.
+    """
+    from .guia_de_correcao import guia_para
+
+    guia = guia_para(achado.get("check", ""))
+    if guia is not None:
+        achado["guide"] = guia.to_dict()
+    return achado
+
+
 def auditar_recusa(recusa, tem_cmp: bool) -> List[Dict[str, Any]]:
     """Transforma o teste de recusa em achados para o laudo.
 
@@ -374,7 +388,7 @@ def auditar_recusa(recusa, tem_cmp: bool) -> List[Dict[str, Any]]:
             "evidence": {},
         })
 
-    return achados
+    return [_com_guia(a) for a in achados]
 
 
 def auditar_ordem_do_consent_mode(html: str) -> List[Dict[str, Any]]:
@@ -424,4 +438,4 @@ def auditar_ordem_do_consent_mode(html: str) -> List[Dict[str, Any]]:
             ),
         })
 
-    return problemas
+    return [_com_guia(p) for p in problemas]

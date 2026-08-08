@@ -59,6 +59,71 @@ def paragrafo(texto: str, recuo: int = 6) -> None:
         print(f"{espacos}{linha}")
 
 
+def imprimir_guia(guia: dict) -> None:
+    """Mostra o passo a passo de correção do achado.
+
+    É o que separa um laudo útil de uma lista de reclamações: quem recebe
+    precisa saber o que digitar, não só o que está errado.
+    """
+    if not guia:
+        return
+
+    if guia.get("whyItMatters"):
+        print()
+        print("      POR QUE IMPORTA")
+        paragrafo(guia["whyItMatters"], recuo=8)
+
+    passos = guia.get("howToFix") or []
+    if passos:
+        print()
+        print("      COMO CORRIGIR")
+        for i, passo in enumerate(passos, start=1):
+            primeira = True
+            for linha in _quebrar(passo, LARGURA - 11):
+                prefixo = f"       {i}. " if primeira else "          "
+                print(f"{prefixo}{linha}")
+                primeira = False
+
+    if guia.get("codeExample"):
+        print()
+        print("      EXEMPLO")
+        for linha in guia["codeExample"].split("\n"):
+            print(f"        {linha}")
+
+    if guia.get("howToVerify"):
+        print()
+        print("      COMO CONFERIR SE RESOLVEU")
+        paragrafo(guia["howToVerify"], recuo=8)
+
+    rodape = []
+    if guia.get("legalBasis"):
+        rodape.append(guia["legalBasis"])
+    if guia.get("effort"):
+        rodape.append(f"esforço: {guia['effort']}")
+    if guia.get("ownedBy"):
+        rodape.append(f"quem resolve: {guia['ownedBy']}")
+    if rodape:
+        print()
+        paragrafo(" | ".join(rodape), recuo=6)
+    print()
+
+
+def _quebrar(texto: str, largura: int):
+    """Quebra por palavra, devolvendo as linhas."""
+    linhas, linha = [], ""
+    for palavra in texto.split():
+        if not linha:
+            linha = palavra
+        elif len(linha) + 1 + len(palavra) <= largura:
+            linha += " " + palavra
+        else:
+            linhas.append(linha)
+            linha = palavra
+    if linha:
+        linhas.append(linha)
+    return linhas
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print(__doc__)
@@ -141,9 +206,7 @@ def main() -> int:
                 marcador = "OK " if achado["status"] == "ok" else "!! "
                 print(f"  {marcador}[{achado['status']}] {achado['label']}")
                 paragrafo(achado["description"])
-                if achado.get("recommendation"):
-                    print(f"      Como corrigir:")
-                    paragrafo(achado["recommendation"], recuo=8)
+                imprimir_guia(achado.get("guide"))
         elif testar_recusa:
             secao("Teste do botão 'Recusar'")
             print("  não executado (o navegador não pôde ser usado)")

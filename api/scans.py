@@ -143,10 +143,14 @@ def _plan_filtered_result(raw_data, status: str, plan: str):
     res = copy.deepcopy(raw_data)
 
     # 1. Truncate tags based on plan visibility
+    # O percentual vem de audit_engine.guia_de_correcao — estava repetido aqui,
+    # em api/audit.py e em main.py, e divergir significa entregar conteúdo pago
+    # a quem não pagou (ou cortar de quem pagou).
+    from audit_engine.guia_de_correcao import quantidade_visivel
+
     tags = res.get("tags")
     if isinstance(tags, list) and tags:
-        visible_pct = 0.30 if plan == "free" else 0.70
-        res["tags"] = tags[:max(1, int(len(tags) * visible_pct))]
+        res["tags"] = tags[:quantidade_visivel(len(tags), plan)]
         res["locked_tags"] = True
 
     # 2. Hide exact code lines for free and pro

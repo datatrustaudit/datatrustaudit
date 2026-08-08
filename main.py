@@ -1479,9 +1479,12 @@ def plan_strip_report(report: dict, plan: str) -> None:
     if plan == "premium":
         return  # Premium users get everything
 
+    # Percentual vindo de audit_engine.guia_de_correcao (fonte única): estava
+    # repetido aqui, em api/audit.py e em api/scans.py.
+    from audit_engine.guia_de_correcao import quantidade_visivel
+
     tags = report.get("tags", [])
-    visible_pct = 0.30 if plan == "free" else 0.70
-    visible_count = max(1, int(len(tags) * visible_pct))
+    visible_count = quantidade_visivel(len(tags), plan)
 
     # Truncate tag list
     stripped_tags = tags[:visible_count]
