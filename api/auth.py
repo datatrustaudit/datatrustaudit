@@ -121,6 +121,85 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
+# ─── Validação de token do Supabase ──────────────────────────────────────────
+# O Supabase assina os tokens de duas formas, dependendo da configuração do
+# projeto:
+#
+#   HS256  — "legacy JWT secret", um segredo compartilhado (SUPABASE_JWT_SECRET)
+#   ES256  — par de chaves; a pública fica na JWKS do projeto
+#
+# Projetos migrados para o modelo novo emitem ES256, e nesse caso o legacy
+# secret não valida coisa alguma: o login passa na tela e toda chamada à API
+# responde "Could not validate credentials". Aqui os dois caminhos são
+# aceitos, para não depender de qual esteja ativo.
+
+_JWKS_CACHE: dict = {"chaves": None, "expira_em": 0.0}
+_JWKS_TTL_SEGUNDOS = 600
+
+
+def _buscar_jwks():
+    """Chaves públicas do projeto, com cache — a JWKS raramente muda."""
+    import time as _time
+
+    agora = _time.monotonic()
+    if _JWKS_CACHE["chaves"] is not None and _JWKS_CACHE["expira_em"] > agora:
+        return _JWKS_CACHE["chaves"]
+
+    base = (os.getenv("SUPABASE_URL") or "").rstrip("/")
+    if not base:
+        return []
+
+    import json as _json
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"{base}/auth/v1/.well-known/jwks.json", timeout=5) as resposta:
+            chaves = _json.loads(resposta.read()).get("keys", []) or []
+    except Exception as exc:
+        print(f"[auth] nao foi possivel buscar a JWKS do Supabase: {exc}")
+        return _JWKS_CACHE["chaves"] or []
+
+    _JWKS_CACHE["chaves"] = chaves
+    _JWKS_CACHE["expira_em"] = agora + _JWKS_TTL_SEGUNDOS
+    return chaves
+
+
+def _validar_token_do_supabase(token: str):
+    """Payload do token, ou None se não for um token válido do Supabase."""
+    try:
+        cabecalho = jwt.get_unverified_header(token)
+    except Exception:
+        return None
+
+    algoritmo = cabecalho.get("alg", "")
+
+    # Caminho 1: segredo compartilhado (projetos que ainda usam o legacy secret)
+    if algoritmo == "HS256" and SUPABASE_JWT_SECRET:
+        try:
+            return jwt.decode(
+                token, SUPABASE_JWT_SECRET,
+                algorithms=["HS256"],
+                options={"verify_aud": False},
+            )
+        except JWTError:
+            return None
+
+    # Caminho 2: chave assimétrica — a pública vem da JWKS, casada pelo kid
+    identificador = cabecalho.get("kid")
+    for chave in _buscar_jwks():
+        if identificador and chave.get("kid") != identificador:
+            continue
+        try:
+            return jwt.decode(
+                token, chave,
+                algorithms=[chave.get("alg") or algoritmo],
+                options={"verify_aud": False},
+            )
+        except JWTError:
+            continue
+    return None
+
+
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     if not token:
         return None # Return None for public/unauthenticated access (Free 1-time scan)
@@ -142,19 +221,13 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
         pass
 
     # If local JWT failed, try Supabase JWT
-    if not email and SUPABASE_JWT_SECRET:
-        try:
-            payload = jwt.decode(
-                token, SUPABASE_JWT_SECRET,
-                algorithms=["HS256"],
-                options={"verify_aud": False}
-            )
+    if not email:
+        payload = _validar_token_do_supabase(token)
+        if payload:
             email = payload.get("email")
             # Extract user metadata for auto-creation
             user_metadata = payload.get("user_metadata", {})
             supabase_user_name = user_metadata.get("full_name") or user_metadata.get("name", "")
-        except JWTError:
-            pass
 
     if not email:
         raise credentials_exception

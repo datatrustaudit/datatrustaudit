@@ -24,6 +24,13 @@ PYTHON_VENV = VENV / "Scripts" / "python.exe" if os.name == "nt" else VENV / "bi
 MARCADOR_DEPS = VENV / ".dependencias-ok"
 PORTA = 8000
 
+# Para OAuth, "localhost" e "127.0.0.1" sao origens DIFERENTES. O login com
+# Google usa window.location.origin no redirectTo, entao abrir o navegador em
+# 127.0.0.1 enquanto o Google Console autoriza localhost resulta em
+# redirect_uri_mismatch. Mantenha este valor igual ao cadastrado no Google e
+# nos Redirect URLs do Supabase.
+HOST_NAVEGADOR = "localhost"
+
 LARGURA = 60
 
 
@@ -155,7 +162,7 @@ def abrir_navegador_depois():
             time.sleep(0.5)
             try:
                 urllib.request.urlopen(f"http://127.0.0.1:{PORTA}/health", timeout=1)
-                webbrowser.open(f"http://127.0.0.1:{PORTA}")
+                webbrowser.open(f"http://{HOST_NAVEGADOR}:{PORTA}")
                 return
             except Exception:
                 continue
@@ -182,8 +189,11 @@ def main():
         cabecalho("Ambiente pronto.")
         return 0
 
-    cabecalho(f"Pronto. Abrindo http://127.0.0.1:{PORTA}")
+    cabecalho(f"Pronto. Abrindo http://{HOST_NAVEGADOR}:{PORTA}")
     print("  Para encerrar: feche esta janela ou pressione Ctrl+C")
+    print()
+    print(f"  Use sempre http://{HOST_NAVEGADOR}:{PORTA} — o login com Google")
+    print("  so funciona na origem cadastrada no Google Cloud Console.")
     print()
 
     abrir_navegador_depois()

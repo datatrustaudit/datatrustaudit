@@ -5,6 +5,16 @@
 *.pem
 *.key
 
+# Credenciais OAuth baixadas do Google Cloud Console. O arquivo vem com o
+# client_secret dentro e o nome padrão é client_secret_<id>.apps.googleusercontent.com.json
+client_secret*.json
+*client_secret*.json
+*.apps.googleusercontent.com.json
+# chaves de conta de serviço do Google (mesmo risco)
+service-account*.json
+gcp-*.json
+credentials.json
+
 # ─── Banco de dados ──────────────────────────────────────────────────────────
 # gtmaudit.db chegou a ser versionado com usuários reais, hashes de senha,
 # pagamentos e formulários de contato. Banco não entra no repositório.
