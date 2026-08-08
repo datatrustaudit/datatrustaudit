@@ -112,7 +112,16 @@ def _build_debugging(scan: Any, audit: Dict[str, Any]) -> Dict[str, Any]:
     network = getattr(scan, "intercepted_requests", []) or []
     network_hints = []
     for req in network[:50]:
+        # _safe_dict devolve o próprio objeto quando ele não é dataclass nem
+        # tem to_dict — e aí o .get() abaixo estoura AttributeError, derrubando
+        # a auditoria inteira por causa da seção de depuração.
         req_dict = _safe_dict(req) if req else {}
+        if not isinstance(req_dict, dict):
+            req_dict = {
+                "url": getattr(req, "url", None),
+                "domain": getattr(req, "domain", None),
+                "resource_type": getattr(req, "resource_type", None),
+            }
         network_hints.append({
             "url": req_dict.get("url"),
             "domain": req_dict.get("domain"),
@@ -201,6 +210,18 @@ def _normalize_audit_response(url: str, plan: str, scan: Any, audit_result: Any)
 
     event_items = events.get("events") if isinstance(events, dict) else []
     privacy_violations = privacy.get("violations") if isinstance(privacy, dict) else []
+
+    # Contagem por gravidade — sempre preenchida, inclusive no plano free.
+    # O gating esconde o DETALHE de cada violação, mas continua informando
+    # quantas são e de que gravidade: sem isso o painel exibia "23 violações"
+    # ao lado de um gráfico de severidade completamente vazio, porque ele era
+    # montado a partir da lista já esvaziada.
+    contagem_por_gravidade = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    for v in (privacy_violations or []):
+        if isinstance(v, dict):
+            nivel = v.get("severity") or "medium"
+            if nivel in contagem_por_gravidade:
+                contagem_por_gravidade[nivel] += 1
     issue_items = [_issue_from_recommendation(rec) for rec in recommendations if isinstance(rec, dict)]
 
     score = scores.get("auditScore") or scores.get("overall") or audit.get("score")
@@ -250,6 +271,9 @@ def _normalize_audit_response(url: str, plan: str, scan: Any, audit_result: Any)
             "consentDetected": bool(consent.get("cmpDetected") or privacy.get("hasConsentTool")) if isinstance(consent, dict) else False,
             "hasUniversalAnalytics": bool(privacy.get("hasUniversalAnalytics")) if isinstance(privacy, dict) else False,
             "violationsCount": privacy.get("totalViolations", len(privacy_violations or [])) if isinstance(privacy, dict) else 0,
+            # Agregado por gravidade: sobrevive ao corte por plano, ao
+            # contrário da lista de violações.
+            "violationsBySeverity": contagem_por_gravidade,
             "estimatedFine": privacy.get("estimatedRiskExposure") if isinstance(privacy, dict) else None,
             "eventsDetected": events.get("totalEvents", len(event_items)) if isinstance(events, dict) else len(event_items or []),
             "duplicatesDetected": len(duplicates),
