@@ -384,13 +384,23 @@ def analyze_privacy(
     compliance_score = max(0, 100 - len(violations) * 12)
 
     # ── Risk exposure summary ──────────────────────────────────────────────────
+    # A versão anterior somava valores fixos em dólar e dividia por 5 — um
+    # câmbio inventado — num laudo de LGPD entregue a cliente brasileiro.
+    # A LGPD não trabalha com tabela por tipo de violação: o art. 52 fala em
+    # até 2% do faturamento no Brasil, limitado a R$ 50 milhões por infração.
+    # Sem saber o faturamento, o honesto é dizer o critério e a gravidade —
+    # não fabricar um número.
     if violations:
+        criticas = sum(1 for v in violations if v.severity == "critical")
         exposure = (
-            f"Indicative risk exposure (reference only, not legal advice): "
-            f"USD ${total_min // 5:,} – USD ${total_max // 5:,}"
+            f"{len(violations)} não conformidade(s) observada(s)"
+            + (f", {criticas} de gravidade crítica" if criticas else "")
+            + ". A LGPD (art. 52) prevê multa de até 2% do faturamento no Brasil, "
+            "limitada a R$ 50 milhões por infração — o valor efetivo depende do "
+            "faturamento, da abrangência e dos agravantes do caso concreto."
         )
     else:
-        exposure = "No significant risk indicators detected on this page"
+        exposure = "Nenhum indicador significativo de risco observado nesta página"
 
     return PrivacyAnalysisResult(
         jurisdiction=region,

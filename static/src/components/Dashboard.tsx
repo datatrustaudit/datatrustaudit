@@ -68,6 +68,54 @@ interface DashboardProps {
     };
 }
 
+/**
+ * Indicador cujo tom acompanha o resultado.
+ *
+ * O selo era fixo: "Risco Crítico" aparecia piscando ao lado de um zero. Num
+ * laudo, alarme falso custa mais caro que achado omitido — quem confere uma vez
+ * e vê que não era nada passa a duvidar do resto.
+ */
+const CartaoDeRisco = ({ titulo, descricao, valor, rotuloComAchado, rotuloSemAchado, icone: Icone }: {
+    titulo: string;
+    descricao: string;
+    valor: number;
+    rotuloComAchado: string;
+    rotuloSemAchado: string;
+    icone: React.ElementType;
+}) => {
+    const temAchado = valor > 0;
+    return (
+        <Card className={`shadow-sm border-l-4 ${temAchado ? 'border-l-rose-500' : 'border-l-emerald-500'}`}>
+            <CardHeader className="pb-2">
+                <CardTitle className={`text-sm font-semibold flex items-center gap-2 ${
+                    temAchado ? 'text-rose-700 dark:text-rose-300' : 'text-slate-600 dark:text-slate-300'
+                }`}>
+                    <Icone className="w-4 h-4 shrink-0" />
+                    {titulo}
+                </CardTitle>
+            </CardHeader>
+            <CardContent>
+                <div className="flex items-end justify-between gap-4">
+                    <div className={`text-3xl font-bold tabular-nums ${
+                        temAchado ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
+                    }`}>
+                        {valor}
+                    </div>
+                    <div className="text-right min-w-0">
+                        <Badge
+                            variant={temAchado ? 'destructive' : 'outline'}
+                            className={temAchado ? '' : 'text-emerald-700 border-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'}
+                        >
+                            {temAchado ? rotuloComAchado : rotuloSemAchado}
+                        </Badge>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-tight">{descricao}</p>
+                    </div>
+                </div>
+            </CardContent>
+        </Card>
+    );
+};
+
 const Dashboard = ({ result }: DashboardProps) => {
     const { t } = useI18n();
     const { limits } = usePlan();
@@ -221,47 +269,28 @@ const Dashboard = ({ result }: DashboardProps) => {
                 </Card>
             </div>
 
-            {/* Risk Dashboard - New Indicators */}
+            {/* Indicadores de risco.
+                O selo acompanha o número: mostrar "Risco Crítico" piscando ao
+                lado de um zero é alarme falso, e alarme falso faz o cliente
+                duvidar dos achados verdadeiros. Zero achados merece ser dito
+                como resultado bom, não disfarçado de ameaça. */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                <Card className="border-l-4 border-l-red-500 shadow-md transform transition-all hover:scale-[1.01]">
-                    <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-semibold flex items-center gap-2 text-red-700">
-                            <AlertTriangle className="w-4 h-4" />
-                            Exposição de PII (Vazamento de Dados)
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="flex items-center justify-between">
-                            <div className="text-3xl font-bold text-red-600">
-                                {result.summary?.piiExposureCount || 0}
-                            </div>
-                            <div className="text-right">
-                                <Badge variant="destructive" className="animate-pulse">Risco Crítico</Badge>
-                                <p className="text-xs text-gray-500 mt-1">{t('dashboard.pii_exposure')}</p>
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <Card className="border-l-4 border-l-orange-500 shadow-md transform transition-all hover:scale-[1.01]">
-                    <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-semibold flex items-center gap-2 text-orange-700">
-                            <Shield className="w-4 h-4" />
-                            Vulnerabilidades de Script (SRI/HTTPS)
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="flex items-center justify-between">
-                            <div className="text-3xl font-bold text-orange-600">
-                                {result.summary?.securityIssuesCount || 0}
-                            </div>
-                            <div className="text-right">
-                                <Badge variant="outline" className="text-orange-600 border-orange-200 bg-orange-50">Risco de Injeção</Badge>
-                                <p className="text-xs text-gray-500 mt-1">Scripts carregados sem integridade ou via HTTP</p>
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
+                <CartaoDeRisco
+                    titulo="Dados pessoais expostos"
+                    descricao="E-mail, CPF ou telefone trafegando em texto claro"
+                    valor={result.summary?.piiExposureCount || 0}
+                    rotuloComAchado="Risco crítico"
+                    rotuloSemAchado="Nada encontrado"
+                    icone={AlertTriangle}
+                />
+                <CartaoDeRisco
+                    titulo="Scripts sem proteção de integridade"
+                    descricao="Carregados por HTTP ou sem verificação de origem"
+                    valor={result.summary?.securityIssuesCount || 0}
+                    rotuloComAchado="Risco de injeção"
+                    rotuloSemAchado="Nada encontrado"
+                    icone={Shield}
+                />
             </div>
 
             {/* Charts Row */}

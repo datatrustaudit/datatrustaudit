@@ -22,12 +22,19 @@ from typing import Any, Dict, List, Optional
 # Quanto de cada laudo o plano libera. Fonte única: o percentual estava
 # repetido em api/audit.py, api/scans.py e main.py, e divergir aqui significa
 # entregar conteúdo pago para quem não pagou (ou cortar de quem pagou).
+#
+# São dois planos: Free vê metade, Premium vê tudo. "pro" permanece mapeado
+# porque existe gente com ele no banco — e rebaixar quem pagou seria pior do
+# que manter o plano descontinuado funcionando com acesso completo.
 VISIBILIDADE_POR_PLANO = {
     "free": 0.50,
-    "pro": 0.75,
+    "pro": 1.00,      # descontinuado — mantido com acesso total por respeito a quem assinou
     "premium": 1.00,
     "admin": 1.00,
 }
+
+# Planos oferecidos hoje. O "pro" fica de fora: ninguém novo assina.
+PLANOS_ATIVOS = ("free", "premium")
 
 
 def visibilidade_do_plano(plano: str) -> float:

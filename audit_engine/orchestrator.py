@@ -30,64 +30,77 @@ def _build_data_quality_notes(
     """Emit honest limitations about what this scan cannot observe."""
     notes = []
 
+    # Estas notas aparecem no laudo entregue ao cliente. Em português, dizendo o
+    # que NÃO foi verificado — é o que separa uma auditoria honesta de uma que
+    # finge ter olhado tudo.
     if scan.fallback_used:
         notes.append(DataQualityNote(
-            limitation="Static HTML scan only (browser unavailable)",
-            reason="The headless browser was unavailable or failed, so only the initial HTML "
-                   "source was scanned. Tags loaded dynamically via JavaScript (GTM triggers, "
-                   "deferred scripts, SPA events) may not be detected. "
-                   + (f"Browser error: {scan.error}" if scan.error else ""),
-            affected_areas=["events", "ecommerce", "dynamic_tags", "consent"],
+            limitation="Leitura apenas do HTML — o navegador não pôde ser usado",
+            reason="O navegador automatizado falhou ou não estava disponível, então só o "
+                   "HTML inicial foi analisado. Tags carregadas por JavaScript (acionadas "
+                   "pelo GTM, scripts adiados, telas de aplicação) podem não ter sido "
+                   "detectadas, e não foi possível ler cookies nem a ordem real de disparo. "
+                   + (f"Erro do navegador: {scan.error}" if scan.error else ""),
+            affected_areas=["eventos", "e-commerce", "tags dinâmicas", "consentimento"],
         ))
     else:
         notes.append(DataQualityNote(
-            limitation="Single-page browser scan",
-            reason="This audit navigates to the requested URL in a headless browser and waits "
-                   "for network activity to settle. Events fired on subsequent pages (checkout, "
-                   "thank-you), after user interactions, or behind authentication are not captured.",
-            affected_areas=["events", "ecommerce", "purchase events"],
+            limitation="Varredura de uma página",
+            reason="Esta auditoria abriu o endereço informado em um navegador real e "
+                   "aguardou a rede se acomodar. Eventos disparados em outras páginas "
+                   "(checkout, confirmação de compra), após interação do visitante ou "
+                   "atrás de login não são capturados nesta varredura.",
+            affected_areas=["eventos", "e-commerce", "eventos de compra"],
         ))
 
     notes.append(DataQualityNote(
-        limitation="Backend and server-side events not observable",
-        reason="Server-side tagging (GTM server-side, Measurement Protocol, CAPI) fires from "
-               "your server — invisible to any browser-based scanner, including this one.",
-        affected_areas=["events", "ga4", "conversions"],
+        limitation="Coleta feita pelo servidor não é observável",
+        reason="Rastreamento server-side (GTM server-side, Measurement Protocol, CAPI da "
+               "Meta) parte do seu servidor, não do navegador do visitante — nenhum "
+               "scanner que roda no navegador enxerga isso, este inclusive. Quando o "
+               "endereço de coleta usa domínio próprio, a auditoria consegue identificá-lo "
+               "pelo formato do envio; o restante fica fora do alcance.",
+        affected_areas=["eventos", "ga4", "conversões"],
     ))
 
     # Warn if no tags were found at all
     if not tags and not scan.intercepted_requests:
         notes.append(DataQualityNote(
-            limitation="⚠️ No tracking data detected — possible reasons",
+            limitation="Nenhum rastreador encontrado — o que pode explicar",
             reason=(
-                "The scanner found no tracking tags or network requests. This can happen when:\n"
-                "• The site uses bot detection that blocks headless browsers\n"
-                "• All tracking is server-side (no client-side scripts)\n"
-                "• Consent is required before any scripts load\n"
-                "• The site is behind a login wall\n"
-                "• Scripts are lazy-loaded after user interaction (scroll, click)\n"
-                "Try the 'Upload' tab to analyse a GTM container JSON export directly."
+                "A varredura não encontrou tags nem requisições de rastreamento. "
+                "Isso costuma acontecer quando:\n"
+                "• o site bloqueia navegadores automatizados;\n"
+                "• todo o rastreamento é feito pelo servidor, sem script na página;\n"
+                "• os scripts só carregam depois do consentimento;\n"
+                "• a página exige login;\n"
+                "• os scripts só carregam após rolagem ou clique.\n"
+                "Se você tem o container do GTM exportado, a aba de upload analisa "
+                "o arquivo diretamente."
             ),
-            affected_areas=["tags", "events", "consent", "privacy"],
+            affected_areas=["tags", "eventos", "consentimento", "privacidade"],
         ))
 
     has_gtm = any(getattr(t, "id", None) == "gtm" for t in tags)
     total_events = events_result.total_events if events_result else 0
     if has_gtm and total_events == 0:
         notes.append(DataQualityNote(
-            limitation="GTM detected but no inline events visible",
-            reason="Google Tag Manager is present but events appear to fire after page load "
-                   "via GTM triggers. GA4 hit data captured via network interception is shown "
-                   "in the Events tab where available.",
-            affected_areas=["events", "dataLayer"],
+            limitation="GTM presente, mas nenhum evento visível no código",
+            reason="O Google Tag Manager está instalado e os eventos parecem ser "
+                   "disparados por acionadores configurados dentro dele, depois do "
+                   "carregamento. Os envios do GA4 capturados pela rede aparecem na "
+                   "aba de eventos quando existem.",
+            affected_areas=["eventos", "dataLayer"],
         ))
 
     notes.append(DataQualityNote(
-        limitation="Findings are indicative, not legal conclusions",
-        reason="All compliance assessments are based on publicly observable technical signals "
-               "and do not constitute legal advice. Consult a qualified privacy professional "
-               "for formal compliance certification.",
-        affected_areas=["compliance", "violations", "risk_exposure"],
+        limitation="Avaliação técnica — não é parecer jurídico",
+        reason="Tudo aqui vem de comportamento observável da página: o que foi "
+               "carregado, o que foi gravado no navegador e o que foi enviado, e em "
+               "que ordem. É evidência técnica, útil para embasar decisão, mas a "
+               "qualificação jurídica de cada ponto cabe a um profissional de "
+               "privacidade.",
+        affected_areas=["conformidade", "não conformidades", "exposição"],
     ))
 
     return notes

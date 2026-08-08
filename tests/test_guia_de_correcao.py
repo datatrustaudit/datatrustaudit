@@ -17,10 +17,15 @@ from audit_engine.storage_auditor import auditar_recusa, auditar_ordem_do_consen
 
 
 class TestVisibilidadePorPlano:
+    """São dois planos: Free vê metade, Premium vê tudo."""
+
     def test_percentuais_definidos(self):
         assert visibilidade_do_plano("free") == 0.50
-        assert visibilidade_do_plano("pro") == 0.75
         assert visibilidade_do_plano("premium") == 1.00
+
+    def test_pro_descontinuado_mantem_acesso_total(self):
+        """Quem assinou o Pro antes de ele sair não pode ser rebaixado."""
+        assert visibilidade_do_plano("pro") == 1.00
 
     def test_plano_desconhecido_cai_no_mais_restrito(self):
         """Errar para o lado de mostrar menos, nunca de vazar conteúdo pago."""
@@ -33,8 +38,9 @@ class TestVisibilidadePorPlano:
     def test_free_ve_metade(self):
         assert quantidade_visivel(10, "free") == 5
 
-    def test_pro_ve_tres_quartos(self):
-        assert quantidade_visivel(8, "pro") == 6
+    def test_planos_ativos_sao_dois(self):
+        from audit_engine.guia_de_correcao import PLANOS_ATIVOS
+        assert PLANOS_ATIVOS == ("free", "premium")
 
     def test_sempre_mostra_ao_menos_um(self):
         """Laudo que não mostra nada não vende o plano de cima."""
