@@ -284,6 +284,17 @@ def run_audit(
     try:
         jurisdiction = detect_jurisdiction(html, url)
         has_consent_tool = consent_result.cmp_detected if consent_result else False
+
+        # Coerência do laudo: a CMP pode estar no código e não exibir controle
+        # nenhum (banner restrito à União Europeia é a causa comum). Nesse caso
+        # não existe consentimento a respeitar, e dizer que a tag "carregou
+        # antes do sinal de consentimento" é impreciso — não há sinal. Para
+        # efeito de análise, vale como ausência de consentimento.
+        if storage_result is not None and any(
+            achado.get("check") == "cmp_present_no_ui"
+            for achado in (storage_result.achados_da_recusa or [])
+        ):
+            has_consent_tool = False
         privacy_result = analyze_privacy(
             tags, has_consent_tool, tags_before_consent, jurisdiction, storage=storage_result
         )

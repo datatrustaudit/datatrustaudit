@@ -35,6 +35,30 @@ def secao(texto: str) -> None:
     print(f"── {texto} " + "─" * max(0, LARGURA - len(texto) - 4))
 
 
+def paragrafo(texto: str, recuo: int = 6) -> None:
+    """Imprime quebrando por palavra.
+
+    Cortar por número de caracteres parte a palavra ao meio ("por|ém",
+    "duran|te") — num laudo que vai para o cliente isso passa impressão de
+    ferramenta malfeita.
+    """
+    if not texto:
+        return
+    largura = max(20, LARGURA - recuo)
+    espacos = " " * recuo
+    linha = ""
+    for palavra in texto.split():
+        if not linha:
+            linha = palavra
+        elif len(linha) + 1 + len(palavra) <= largura:
+            linha += " " + palavra
+        else:
+            print(f"{espacos}{linha}")
+            linha = palavra
+    if linha:
+        print(f"{espacos}{linha}")
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print(__doc__)
@@ -63,7 +87,19 @@ def main() -> int:
     print(f"  Score de conformidade....: {resultado.scores.overall if resultado.scores else '?'}/100")
     print(f"  Tags de rastreamento.....: {len(resultado.tags)}")
     print(f"  Violações................: {privacidade.total_violations if privacidade else 0}")
-    print(f"  Ferramenta de consentimento: {'sim' if privacidade and privacidade.has_consent_tool else 'NÃO'}")
+
+    # "sim" aqui contradizia a violação de CMP sem controle exibido logo abaixo.
+    cmp_sem_ui = bool(armazenamento) and any(
+        a.get("check") == "cmp_present_no_ui" for a in (armazenamento.achados_da_recusa or [])
+    )
+    if cmp_sem_ui:
+        situacao_consentimento = "instalada, mas SEM CONTROLE EXIBIDO"
+    elif privacidade and privacidade.has_consent_tool:
+        situacao_consentimento = "sim"
+    else:
+        situacao_consentimento = "NAO"
+    print(f"  Ferramenta de consentimento: {situacao_consentimento}")
+
     if privacidade and privacidade.estimated_risk_exposure:
         print(f"  Exposição estimada.......: {privacidade.estimated_risk_exposure}")
 
@@ -97,17 +133,17 @@ def main() -> int:
             secao("Problemas de ordem de carregamento")
             for problema in armazenamento.problemas_de_ordem:
                 print(f"  [{problema['status']}] {problema['label']}")
-                print(f"      {problema['description'][:LARGURA - 6]}")
+                paragrafo(problema["description"])
 
         if armazenamento.achados_da_recusa:
             secao("Teste do botão 'Recusar'")
             for achado in armazenamento.achados_da_recusa:
                 marcador = "OK " if achado["status"] == "ok" else "!! "
                 print(f"  {marcador}[{achado['status']}] {achado['label']}")
-                texto = achado["description"]
-                while texto:
-                    print(f"      {texto[:LARGURA - 6]}")
-                    texto = texto[LARGURA - 6:]
+                paragrafo(achado["description"])
+                if achado.get("recommendation"):
+                    print(f"      Como corrigir:")
+                    paragrafo(achado["recommendation"], recuo=8)
         elif testar_recusa:
             secao("Teste do botão 'Recusar'")
             print("  não executado (o navegador não pôde ser usado)")
@@ -116,7 +152,8 @@ def main() -> int:
         secao("Violações")
         for violacao in privacidade.violations:
             print(f"  [{violacao.severity}] {violacao.tag}")
-            print(f"      {violacao.violation[:LARGURA - 6]}")
+            paragrafo(violacao.violation)
+            print()
 
     print()
     print("  Aviso: avaliação técnica indicativa. Não constitui parecer jurídico.")
