@@ -15,12 +15,12 @@ import {
   Database,
   Shield,
   Zap,
-  TrendingUp,
-  Settings
+  TrendingUp
 } from 'lucide-react';
-import { OmnibugRealDataService } from '@/services/omnibugRealDataService';
+import { analisarEmTempoReal, FalhaNaAnalise } from '@/services/analiseEmTempoReal';
 import { OmnibugAnalysisResult } from '@/types/omnibug';
-import OmnibugConfig from './OmnibugConfig';
+import { useAuth } from '@/context/AuthContext';
+import { usePlan } from '@/context/PlanContext';
 
 interface OmnibugRealTimeDisplayProps {
   url: string;
@@ -28,50 +28,40 @@ interface OmnibugRealTimeDisplayProps {
 }
 
 const OmnibugRealTimeDisplay = ({ url, onComplete }: OmnibugRealTimeDisplayProps) => {
+  const { token } = useAuth();
+  const { plan } = usePlan();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [results, setResults] = useState<OmnibugAnalysisResult | null>(null);
   const [currentStep, setCurrentStep] = useState('');
-  const [progress, setProgress] = useState(0);
-  const [showConfig, setShowConfig] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
 
   const handleAnalysis = async () => {
     if (!url) return;
-    
+
     setIsAnalyzing(true);
-    setProgress(0);
-    setCurrentStep('Conectando ao site...');
-    
+    setErro(null);
+    setCurrentStep('Abrindo a página no navegador do scanner…');
+
     try {
-      const omnibugService = OmnibugRealDataService.getInstance();
-      
-      // Simular progresso
-      const steps = [
-        'Conectando ao site...',
-        'Capturando código fonte...',
-        'Analisando scripts em tempo real...',
-        'Detectando eventos GA4...',
-        'Verificando Meta Pixel...',
-        'Analisando DataLayer...',
-        'Verificando compliance LGPD...',
-        'Gerando relatório completo...'
-      ];
-      
-      for (let i = 0; i < steps.length; i++) {
-        setCurrentStep(steps[i]);
-        setProgress((i + 1) / steps.length * 100);
-        await new Promise(resolve => setTimeout(resolve, 800));
-      }
-      
-      const analysisResults = await omnibugService.captureRealData(url);
-      setResults(analysisResults);
-      onComplete?.(analysisResults);
-      
+      /* A barra de progresso anterior era encenação: oito passos de 800ms com
+         nomes inventados ("Verificando Meta Pixel...") rodavam ANTES de
+         qualquer requisição, e só então a análise começava. Seis segundos de
+         teatro num laudo que se vende por evidência. Agora o texto descreve a
+         etapa real e não finge percentual que ninguém mede. */
+      const resultado = await analisarEmTempoReal(url, { token, plano: plan?.type });
+      setResults(resultado);
+      onComplete?.(resultado);
     } catch (error) {
-      console.error('Erro na análise Omnibug:', error);
+      // Falha em silêncio aqui é o pior caso: a tela ficava vazia e o cliente
+      // lia isso como "nada encontrado".
+      const mensagem = error instanceof FalhaNaAnalise
+        ? error.message
+        : `Erro inesperado: ${(error as Error).message}`;
+      setErro(mensagem);
+      console.error('[tempo-real] análise falhou:', error);
     } finally {
       setIsAnalyzing(false);
       setCurrentStep('');
-      setProgress(100);
     }
   };
 
@@ -101,33 +91,30 @@ const OmnibugRealTimeDisplay = ({ url, onComplete }: OmnibugRealTimeDisplayProps
       <div className="space-y-4">
         <Card className="w-full">
           <CardHeader>
-            <CardTitle className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Activity className="h-5 w-5" />
-                Análise Omnibug em Tempo Real
-              </div>
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={() => setShowConfig(!showConfig)}
-              >
-                <Settings className="h-4 w-4 mr-2" />
-                Configurar
-              </Button>
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="h-5 w-5" />
+              Captura ao vivo
             </CardTitle>
             <CardDescription>
-              Captura dados reais do site usando a extensão Omnibug ou análise interna avançada
+              Abre a página num navegador real e registra o que acontece sem
+              aceitar o aviso de cookies: requisição disparada, cookie gravado e
+              chave de storage escrita. É a mesma varredura do laudo completo,
+              apresentada evento a evento.
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
+            {erro && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>{erro}</AlertDescription>
+              </Alert>
+            )}
             <Button onClick={handleAnalysis} className="w-full" size="lg" disabled={!url}>
               <Globe className="h-4 w-4 mr-2" />
-              Iniciar Captura Real de Dados
+              {erro ? 'Tentar de novo' : 'Iniciar captura'}
             </Button>
           </CardContent>
         </Card>
-        
-        {showConfig && <OmnibugConfig />}
       </div>
     );
   }
@@ -138,7 +125,7 @@ const OmnibugRealTimeDisplay = ({ url, onComplete }: OmnibugRealTimeDisplayProps
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Activity className="h-5 w-5 animate-pulse" />
-            Capturando Dados em Tempo Real
+            Captura em andamento
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -146,9 +133,12 @@ const OmnibugRealTimeDisplay = ({ url, onComplete }: OmnibugRealTimeDisplayProps
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
             <p className="text-sm text-muted-foreground">{currentStep}</p>
           </div>
-          <Progress value={progress} className="w-full" />
+          {/* Indeterminada de propósito: não há como medir o percentual de uma
+              visita de navegador, e barra que enche sozinha é só decoração. */}
+          <Progress className="w-full" />
           <p className="text-xs text-center text-muted-foreground">
-            Analisando como Omnibug: {Math.round(progress)}%
+            O scanner não clica em “aceitar” — tudo que ele registrar aconteceu
+            sem consentimento.
           </p>
         </CardContent>
       </Card>
@@ -165,45 +155,68 @@ const OmnibugRealTimeDisplay = ({ url, onComplete }: OmnibugRealTimeDisplayProps
           <CardTitle className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Activity className="h-5 w-5" />
-              Análise Omnibug Completa
+              Captura concluída
             </div>
             <Badge variant={results.compliance.score > 70 ? 'default' : 'destructive'}>
               Score: {results.compliance.score}/100
             </Badge>
           </CardTitle>
           <CardDescription>
-            {results.url} • {results.events.length} eventos • {results.scripts.length} scripts detectados
+            {results.url} • mesma varredura do laudo completo
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="text-center">
-              <div className="text-2xl font-bold text-blue-600">{results.events.length}</div>
-              <div className="text-sm text-muted-foreground">Eventos Capturados</div>
+              <div className="text-2xl font-bold text-blue-600">{results.scripts.length}</div>
+              <div className="text-sm text-muted-foreground">Tags detectadas</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-purple-600">{results.scripts.length}</div>
-              <div className="text-sm text-muted-foreground">Scripts Detectados</div>
+              <div className="text-2xl font-bold text-amber-600">{results.networkActivity.dataTransfers}</div>
+              <div className="text-sm text-muted-foreground">Antes do consentimento</div>
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-red-600">{results.compliance.violations.length}</div>
-              <div className="text-sm text-muted-foreground">Violações LGPD</div>
+              <div className="text-sm text-muted-foreground">Não conformidades</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-green-600">{results.performance.loadTime}ms</div>
-              <div className="text-sm text-muted-foreground">Tempo de Análise</div>
+              <div className="text-2xl font-bold text-green-600">{(results.performance.loadTime / 1000).toFixed(1)}s</div>
+              <div className="text-sm text-muted-foreground">Tempo da varredura</div>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Alert de Consentimento */}
-      {!results.consentMechanism.compliant && (
+      {/* Veredito do consentimento.
+          A versão anterior dizia "Consentimento LGPD não conforme" para
+          qualquer resultado imperfeito, mesmo quando o achado não tinha nada a
+          ver com consentimento. Agora o texto nomeia o que foi observado — e
+          resultado limpo é dito como tal, em vez de sumir da tela. */}
+      {results.networkActivity.dataTransfers > 0 ? (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
-            <strong>Crítico:</strong> Consentimento LGPD não conforme detectado. 
-            {results.consentMechanism.issues.length > 0 && ` Problemas: ${results.consentMechanism.issues.join(', ')}`}
+            <strong>{results.networkActivity.dataTransfers} tag(s) dispararam antes de qualquer aceite.</strong>{' '}
+            {results.consentMechanism.detected
+              ? `O aviso de cookies existe (${results.consentMechanism.vendor}), mas não bloqueia o rastreamento — declarar o CMP não basta.`
+              : 'Nenhum controle de consentimento foi encontrado na página.'}
+          </AlertDescription>
+        </Alert>
+      ) : !results.consentMechanism.detected ? (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>
+            <strong>Sem controle de consentimento na página.</strong> O visitante
+            não tem como recusar o que for coletado.
+          </AlertDescription>
+        </Alert>
+      ) : (
+        <Alert>
+          <CheckCircle className="h-4 w-4" />
+          <AlertDescription>
+            Nenhuma tag disparou antes do aceite nesta visita. A varredura cobre
+            a página inicial sem clicar em “aceitar”; páginas internas podem
+            carregar outras tags.
           </AlertDescription>
         </Alert>
       )}
