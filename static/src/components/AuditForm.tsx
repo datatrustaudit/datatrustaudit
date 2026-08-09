@@ -63,11 +63,38 @@ const AuditForm = ({
     }
   };
 
-  const handleAudit = () => {
+  /* Gatilho para os modos que rodam dentro de um filho (Deep e Tempo Real).
+     Cada incremento manda o componente começar — é o que permite um botão só,
+     acima das abas, disparar qualquer um dos modos. */
+  const [gatilhoDeep, setGatilhoDeep] = useState(0);
+  const [gatilhoTempoReal, setGatilhoTempoReal] = useState(0);
+
+  const registrarNoHistorico = () => {
     if (url && !recentUrls.includes(url)) {
       setRecentUrls(prev => [url, ...prev].slice(0, 5));
     }
-    onAudit();
+  };
+
+  /* O modo Upload não usa URL; os outros três usam a mesma barra. */
+  const modoUsaUrl = activeTab !== 'upload';
+
+  const rotuloDoBotao = () => {
+    if (!isAuthenticated) return t('home.create_account_to_scan');
+    if (activeTab === 'navigation') return t('home.tab_deep');
+    if (activeTab === 'omnibug') return t('home.tab_realtime');
+    return t('home.scan_website');
+  };
+
+  const dispararModoAtivo = () => {
+    if (!url) return;
+    registrarNoHistorico();
+    if (activeTab === 'navigation') {
+      setGatilhoDeep(n => n + 1);
+    } else if (activeTab === 'omnibug') {
+      setGatilhoTempoReal(n => n + 1);
+    } else {
+      onAudit();
+    }
   };
 
   const features = [
@@ -116,6 +143,66 @@ const AuditForm = ({
 
       <CardContent className="pt-8 px-8 pb-8">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          {/* Barra de endereço acima das abas.
+              Ela morava dentro da aba "Análise Rápida": quem entrava direto no
+              Deep Scan ou no Tempo Real não tinha onde digitar a URL — os dois
+              recebem `url` por prop e ficavam presos numa string vazia. Aqui em
+              cima ela vale para os três modos que usam URL. */}
+          {modoUsaUrl && (
+            <div className="relative group mb-8">
+              <div className="flex flex-col md:flex-row gap-4">
+                <div className="relative flex-1">
+                  <Globe className="absolute left-5 top-1/2 -translate-y-1/2 h-5 w-5 text-white/20 group-focus-within:text-blue-400 transition-colors" />
+                  <Input
+                    type="text"
+                    placeholder={t('home.url_placeholder')}
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    aria-label={t('home.url_placeholder')}
+                    className="pl-14 h-16 text-lg bg-white/5 border-white/5 focus:bg-white/10 focus:border-blue-500/50 focus:ring-blue-500/10 rounded-2xl transition-all placeholder:text-white/20 text-white shadow-inner"
+                    onKeyDown={(e) => e.key === 'Enter' && dispararModoAtivo()}
+                  />
+                </div>
+                <Button
+                  onClick={dispararModoAtivo}
+                  disabled={loading || !url}
+                  size="lg"
+                  className="h-16 px-10 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-xl shadow-blue-500/10 transition-all hover:scale-[1.02] active:scale-[0.98] border-0"
+                >
+                  {loading ? (
+                    <div className="flex items-center gap-3">
+                      <div className="animate-spin rounded-full h-5 w-5 border-2 border-white/20 border-t-white" />
+                      <span className="font-bold uppercase tracking-widest text-xs">{t('home.analyzing')}</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3 font-bold uppercase tracking-widest text-xs">
+                      <Search className="h-5 w-5" />
+                      <span>{rotuloDoBotao()}</span>
+                    </div>
+                  )}
+                </Button>
+              </div>
+
+              {/* Recent URLs */}
+              {recentUrls.length > 0 && (
+                <div className="mt-5 flex items-center gap-3 flex-wrap">
+                  <span className="text-[10px] text-white/20 uppercase tracking-widest flex items-center gap-1.5 font-bold">
+                    <Clock className="h-3 w-3" /> {t('nav.history')}:
+                  </span>
+                  {recentUrls.map((u, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setUrl(u)}
+                      className="text-[10px] px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-white/40 hover:text-white border border-white/5 transition-all font-medium"
+                    >
+                      {u}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <TabsList className="grid w-full grid-cols-4 p-1.5 bg-white/5 rounded-2xl h-auto border border-white/5 mb-8">
             <TabsTrigger
               value="url"
@@ -160,60 +247,8 @@ const AuditForm = ({
             </TabsTrigger>
           </TabsList>
 
-          {/* URL Analysis Tab */}
+          {/* URL Analysis Tab — a barra de endereço subiu para cima das abas */}
           <TabsContent value="url" className="space-y-6 focus-visible:outline-none">
-            <div className="relative group">
-              <div className="flex flex-col md:flex-row gap-4">
-                <div className="relative flex-1">
-                  <Globe className="absolute left-5 top-1/2 -translate-y-1/2 h-5 w-5 text-white/20 group-focus-within:text-blue-400 transition-colors" />
-                  <Input
-                    type="text"
-                    placeholder={t('home.url_placeholder')}
-                    value={url}
-                    onChange={(e) => setUrl(e.target.value)}
-                    className="pl-14 h-16 text-lg bg-white/5 border-white/5 focus:bg-white/10 focus:border-blue-500/50 focus:ring-blue-500/10 rounded-2xl transition-all placeholder:text-white/20 text-white shadow-inner"
-                    onKeyDown={(e) => e.key === 'Enter' && handleAudit()}
-                  />
-                </div>
-                <Button
-                  onClick={handleAudit}
-                  disabled={loading || !url}
-                  size="lg"
-                  className="h-16 px-10 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-xl shadow-blue-500/10 transition-all hover:scale-[1.02] active:scale-[0.98] border-0"
-                >
-                  {loading ? (
-                    <div className="flex items-center gap-3">
-                      <div className="animate-spin rounded-full h-5 w-5 border-2 border-white/20 border-t-white" />
-                      <span className="font-bold uppercase tracking-widest text-xs">{t('home.analyzing')}</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-3 font-bold uppercase tracking-widest text-xs">
-                      <Search className="h-5 w-5" />
-                      <span>{isAuthenticated ? t('home.scan_website') : t('home.create_account_to_scan')}</span>
-                    </div>
-                  )}
-                </Button>
-              </div>
-
-              {/* Recent URLs */}
-              {recentUrls.length > 0 && (
-                <div className="mt-5 flex items-center gap-3 flex-wrap">
-                  <span className="text-[10px] text-white/20 uppercase tracking-widest flex items-center gap-1.5 font-bold">
-                    <Clock className="h-3 w-3" /> {t('nav.history')}:
-                  </span>
-                  {recentUrls.map((u, i) => (
-                    <button
-                      key={i}
-                      onClick={() => setUrl(u)}
-                      className="text-[10px] px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-white/40 hover:text-white border border-white/5 transition-all font-medium"
-                    >
-                      {u}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
             {/* View Source Option (Premium Box) */}
             <div 
               className={`flex items-center gap-5 p-6 rounded-2xl border transition-all ${
@@ -294,14 +329,14 @@ const AuditForm = ({
             <FileUploadSection onFilesProcessed={handleFileUpload} disabled={loading} />
           </TabsContent>
           <TabsContent value="navigation" className="mt-6 focus-visible:outline-none">
-            <SiteNavigationAnalysis url={url} onComplete={onNavigationComplete} />
+            <SiteNavigationAnalysis url={url} gatilho={gatilhoDeep} onComplete={onNavigationComplete} />
           </TabsContent>
           <TabsContent value="omnibug" className="mt-6 focus-visible:outline-none">
-            <OmnibugRealTimeDisplay url={url} onComplete={(results) => {
+            <OmnibugRealTimeDisplay url={url} gatilho={gatilhoTempoReal} onComplete={(results) => {
               if (onFileAnalysis) {
                 onFileAnalysis([{
                   content: JSON.stringify(results, null, 2),
-                  file: { name: `omnibug-analysis-${url || 'unknown'}.json` },
+                  file: { name: `captura-${url || 'site'}.json` },
                   type: 'omnibug',
                   omnibugResults: results
                 }]);

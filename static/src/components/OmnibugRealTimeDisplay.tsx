@@ -25,9 +25,11 @@ import { usePlan } from '@/context/PlanContext';
 interface OmnibugRealTimeDisplayProps {
   url: string;
   onComplete?: (results: OmnibugAnalysisResult) => void;
+  /** Cada incremento inicia a captura. Vem do botão único acima das abas. */
+  gatilho?: number;
 }
 
-const OmnibugRealTimeDisplay = ({ url, onComplete }: OmnibugRealTimeDisplayProps) => {
+const OmnibugRealTimeDisplay = ({ url, onComplete, gatilho = 0 }: OmnibugRealTimeDisplayProps) => {
   const { token } = useAuth();
   const { plan } = usePlan();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -64,6 +66,14 @@ const OmnibugRealTimeDisplay = ({ url, onComplete }: OmnibugRealTimeDisplayProps
       setCurrentStep('');
     }
   };
+
+  /* Disparo pelo botão da barra de endereço, acima das abas.
+     `gatilho` só sobe quando o usuário clica; o `> 0` evita rodar sozinho na
+     primeira montagem. */
+  useEffect(() => {
+    if (gatilho > 0) handleAnalysis();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gatilho]);
 
   const getSeverityColor = (severity: string) => {
     switch (severity) {
@@ -109,10 +119,25 @@ const OmnibugRealTimeDisplay = ({ url, onComplete }: OmnibugRealTimeDisplayProps
                 <AlertDescription>{erro}</AlertDescription>
               </Alert>
             )}
-            <Button onClick={handleAnalysis} className="w-full" size="lg" disabled={!url}>
-              <Globe className="h-4 w-4 mr-2" />
-              {erro ? 'Tentar de novo' : 'Iniciar captura'}
-            </Button>
+            {/* Sem URL, o card explica o que fazer; com URL, o botão daqui
+                duplicaria o da barra de endereço logo acima. */}
+            {url ? (
+              erro ? (
+                <Button onClick={handleAnalysis} className="w-full" size="lg">
+                  <Globe className="h-4 w-4 mr-2" />
+                  Tentar de novo
+                </Button>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Pronto para <span className="font-medium text-foreground">{url}</span> —
+                  use o botão no topo da página para começar.
+                </p>
+              )
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Digite o endereço do site no campo acima para começar.
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>

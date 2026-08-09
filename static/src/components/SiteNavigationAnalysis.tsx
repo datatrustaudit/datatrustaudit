@@ -14,9 +14,11 @@ import { toast } from '@/hooks/use-toast';
 interface SiteNavigationAnalysisProps {
   url: string;
   onComplete?: (results: any) => void;
+  /** Cada incremento inicia a varredura. Vem do botão único acima das abas. */
+  gatilho?: number;
 }
 
-const SiteNavigationAnalysis = ({ url, onComplete }: SiteNavigationAnalysisProps) => {
+const SiteNavigationAnalysis = ({ url, onComplete, gatilho = 0 }: SiteNavigationAnalysisProps) => {
   const [isNavigating, setIsNavigating] = useState(false);
   const [progress, setProgress] = useState(0);
   const [currentPage, setCurrentPage] = useState('');
@@ -78,6 +80,13 @@ const SiteNavigationAnalysis = ({ url, onComplete }: SiteNavigationAnalysisProps
     }
   };
 
+  /* Disparo pelo botão da barra de endereço, acima das abas.
+     O `> 0` evita rodar sozinho na primeira montagem. */
+  useEffect(() => {
+    if (gatilho > 0) startNavigation();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gatilho]);
+
   const getPageIcon = (type: string) => {
     switch (type) {
       case 'home': return <Globe className="h-4 w-4" />;
@@ -111,29 +120,22 @@ const SiteNavigationAnalysis = ({ url, onComplete }: SiteNavigationAnalysisProps
             Navegação Completa do Site
           </CardTitle>
           <CardDescription>
-            Navegar automaticamente por todo o site e capturar todos os eventos e scripts em tempo real
+            Audita a página inicial e mais algumas páginas internas do mesmo
+            domínio, cada uma com o mesmo rigor do laudo completo: rede
+            interceptada, cookies lidos do navegador e teste do botão “Recusar”.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            <Button
-              onClick={startNavigation}
-              disabled={isNavigating}
-              className="w-full bg-blue-600 hover:bg-blue-700"
-              size="lg"
-            >
-              {isNavigating ? (
-                <div className="flex items-center gap-2">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  Navegando...
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <Search className="h-4 w-4" />
-                  Iniciar Navegação Completa
-                </div>
-              )}
-            </Button>
+            {/* O disparo vem da barra de endereço, no topo da página — um botão
+                aqui repetiria aquele, na mesma tela. */}
+            {!isNavigating && (
+              <p className="text-sm text-muted-foreground">
+                {url
+                  ? <>Pronto para <span className="font-medium text-foreground">{url}</span> — use o botão no topo da página para começar.</>
+                  : 'Digite o endereço do site no campo acima para começar.'}
+              </p>
+            )}
 
             {isNavigating && (
               <div className="space-y-2">
