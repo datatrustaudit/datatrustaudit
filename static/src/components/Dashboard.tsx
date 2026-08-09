@@ -1,6 +1,5 @@
 import type { ElementType } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import {
     BarChart,
     Bar,
@@ -78,6 +77,47 @@ interface DashboardProps {
 }
 
 /**
+ * Indicador do topo do laudo.
+ *
+ * Superfície neutra por padrão: `cor` só é passada quando o número significa
+ * alguma coisa — achado, ausência de controle, faixa de score. Contagem de
+ * inventário (quantas tags existem) fica sem cor, porque não é problema.
+ *
+ * O valor usa a voz de evidência (monoespaçada, tabular): é medição, e
+ * medição alinha em coluna.
+ */
+const Indicador = ({ rotulo, valor, texto, icone: Icone, cor, nota }: {
+    rotulo: string;
+    valor?: number;
+    texto?: string;
+    icone: ElementType;
+    cor?: string;
+    nota?: string;
+}) => (
+    <Card style={{ borderColor: 'var(--laudo-linha)', background: 'var(--laudo-superficie)' }}>
+        <CardContent className="pt-6">
+            <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                    <p className="text-xs" style={{ color: 'var(--laudo-texto-fraco)' }}>{rotulo}</p>
+                    <p
+                        className="voz-evidencia mt-1 text-3xl font-bold leading-none"
+                        style={{ color: cor || 'var(--laudo-texto)' }}
+                    >
+                        {texto ?? valor}
+                    </p>
+                </div>
+                <Icone className="h-6 w-6 shrink-0" style={{ color: cor || 'var(--laudo-texto-fraco)', opacity: cor ? 1 : 0.5 }} />
+            </div>
+            {nota && (
+                <p className="mt-2 text-[11px] leading-snug" style={{ color: 'var(--laudo-texto-fraco)' }}>
+                    {nota}
+                </p>
+            )}
+        </CardContent>
+    </Card>
+);
+
+/**
  * Indicador cujo tom acompanha o resultado.
  *
  * O selo era fixo: "Risco Crítico" aparecia piscando ao lado de um zero. Num
@@ -93,31 +133,42 @@ const CartaoDeRisco = ({ titulo, descricao, valor, rotuloComAchado, rotuloSemAch
     icone: ElementType;
 }) => {
     const temAchado = valor > 0;
+    const cor = temAchado ? 'var(--laudo-critico)' : 'var(--laudo-conforme)';
     return (
-        <Card className={`shadow-sm border-l-4 ${temAchado ? 'border-l-rose-500' : 'border-l-emerald-500'}`}>
+        <Card
+            className="shadow-sm border-l-4"
+            style={{
+                borderColor: 'var(--laudo-linha)',
+                borderLeftColor: cor,
+                background: 'var(--laudo-superficie)',
+            }}
+        >
             <CardHeader className="pb-2">
-                <CardTitle className={`text-sm font-semibold flex items-center gap-2 ${
-                    temAchado ? 'text-rose-700 dark:text-rose-300' : 'text-slate-600 dark:text-slate-300'
-                }`}>
-                    <Icone className="w-4 h-4 shrink-0" />
+                <CardTitle
+                    className="text-sm font-semibold flex items-center gap-2"
+                    style={{ color: 'var(--laudo-texto)' }}
+                >
+                    <Icone className="w-4 h-4 shrink-0" style={{ color: cor }} />
                     {titulo}
                 </CardTitle>
             </CardHeader>
             <CardContent>
                 <div className="flex items-end justify-between gap-4">
-                    <div className={`text-3xl font-bold tabular-nums ${
-                        temAchado ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
-                    }`}>
+                    <div className="voz-evidencia text-3xl font-bold" style={{ color: cor }}>
                         {valor}
                     </div>
                     <div className="text-right min-w-0">
-                        <Badge
-                            variant={temAchado ? 'destructive' : 'outline'}
-                            className={temAchado ? '' : 'text-emerald-700 border-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'}
+                        {/* Selo em contorno, sem preenchimento: destaque é do
+                            número, não do rótulo. */}
+                        <span
+                            className="inline-block rounded border px-2 py-0.5 text-[11px] font-medium"
+                            style={{ color: cor, borderColor: cor }}
                         >
                             {temAchado ? rotuloComAchado : rotuloSemAchado}
-                        </Badge>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-tight">{descricao}</p>
+                        </span>
+                        <p className="text-xs mt-1 leading-tight" style={{ color: 'var(--laudo-texto-fraco)' }}>
+                            {descricao}
+                        </p>
                     </div>
                 </div>
             </CardContent>
@@ -199,64 +250,42 @@ const Dashboard = ({ result }: DashboardProps) => {
 
     return (
         <div className="space-y-6">
-            {/* Header Stats */}
+            {/* Indicadores do topo.
+                Eram quatro gradientes saturados — azul, vermelho, verde/laranja
+                e índigo — competindo entre si. Com tudo colorido, nada se
+                destaca, e o vermelho aparecia igual tendo achado ou não.
+                Agora a superfície é neutra e a cor entra só quando o número
+                significa um problema. */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white">
-                    <CardContent className="pt-6">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <p className="text-blue-100 text-sm">{t('dashboard.tags_detected')}</p>
-                                <p className="text-3xl font-bold">{result.tags.length}</p>
-                            </div>
-                            <BarChart3 className="w-10 h-10 text-blue-200" />
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <Card className="bg-gradient-to-br from-red-500 to-red-600 text-white">
-                    <CardContent className="pt-6">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <p className="text-red-100 text-sm">Violações de Privacidade</p>
-                                <p className="text-3xl font-bold">{result.privacy.total_violations}</p>
-                            </div>
-                            <AlertTriangle className="w-10 h-10 text-red-200" />
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <Card className={`bg-gradient-to-br ${result.privacy.has_consent_tool ? 'from-green-500 to-green-600' : 'from-orange-500 to-orange-600'} text-white`}>
-                    <CardContent className="pt-6">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <p className="text-white/80 text-sm">CMP Status</p>
-                                <p className="text-xl font-bold">
-                                    {result.privacy.has_consent_tool ? 'Detectado' : 'Ausente'}
-                                </p>
-                            </div>
-                            {result.privacy.has_consent_tool ? (
-                                <CheckCircle className="w-10 h-10 text-green-200" />
-                            ) : (
-                                <Shield className="w-10 h-10 text-orange-200" />
-                            )}
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <Card className="bg-gradient-to-br from-indigo-500 to-indigo-600 text-white shadow-xl">
-                    <CardContent className="pt-6">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <p className="text-indigo-100 text-sm">{t('dashboard.score_title')}</p>
-                                <p className="text-3xl font-bold">{result.score}%</p>
-                            </div>
-                            <div className="relative">
-                                <TrendingUp className="w-10 h-10 text-indigo-200" />
-                                <Badge className="absolute -top-1 -right-1 bg-white text-indigo-600 border-indigo-200 text-[10px] px-1">PRO</Badge>
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
+                <Indicador
+                    rotulo={t('dashboard.tags_detected')}
+                    valor={result.tags.length}
+                    icone={BarChart3}
+                    nota="Inventário — não é problema por si"
+                />
+                <Indicador
+                    rotulo="Não conformidades"
+                    valor={totalDeViolacoes}
+                    icone={AlertTriangle}
+                    cor={totalDeViolacoes > 0 ? 'var(--laudo-critico)' : 'var(--laudo-conforme)'}
+                    nota={totalDeViolacoes > 0 ? 'Exigem correção' : 'Nada observado nesta visita'}
+                />
+                <Indicador
+                    rotulo="Controle de consentimento"
+                    texto={result.privacy.has_consent_tool ? 'Presente' : 'Ausente'}
+                    icone={result.privacy.has_consent_tool ? CheckCircle : Shield}
+                    cor={result.privacy.has_consent_tool ? 'var(--laudo-conforme)' : 'var(--laudo-critico)'}
+                    nota={result.privacy.has_consent_tool
+                        ? 'Presença não prova bloqueio'
+                        : 'Visitante não tem como recusar'}
+                />
+                <Indicador
+                    rotulo={t('dashboard.score_title')}
+                    texto={`${result.score}%`}
+                    icone={TrendingUp}
+                    cor={corDoScore(result.score)}
+                    nota={result.score >= 80 ? 'Adequado' : result.score >= 50 ? 'Precisa de ajuste' : 'Crítico'}
+                />
             </div>
 
             {/* Indicadores de risco.
@@ -286,13 +315,13 @@ const Dashboard = ({ result }: DashboardProps) => {
             {/* Charts Row */}
             <div className="grid md:grid-cols-2 gap-6">
                 {/* Pie Chart - Tipos de Tags */}
-                <Card className="shadow-lg border-slate-800 bg-slate-900/40">
+                <Card className="shadow-lg" style={{ borderColor: 'var(--laudo-linha)', background: 'var(--laudo-superficie)' }}>
                     <CardHeader>
-                        <CardTitle className="flex items-center gap-2 text-slate-100">
-                            <PieIcon className="w-5 h-5 text-cyan-400" />
+                        <CardTitle className="flex items-center gap-2" style={{ color: 'var(--laudo-texto)' }}>
+                            <PieIcon className="w-5 h-5" style={{ color: 'var(--laudo-carimbo)' }} />
                             Distribuição por tipo
                         </CardTitle>
-                        <CardDescription className="text-slate-400">
+                        <CardDescription style={{ color: 'var(--laudo-texto-fraco)' }}>
                             {result.tags.length} tag(s) detectada(s), agrupadas por finalidade
                         </CardDescription>
                     </CardHeader>
@@ -331,13 +360,13 @@ const Dashboard = ({ result }: DashboardProps) => {
                 </Card>
 
                 {/* Bar Chart - Severidade das Violações */}
-                <Card className="shadow-lg border-slate-800 bg-slate-900/40">
+                <Card className="shadow-lg" style={{ borderColor: 'var(--laudo-linha)', background: 'var(--laudo-superficie)' }}>
                     <CardHeader>
-                        <CardTitle className="flex items-center gap-2 text-slate-100">
-                            <BarChart3 className="w-5 h-5 text-rose-400" />
+                        <CardTitle className="flex items-center gap-2" style={{ color: 'var(--laudo-texto)' }}>
+                            <BarChart3 className="w-5 h-5" style={{ color: 'var(--laudo-carimbo)' }} />
                             Não conformidades por gravidade
                         </CardTitle>
-                        <CardDescription className="text-slate-400">
+                        <CardDescription style={{ color: 'var(--laudo-texto-fraco)' }}>
                             {totalDeViolacoes > 0
                                 ? `${totalDeViolacoes} achado(s) — as barras à esquerda exigem correção antes de ir ao ar`
                                 : 'Nenhuma não conformidade observada nesta varredura'}
@@ -378,13 +407,13 @@ const Dashboard = ({ result }: DashboardProps) => {
             </div>
 
             {/* Timeline Chart - Ordem de Carregamento */}
-            <Card className="shadow-lg border-slate-800 bg-slate-900/40">
+            <Card className="shadow-lg" style={{ borderColor: 'var(--laudo-linha)', background: 'var(--laudo-superficie)' }}>
                 <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-slate-100">
-                        <Activity className="w-5 h-5 text-amber-400" />
+                    <CardTitle className="flex items-center gap-2" style={{ color: 'var(--laudo-texto)' }}>
+                        <Activity className="w-5 h-5" style={{ color: 'var(--laudo-carimbo)' }} />
                         Risco por ordem de carregamento
                     </CardTitle>
-                    <CardDescription className="text-slate-400">
+                    <CardDescription style={{ color: 'var(--laudo-texto-fraco)' }}>
                         Cada ponto é uma tag, na ordem em que entra na página. Passe o mouse
                         para ver qual é e em que linha do HTML está.
                     </CardDescription>
@@ -473,10 +502,10 @@ const Dashboard = ({ result }: DashboardProps) => {
             {result.scores ? (
                 <PainelDeScores scores={result.scores} />
             ) : (
-                <Card className="shadow-lg border-slate-800 bg-slate-900/40">
+                <Card className="shadow-lg" style={{ borderColor: 'var(--laudo-linha)', background: 'var(--laudo-superficie)' }}>
                     <CardHeader>
-                        <CardTitle className="flex items-center gap-2 text-slate-100">
-                            <Shield className="w-5 h-5 text-cyan-400" />
+                        <CardTitle className="flex items-center gap-2" style={{ color: 'var(--laudo-texto)' }}>
+                            <Shield className="w-5 h-5" style={{ color: 'var(--laudo-carimbo)' }} />
                             Score de conformidade LGPD
                         </CardTitle>
                     </CardHeader>
@@ -527,20 +556,41 @@ const Dashboard = ({ result }: DashboardProps) => {
                 </Card>
             )}
 
-            {/* Multa Estimada Destaque */}
-            <Card className="shadow-lg border-0 bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200">
-                <CardContent className="pt-6">
-                    <div className="text-center">
-                        <p className="text-amber-800 text-lg mb-2">💰 Exposição de Risco Estimado</p>
-                        <p className="text-3xl font-bold text-amber-900">
+            {/* Exposição legal.
+                Era um card de fundo claro (`from-amber-50`) no meio de um app
+                escuro, com emoji e o texto em `text-3xl bold` — dimensionado
+                para um valor em reais. Desde que a exposição deixou de inventar
+                cifra e passou a citar o critério do art. 52, o conteúdo é um
+                parágrafo jurídico: cabe na voz de argumento, não em manchete. */}
+            {result.privacy.estimatedRiskExposure && (
+                <Card
+                    className="shadow-sm border-l-4"
+                    style={{
+                        borderColor: 'var(--laudo-linha)',
+                        borderLeftColor: 'var(--laudo-carimbo)',
+                        background: 'var(--laudo-superficie)',
+                    }}
+                >
+                    <CardContent className="pt-6">
+                        <p
+                            className="text-[11px] uppercase tracking-widest mb-2 voz-evidencia"
+                            style={{ color: 'var(--laudo-texto-fraco)' }}
+                        >
+                            Exposição legal
+                        </p>
+                        <p
+                            className="voz-argumento text-lg"
+                            style={{ color: 'var(--laudo-texto)', maxWidth: '68ch' }}
+                        >
                             {result.privacy.estimatedRiskExposure}
                         </p>
-                        <p className="text-sm text-amber-700 mt-2">
-                            Baseado no Art. 52 da Lei 13.709/2018 (LGPD)
+                        <p className="text-xs mt-3" style={{ color: 'var(--laudo-texto-fraco)' }}>
+                            Art. 52 da Lei 13.709/2018 (LGPD). O valor efetivo depende do
+                            faturamento, da abrangência e dos agravantes do caso concreto.
                         </p>
-                    </div>
-                </CardContent>
-            </Card>
+                    </CardContent>
+                </Card>
+            )}
         </div>
     );
 };

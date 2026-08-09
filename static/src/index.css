@@ -136,6 +136,95 @@ All colors MUST be HSL.
   }
 }
 
+/* ==========================================================================
+   Identidade: laudo pericial, não antivírus
+   ==========================================================================
+
+   O mercado de compliance vende medo — vermelho, cadeado, escudo, gráfico
+   pulsando. É a linguagem errada para um produto cujo valor é a calma de quem
+   tem prova documentada.
+
+   Regra funcional, não decorativa:
+
+       COR SATURADA SÓ ONDE HÁ ACHADO REAL.
+
+   A marca é fria (azul-carimbo) e nunca representa um problema. O quente é
+   reservado à gravidade. Uma tela sem achado é uma tela sem cor — e isso, por
+   si, já comunica o resultado. Foi um selo de "Risco Crítico" piscando ao lado
+   de um zero que motivou essa regra: num laudo, alarme falso custa mais caro
+   que achado omitido, porque quem confere uma vez e vê que não era nada passa
+   a duvidar do resto.
+
+   Três vozes tipográficas, cada uma com função:
+     evidência  — monoespaçada: ID, horário, linha, domínio. Alinha em coluna e
+                  não se confunde com opinião.
+     argumento  — serifada: a conclusão do laudo e a base legal. Assina.
+     ferramenta — sem serifa: botões, rótulos, navegação. Some do caminho.
+   ========================================================================== */
+:root {
+  /* Marca. Fria de propósito: não disputa atenção com achado. */
+  --laudo-carimbo: #2E5C8A;
+  --laudo-carimbo-wash: rgba(46, 92, 138, 0.09);
+
+  /* Gravidade. Tons queimados, não neon de alerta. */
+  --laudo-critico: #A8322B;   /* vermelho de lacre */
+  --laudo-alto: #C4622B;      /* laranja queimado */
+  --laudo-medio: #9A7C1F;     /* ocre */
+  --laudo-baixo: #5B7186;     /* cinza-azulado: registrado, não urgente */
+  --laudo-conforme: #2F7355;  /* verde de selo */
+
+  /* Superfícies. Papel de arquivo, dessaturado. */
+  --laudo-fundo: #E9E7E1;
+  --laudo-superficie: #F4F2ED;
+  --laudo-linha: #C9C4B8;
+  --laudo-texto: #14181C;
+  --laudo-texto-suave: #4A5058;
+  --laudo-texto-fraco: #757B84;
+
+  --laudo-voz-evidencia: ui-monospace, 'Cascadia Mono', 'Cascadia Code', Consolas, 'Liberation Mono', monospace;
+  --laudo-voz-argumento: Georgia, 'Iowan Old Style', 'Times New Roman', serif;
+  --laudo-voz-ferramenta: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* O app roda com `dark` fixo no <html> (AppHeader). Os tons claros do tema
+   escuro precisam de mais luminosidade para manter contraste legível sobre o
+   grafite — inverter o valor não basta. */
+.dark {
+  --laudo-carimbo: #6FA3D9;
+  --laudo-carimbo-wash: rgba(111, 163, 217, 0.11);
+
+  --laudo-critico: #E06A60;
+  --laudo-alto: #E08B4E;
+  --laudo-medio: #CBAA45;
+  --laudo-baixo: #8AA3BC;
+  --laudo-conforme: #5FB287;
+
+  --laudo-fundo: #0F1418;
+  --laudo-superficie: #171E24;
+  --laudo-linha: #2B343C;
+  --laudo-texto: #E4E7EA;
+  --laudo-texto-suave: #A2AAB3;
+  /* Medido sobre --laudo-superficie: 4,62:1. O tom mais escuro que eu tinha
+     posto (#6E7780) dava 3,70 — abaixo do mínimo legível, e é justamente a cor
+     das notas de 11px que explicam cada indicador. */
+  --laudo-texto-fraco: #7E8792;
+}
+
+/* Utilitários das três vozes. Usados onde a semântica importa — evidência
+   observada, texto que conclui, controle de interface. */
+.voz-evidencia {
+  font-family: var(--laudo-voz-evidencia);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+.voz-argumento {
+  font-family: var(--laudo-voz-argumento);
+  line-height: 1.6;
+}
+.voz-ferramenta {
+  font-family: var(--laudo-voz-ferramenta);
+}
+
 @layer base {
   * {
     @apply border-border;

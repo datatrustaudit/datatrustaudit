@@ -14,28 +14,58 @@
  */
 import type { ReactNode } from 'react';
 
-/** Severidade → cor. Mesma escala do backend (`critical`…`low`). */
+/**
+ * Lê um token da identidade (`index.css`) em valor computado.
+ *
+ * O recharts pinta em canvas/SVG por atributo, então não aceita `var(--x)`
+ * direto — precisa do hex resolvido. Ler do CSS em vez de repetir o hex aqui
+ * mantém uma fonte só: a paleta já divergiu entre gráfico, card e tabela.
+ */
+const token = (nome: string, reserva: string): string => {
+    if (typeof window === 'undefined') return reserva;
+    const valor = getComputedStyle(document.documentElement).getPropertyValue(nome).trim();
+    return valor || reserva;
+};
+// Nota: isto roda no import. Se o CSS ainda não tiver sido aplicado, cai no
+// valor de reserva — que é propositalmente o mesmo do tema escuro, o único que
+// o app usa hoje. Não há diferença visual; o CSS só passa a mandar de fato
+// quando existir um segundo tema.
+
+/**
+ * Severidade → cor. Mesma escala do backend (`critical`…`low`).
+ *
+ * Tons queimados, não neon: o laudo é peça técnica, não alarme. E `low` é
+ * frio de propósito — achado registrado que não exige ação hoje não deve
+ * competir por atenção com o que exige.
+ */
 export const CORES_DE_SEVERIDADE = {
-    critical: '#f43f5e',
-    high: '#fb923c',
-    medium: '#facc15',
-    low: '#38bdf8',
+    critical: token('--laudo-critico', '#E06A60'),
+    high: token('--laudo-alto', '#E08B4E'),
+    medium: token('--laudo-medio', '#CBAA45'),
+    low: token('--laudo-baixo', '#8AA3BC'),
 } as const;
 
-/** Categorias de tag no gráfico de distribuição. */
+/**
+ * Categorias de tag no gráfico de distribuição.
+ *
+ * Frias e dessaturadas: distribuição por tipo é inventário, não problema.
+ * Pintá-la com os mesmos tons da gravidade fazia "publicidade" parecer um
+ * achado crítico só por ser vermelha.
+ */
 export const CORES_DE_CATEGORIA = [
-    '#22d3ee', '#3b82f6', '#a78bfa', '#f59e0b', '#f43f5e', '#34d399', '#94a3b8',
+    '#6FA3D9', '#7FB0A5', '#9B9BC4', '#8AA3BC', '#6E8CA8', '#A5B5C4', '#7A8894',
 ];
 
 export const CORES = {
-    grade: 'rgba(148, 163, 184, 0.18)',
-    eixo: '#94a3b8',
-    eixoForte: '#cbd5e1',
-    superficie: '#111827',
-    borda: 'rgba(148, 163, 184, 0.28)',
-    bom: '#22c55e',
-    atencao: '#f59e0b',
-    ruim: '#f43f5e',
+    grade: 'rgba(148, 163, 184, 0.16)',
+    eixo: token('--laudo-texto-fraco', '#6E7780'),
+    eixoForte: token('--laudo-texto-suave', '#A2AAB3'),
+    superficie: token('--laudo-superficie', '#171E24'),
+    borda: token('--laudo-linha', '#2B343C'),
+    marca: token('--laudo-carimbo', '#6FA3D9'),
+    bom: token('--laudo-conforme', '#5FB287'),
+    atencao: token('--laudo-alto', '#E08B4E'),
+    ruim: token('--laudo-critico', '#E06A60'),
 } as const;
 
 /** Verde/âmbar/vermelho por faixa de score. Usado nas barras e no gauge. */
@@ -66,11 +96,20 @@ export const GRADE = {
  * tag, linha e selo de violação); sem filhos, desenha o par nome/valor padrão.
  */
 export const BalaoDoGrafico = ({ titulo, children }: { titulo?: ReactNode; children: ReactNode }) => (
-    <div className="rounded-lg border border-slate-700 bg-slate-900/95 px-3 py-2 shadow-xl backdrop-blur-sm">
-        {titulo ? (
-            <p className="mb-1 text-sm font-semibold text-slate-100">{titulo}</p>
-        ) : null}
-        <div className="space-y-0.5 text-xs text-slate-300">{children}</div>
+    <div
+        className="rounded-md border px-3 py-2 shadow-xl backdrop-blur-sm"
+        style={{
+            borderColor: 'var(--laudo-linha)',
+            background: 'color-mix(in srgb, var(--laudo-superficie) 96%, transparent)',
+            color: 'var(--laudo-texto)',
+        }}
+    >
+        {titulo ? <p className="mb-1 text-sm font-semibold">{titulo}</p> : null}
+        {/* Dado observado em voz de evidência: número de tooltip é medição,
+            não prosa. */}
+        <div className="voz-evidencia space-y-0.5 text-xs" style={{ color: 'var(--laudo-texto-suave)' }}>
+            {children}
+        </div>
     </div>
 );
 

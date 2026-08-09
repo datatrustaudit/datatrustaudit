@@ -83,38 +83,48 @@ const LinhaDoEixo = ({ eixo, valor, ePior }: { eixo: Eixo; valor: number; ePior:
     const cor = corDoScore(valor);
     return (
         <div
-            className={`rounded-lg border p-3 transition-colors ${
-                ePior
-                    ? 'border-rose-500/40 bg-rose-500/5'
-                    : 'border-transparent hover:border-slate-700/60 hover:bg-slate-800/30'
-            }`}
+            className="rounded-md border p-3 transition-colors"
+            style={{
+                // Só o eixo mais frágil recebe cor: destacar todos é não
+                // destacar nenhum.
+                borderColor: ePior ? 'color-mix(in srgb, var(--laudo-critico) 40%, transparent)' : 'transparent',
+                background: ePior ? 'color-mix(in srgb, var(--laudo-critico) 6%, transparent)' : 'transparent',
+            }}
         >
             <div className="flex items-baseline justify-between gap-3">
-                <span className="text-sm font-semibold text-slate-100">{eixo.titulo}</span>
+                <span className="text-sm font-semibold" style={{ color: 'var(--laudo-texto)' }}>
+                    {eixo.titulo}
+                </span>
                 <span className="flex items-baseline gap-2">
-                    <span className="text-xs text-slate-400">{faixaDe(valor)}</span>
-                    <span className="text-base font-bold tabular-nums" style={{ color: cor }}>
+                    <span className="text-xs" style={{ color: 'var(--laudo-texto-fraco)' }}>
+                        {faixaDe(valor)}
+                    </span>
+                    <span className="voz-evidencia text-base font-bold" style={{ color: cor }}>
                         {valor}%
                     </span>
                 </span>
             </div>
 
-            {/* Trilho escuro. O `min-width` garante que 0% ainda desenhe um
+            {/* Trilho neutro. O `min-width` garante que 0% ainda desenhe um
                 traço — barra sem pixel algum lê como falha de renderização, e
                 zero aqui é um achado, não um dado ausente. */}
-            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-800">
+            <div
+                className="mt-2 h-1.5 w-full overflow-hidden rounded-full"
+                style={{ background: 'color-mix(in srgb, var(--laudo-linha) 70%, transparent)' }}
+            >
                 <div
                     className="h-full rounded-full transition-all duration-700"
                     style={{
                         width: `${Math.max(valor, 0)}%`,
                         minWidth: '3px',
                         backgroundColor: cor,
-                        boxShadow: `0 0 12px ${cor}55`,
                     }}
                 />
             </div>
 
-            <p className="mt-2 text-xs leading-snug text-slate-400">{eixo.mede}</p>
+            <p className="mt-2 text-xs leading-snug" style={{ color: 'var(--laudo-texto-fraco)' }}>
+                {eixo.mede}
+            </p>
         </div>
     );
 };
@@ -138,22 +148,34 @@ const PainelDeScores = ({ scores }: { scores: ScoresDaAuditoria }) => {
     const radar = dados.map((d) => ({ axis: d.titulo, value: d.valor, fullMark: 100 }));
 
     return (
-        <Card className="border-slate-800 bg-slate-900/40 shadow-lg">
+        <Card
+            className="shadow-lg"
+            style={{ borderColor: 'var(--laudo-linha)', background: 'var(--laudo-superficie)' }}
+        >
             <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-slate-100">
-                    <Shield className="h-5 w-5 text-cyan-400" />
+                <CardTitle className="flex items-center gap-2" style={{ color: 'var(--laudo-texto)' }}>
+                    {/* Ícone na cor da marca: é navegação, não achado. */}
+                    <Shield className="h-5 w-5" style={{ color: 'var(--laudo-carimbo)' }} />
                     Scores de auditoria
                 </CardTitle>
-                <CardDescription className="text-slate-400">
+                <CardDescription style={{ color: 'var(--laudo-texto-fraco)' }}>
                     Seis dimensões avaliadas separadamente — cada uma se corrige de um jeito
                 </CardDescription>
             </CardHeader>
             <CardContent>
                 {pior && pior.valor < 80 && (
-                    <div className="mb-5 flex items-start gap-3 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3">
-                        <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
-                        <p className="text-sm leading-snug text-slate-200">
-                            <span className="font-semibold text-rose-300">Comece por {pior.titulo}</span>
+                    <div
+                        className="mb-5 flex items-start gap-3 rounded-md border p-3"
+                        style={{
+                            borderColor: 'color-mix(in srgb, var(--laudo-critico) 30%, transparent)',
+                            background: 'color-mix(in srgb, var(--laudo-critico) 8%, transparent)',
+                        }}
+                    >
+                        <ArrowRight className="mt-0.5 h-4 w-4 shrink-0" style={{ color: 'var(--laudo-critico)' }} />
+                        <p className="text-sm leading-snug" style={{ color: 'var(--laudo-texto)' }}>
+                            <span className="font-semibold" style={{ color: 'var(--laudo-critico)' }}>
+                                Comece por {pior.titulo}
+                            </span>
                             {' '}— é o eixo mais frágil ({pior.valor}%). {pior.mede}.
                         </p>
                     </div>
@@ -185,14 +207,16 @@ const PainelDeScores = ({ scores }: { scores: ScoresDaAuditoria }) => {
                                     tick={{ fontSize: 10, fill: CORES.eixo }}
                                     axisLine={false}
                                 />
+                                {/* O radar desenha o perfil do site, não um
+                                    achado: fica na cor da marca. */}
                                 <Radar
                                     name="Score"
                                     dataKey="value"
-                                    stroke="#22d3ee"
-                                    fill="#22d3ee"
-                                    fillOpacity={0.22}
+                                    stroke={CORES.marca}
+                                    fill={CORES.marca}
+                                    fillOpacity={0.18}
                                     strokeWidth={2}
-                                    dot={{ r: 3, fill: '#22d3ee', strokeWidth: 0 }}
+                                    dot={{ r: 3, fill: CORES.marca, strokeWidth: 0 }}
                                 />
                                 <Tooltip content={<TooltipEscuro sufixo="%" />} />
                             </RadarChart>
