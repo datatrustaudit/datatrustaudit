@@ -27,7 +27,11 @@ from typing import Any, Dict, List, Optional
 # porque existe gente com ele no banco — e rebaixar quem pagou seria pior do
 # que manter o plano descontinuado funcionando com acesso completo.
 VISIBILIDADE_POR_PLANO = {
-    "free": 0.50,
+    # O gratuito não recebe uma lista cortada: recebe o veredito em uma frase
+    # (audit_engine/veredito.py) e a contagem. Meia lista dava a impressão de
+    # laudo completo e sumia com achados sem avisar — o cliente não tinha como
+    # saber que faltava metade. Uma frase é claramente uma frase.
+    "free": 0.0,
     "pro": 1.00,      # descontinuado — mantido com acesso total por respeito a quem assinou
     "premium": 1.00,
     "admin": 1.00,
@@ -41,13 +45,26 @@ def visibilidade_do_plano(plano: str) -> float:
     return VISIBILIDADE_POR_PLANO.get(plano, VISIBILIDADE_POR_PLANO["free"])
 
 
+def plano_ve_detalhe(plano: str) -> bool:
+    """Se o plano recebe achado a achado, ou só o veredito."""
+    return visibilidade_do_plano(plano) > 0
+
+
 def quantidade_visivel(total: int, plano: str) -> int:
-    """Quantos itens de uma lista o plano enxerga. Sempre ao menos um."""
+    """Quantos itens de uma lista o plano enxerga.
+
+    Zero para o gratuito: ele lê o veredito, não a lista. Quem tem acesso
+    parcial (nenhum plano hoje, mas a escala continua suportando) vê ao menos
+    um item — lista vazia num plano que deveria mostrar algo parece defeito.
+    """
     if total <= 0:
         return 0
-    if visibilidade_do_plano(plano) >= 1.0:
+    visibilidade = visibilidade_do_plano(plano)
+    if visibilidade >= 1.0:
         return total
-    return max(1, int(total * visibilidade_do_plano(plano)))
+    if visibilidade <= 0:
+        return 0
+    return max(1, int(total * visibilidade))
 
 
 @dataclass

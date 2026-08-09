@@ -17,11 +17,23 @@ from audit_engine.storage_auditor import auditar_recusa, auditar_ordem_do_consen
 
 
 class TestVisibilidadePorPlano:
-    """São dois planos: Free vê metade, Premium vê tudo."""
+    """São dois planos: o Free lê o veredito, o Premium lê o laudo.
+
+    O gratuito mostrava metade da lista de achados. Meia lista dá a impressão
+    de laudo completo e some com o resto sem avisar — o cliente não tinha como
+    saber que faltava. Agora ele recebe uma frase (audit_engine/veredito.py) e
+    a contagem: "22 achados, o mais grave é coleta sem consentimento". É
+    claramente parcial, e é o que motiva o upgrade.
+    """
 
     def test_percentuais_definidos(self):
-        assert visibilidade_do_plano("free") == 0.50
+        assert visibilidade_do_plano("free") == 0.0
         assert visibilidade_do_plano("premium") == 1.00
+
+    def test_free_nao_recebe_detalhe(self):
+        from audit_engine.guia_de_correcao import plano_ve_detalhe
+        assert plano_ve_detalhe("free") is False
+        assert plano_ve_detalhe("premium") is True
 
     def test_pro_descontinuado_mantem_acesso_total(self):
         """Quem assinou o Pro antes de ele sair não pode ser rebaixado."""
@@ -35,16 +47,24 @@ class TestVisibilidadePorPlano:
     def test_premium_ve_tudo(self):
         assert quantidade_visivel(37, "premium") == 37
 
-    def test_free_ve_metade(self):
-        assert quantidade_visivel(10, "free") == 5
+    def test_free_nao_ve_item_da_lista(self):
+        """Ele lê o veredito, não a lista."""
+        assert quantidade_visivel(10, "free") == 0
 
     def test_planos_ativos_sao_dois(self):
         from audit_engine.guia_de_correcao import PLANOS_ATIVOS
         assert PLANOS_ATIVOS == ("free", "premium")
 
-    def test_sempre_mostra_ao_menos_um(self):
-        """Laudo que não mostra nada não vende o plano de cima."""
-        assert quantidade_visivel(1, "free") == 1
+    def test_plano_parcial_mostra_ao_menos_um(self):
+        """Nenhum plano usa faixa intermediária hoje, mas a escala suporta —
+        e lista vazia num plano que deveria mostrar algo parece defeito."""
+        from audit_engine.guia_de_correcao import VISIBILIDADE_POR_PLANO
+        VISIBILIDADE_POR_PLANO["_teste_parcial"] = 0.30
+        try:
+            assert quantidade_visivel(1, "_teste_parcial") == 1
+            assert quantidade_visivel(10, "_teste_parcial") == 3
+        finally:
+            VISIBILIDADE_POR_PLANO.pop("_teste_parcial", None)
 
     def test_lista_vazia_nao_inventa_item(self):
         assert quantidade_visivel(0, "free") == 0

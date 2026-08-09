@@ -123,19 +123,48 @@ class TestCamposQueASomeSumiam:
             assert termo_ingles not in texto
 
 
-class TestCorteDeStoragePorPlano:
-    def test_free_recebe_menos_cookies_que_premium(self, resultado):
-        completo = _storage_para_o_plano(_resposta(resultado, "premium")["storage"], "premium")
-        limitado = _storage_para_o_plano(_resposta(resultado, "free")["storage"], "free")
-        assert len(limitado["cookiesWithoutConsent"]) <= len(completo["cookiesWithoutConsent"])
+class TestOQueCadaPlanoRecebe:
+    """O gratuito lê o veredito; o pago lê o laudo.
 
-    def test_free_sempre_sabe_o_total_real(self, resultado):
-        """Mostrar 2 de 4 e dizer que são 4 é o que motiva o upgrade."""
-        limitado = _storage_para_o_plano(_resposta(resultado, "free")["storage"], "free")
-        assert limitado["totalCookiesWithoutConsent"] >= len(limitado["cookiesWithoutConsent"])
+    A régua mudou: em vez de meia lista — que dá a impressão de laudo completo
+    e some com o resto sem avisar —, o free recebe uma frase e os números.
+    """
 
-    def test_guia_de_correcao_e_beneficio_do_plano_pago(self, resultado):
-        limitado = _storage_para_o_plano(_resposta(resultado, "free")["storage"], "free")
-        assert limitado["guidesLocked"] is True
+    def test_free_nao_recebe_lista_de_achado(self, resultado):
+        free = _resposta(resultado, "free")
+        assert free["showsDetail"] is False
+        assert free["privacy"]["violations"] == []
+        assert free["tags"] == []
+        assert free.get("storage") is None
+
+    def test_free_recebe_o_veredito_com_a_lei(self, resultado):
+        """É o que ele leva para casa: o que está errado e qual artigo."""
+        v = _resposta(resultado, "free")["veredito"]
+        assert v["titulo"] and v["frase"]
+        assert v["conforme"] is False, "cenário de teste tem achados"
+        assert "LGPD" in (v["artigo"] or ""), "a frase precisa citar o dispositivo"
+
+    def test_free_sabe_quantos_achados_existem(self, resultado):
+        """Dizer "22 achados" sem listá-los é o que motiva o upgrade; zerar a
+        contagem junto faria a tela parecer defeituosa em vez de limitada."""
+        free = _resposta(resultado, "free")
+        assert free["summary"]["violationsCount"] > 0
+        assert sum(free["summary"]["violationsBySeverity"].values()) == free["summary"]["violationsCount"]
+
+    def test_premium_recebe_tudo(self, resultado):
+        premium = _resposta(resultado, "premium")
+        assert premium["showsDetail"] is True
+        assert premium["privacy"]["violations"]
+        assert premium["tags"]
+        assert premium["storage"]["cookiesWithoutConsent"]
+
+    def test_os_dois_planos_contam_igual(self, resultado):
+        """O corte esconde o detalhe, nunca o número."""
+        free = _resposta(resultado, "free")
+        premium = _resposta(resultado, "premium")
+        assert free["summary"]["violationsCount"] == premium["summary"]["violationsCount"]
+        assert free["veredito"]["titulo"] == premium["veredito"]["titulo"]
+
+    def test_storage_do_premium_traz_os_guias(self, resultado):
         completo = _storage_para_o_plano(_resposta(resultado, "premium")["storage"], "premium")
         assert completo["guidesLocked"] is False

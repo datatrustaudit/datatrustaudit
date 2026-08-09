@@ -86,10 +86,10 @@ class TestReabertura:
         scan = _gravar(db, user.id)
 
         resultado = client.get(f"/api/scans/{scan.id}", headers=headers).json()["result"]
+        # A contagem sobrevive ao corte por plano — é ela que a tela mostra
+        # para todo mundo.
         assert resultado["summary"]["violationsCount"] == 3
         assert resultado["summary"]["violationsBySeverity"]["critical"] == 1
-        assert resultado["storage"]["cookiesWithoutConsent"]
-        assert resultado["privacy"]["violations"]
         assert resultado["scanMethod"] == "browser"
 
     def test_reabrir_nao_consome_cota(self, client, db, dono):
@@ -117,12 +117,13 @@ class TestReabertura:
 class TestOCorteNaoMudaAoReabrir:
     """O mesmo scan não pode dizer duas coisas.
 
-    O gating zerava `privacy.violations` na reabertura, enquanto o laudo
-    recém-gerado mostrava metade dos achados. Na prática, o número caía sozinho
-    ao dar F5 — e o usuário não tinha como saber qual dos dois era verdade.
+    O gratuito lê o veredito e a contagem, não a lista — e isso tem de valer
+    igual no laudo recém-gerado e no reaberto. Antes divergia: um mostrava
+    metade dos achados e o outro nenhum, então o número caía sozinho ao dar F5
+    e o usuário não tinha como saber qual era verdade.
     """
 
-    def test_free_continua_vendo_alguma_violacao(self, client, db, dono):
+    def test_free_nao_recebe_a_lista_ao_reabrir(self, client, db, dono):
         headers, user = dono
         varias = {
             **LAUDO,
@@ -136,29 +137,17 @@ class TestOCorteNaoMudaAoReabrir:
         scan = _gravar(db, user.id, raw=varias)
 
         resultado = client.get(f"/api/scans/{scan.id}", headers=headers).json()["result"]
-        violacoes = resultado["privacy"]["violations"]
-        assert violacoes, "o free reabriu o laudo e não viu achado nenhum"
-        assert len(violacoes) < 6, "o free não pode ver o laudo inteiro"
+        assert resultado["privacy"]["violations"] == []
 
     def test_contagem_sobrevive_ao_corte(self, client, db, dono):
-        """Mostrar 2 de 22 e dizer que são 22 é o que motiva o upgrade;
-        mostrar 0 e dizer que são 22 parece defeito."""
+        """Dizer "3 achados" sem listá-los é o que motiva o upgrade; zerar a
+        contagem junto faria a tela parecer defeituosa em vez de limitada."""
         headers, user = dono
         scan = _gravar(db, user.id)
 
         resultado = client.get(f"/api/scans/{scan.id}", headers=headers).json()["result"]
         assert resultado["summary"]["violationsCount"] == 3
         assert sum(resultado["summary"]["violationsBySeverity"].values()) == 3
-
-    def test_um_achado_so_nao_some(self, client, db, dono):
-        """Laudo que não mostra nada não vende o plano de cima."""
-        headers, user = dono
-        um = {**LAUDO, "privacy": {**LAUDO["privacy"],
-                                   "violations": [{"severity": "high", "violation": "Único"}]}}
-        scan = _gravar(db, user.id, raw=um)
-
-        resultado = client.get(f"/api/scans/{scan.id}", headers=headers).json()["result"]
-        assert len(resultado["privacy"]["violations"]) == 1
 
 
 class TestQuemPodeAbrir:

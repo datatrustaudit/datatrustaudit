@@ -236,26 +236,55 @@ def _normalize_audit_response(url: str, plan: str, scan: Any, audit_result: Any)
     ] if any((isinstance(tag, dict) and tag.get("type") in {"advertising", "marketing"}) for tag in tags) else []
 
     # Percentual vindo de audit_engine.guia_de_correcao (fonte única).
-    from audit_engine.guia_de_correcao import quantidade_visivel, visibilidade_do_plano
+    from audit_engine.guia_de_correcao import (
+        plano_ve_detalhe,
+        quantidade_visivel,
+        visibilidade_do_plano,
+    )
 
     limit_note = None
     visible_tags = tags
-    if plan in ("free", "pro") and tags:
+    mostra_detalhe = plano_ve_detalhe(plan)
+
+    if not mostra_detalhe:
+        # O gratuito recebe o veredito, não uma lista cortada.
+        visible_tags = []
+        limit_note = (
+            "Este é o resultado gratuito: dizemos o que foi encontrado, não onde. "
+            "O plano Premium abre cada achado — a tag, a linha no código-fonte, o "
+            "cookie gravado e o passo a passo da correção."
+        )
+    elif plan == "pro" and tags:
         visible_tags = tags[:quantidade_visivel(len(tags), plan)]
         percentual = int(visibilidade_do_plano(plan) * 100)
         ocultos = len(tags) - len(visible_tags)
-        if plan == "free":
-            limit_note = (
-                f"O plano Free mostra {percentual}% dos achados"
-                + (f" — {ocultos} ficaram ocultos." if ocultos else ".")
-                + " O plano Premium libera o laudo completo, com a linha exata no código-fonte."
-            )
-        else:
-            limit_note = (
-                f"O plano Pro mostra {percentual}% dos achados"
-                + (f" — {ocultos} ficaram ocultos." if ocultos else ".")
-                + " O Premium libera o mapeamento completo do código-fonte."
-            )
+        limit_note = (
+            f"O plano Pro mostra {percentual}% dos achados"
+            + (f" — {ocultos} ficaram ocultos." if ocultos else ".")
+            + " O Premium libera o mapeamento completo do código-fonte."
+        )
+
+    # Veredito: a frase que o gratuito lê no lugar do laudo. Vai em toda
+    # resposta — o plano pago também abre com ela, e o mesmo texto nos dois
+    # impede que a versão gratuita diga uma coisa e a paga outra.
+    from audit_engine.veredito import gerar_veredito
+
+    cookies_sem_consentimento = len(
+        ((audit.get("storage") or {}).get("cookies_without_consent")
+         or (audit.get("storage") or {}).get("cookiesWithoutConsent")
+         or [])
+    ) if isinstance(audit.get("storage"), dict) else 0
+
+    veredito = gerar_veredito(
+        total_de_achados=privacy.get("totalViolations", len(privacy_violations or [])) if isinstance(privacy, dict) else 0,
+        por_gravidade=contagem_por_gravidade,
+        tem_cmp=bool(consent.get("cmpDetected") or privacy.get("hasConsentTool")) if isinstance(consent, dict) else False,
+        tags_antes_do_consentimento=len([t for t in tags if isinstance(t, dict) and t.get("isBeforeConsent")]),
+        cookies_sem_consentimento=cookies_sem_consentimento,
+        pii_exposta=len([f for f in datalayer if isinstance(f, dict) and f.get("type") == "pii_exposure"]),
+        total_de_tags=len(tags),
+        violacoes=privacy_violations or [],
+    )
 
     response = {
         "success": True,
@@ -263,6 +292,9 @@ def _normalize_audit_response(url: str, plan: str, scan: Any, audit_result: Any)
         "plan": plan,
         "url": url,
         "score": int(max(0, min(100, score))),
+        # Sempre presente: é o que o gratuito lê inteiro, e o que abre o pago.
+        "veredito": veredito,
+        "showsDetail": mostra_detalhe,
         "summary": {
             "totalTags": len(tags),
             "totalEvents": events.get("totalEvents", len(event_items)) if isinstance(events, dict) else len(event_items or []),
@@ -359,9 +391,25 @@ def _normalize_audit_response(url: str, plan: str, scan: Any, audit_result: Any)
     response["evidence_count"] = get_evidence_count(response)
     response["scan_credit_consumed"] = should_consume_scan_credit(response)
 
-    if plan == "free":
+    if not mostra_detalhe:
+        # O gratuito recebe o veredito e os números — nunca o detalhe.
+        #
+        # Os agregados de `summary` (violationsCount, violationsBySeverity)
+        # ficam de pé de propósito: dizer "22 achados" sem listá-los é o que
+        # motiva o upgrade, enquanto zerar a contagem junto faria a tela
+        # parecer defeituosa em vez de limitada.
         response["violations"] = []
-        response["privacy"]["manualVerification"].append("Free plan hides violation details; upgrade to Pro or Premium for full issue details.")
+        response["events"] = []
+        response["recommendations"] = []
+        response["privacy"]["violations"] = []
+        response["privacy"]["tagsBeforeConsent"] = []
+        response["ga4"]["measurementIds"] = []
+        response["ga4"]["events"] = []
+        response["gtm"]["containerIds"] = []
+        response["gtm"]["issues"] = []
+        response["debugging"] = {}
+        response["storage"] = None
+        response["dataQualityNotes"] = []
     elif plan == "pro":
         response["privacy"]["manualVerification"].append("Pro plan hides exact source line mapping; Premium unlocks source hints when available.")
 

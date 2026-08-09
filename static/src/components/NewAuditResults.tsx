@@ -32,6 +32,7 @@ import GTMQualityPanel from './GTMQualityPanel';
 import DataQualityNotes from './DataQualityNotes';
 import VisaoExecutiva from './laudo/VisaoExecutiva';
 import VisaoJuridica from './laudo/VisaoJuridica';
+import Veredito from './laudo/Veredito';
 import { useI18n } from '@/context/I18nContext';
 import { usePlan } from '@/context/PlanContext';
 import { useAuth } from '@/context/AuthContext';
@@ -130,6 +131,12 @@ const NewAuditResults = ({ result, scanId }: { result: NewAuditResult, scanId?: 
 
     /** Qual das três saídas do laudo está aberta. */
     const [leitor, setLeitor] = useState<'executiva' | 'juridica' | 'tecnica'>('executiva');
+
+    /* O veredito e o nível de detalhe vêm do backend: o plano é decidido lá,
+       nunca aqui. Aceitar essa decisão do cliente já entregou relatório
+       completo para anônimo. */
+    const veredito = (result as any).veredito;
+    const mostraDetalhe = (result as any).showsDetail !== false;
 
     /* Números compartilhados pelas três visões. Cada uma apresenta de um jeito,
        mas todas leem daqui: se divergirem na tela, é bug de leitura, não
@@ -468,14 +475,34 @@ ${violationsText}
                 </CardContent>
             </Card>
 
+            {/* O veredito abre o laudo em qualquer plano. No gratuito ele é o
+                laudo inteiro; no pago, a manchete que resume o que vem
+                abaixo. A mesma frase nos dois impede que a versão gratuita
+                afirme uma coisa e a paga outra sobre o mesmo site. */}
+            {veredito && (
+                <div className="mb-6">
+                    <Veredito
+                        veredito={veredito}
+                        url={result.url}
+                        totalDeAchados={totalDeAchados}
+                        porGravidade={porGravidade}
+                        mostraDetalhe={mostraDetalhe}
+                        onUpgrade={() => handleUpgradeLock('fullReport')}
+                    />
+                </div>
+            )}
+
             {/* ─── Seletor de leitor ───
                 O mesmo laudo, três saídas. O conteúdo já existia todo no
                 motor; o que faltava era admitir que quem paga, quem responde
                 juridicamente e quem corrige não leem a mesma coisa. Servir os
                 três na mesma tela deixava ela técnica demais para uns e rasa
                 demais para outros. */}
+            {/* No gratuito o veredito É o laudo. Mostrar as abas por cima de
+                listas vazias entregaria um esqueleto — o cliente leria como
+                defeito, não como limite de plano. */}
             <div
-                className="flex flex-wrap gap-1 rounded-md border p-1 mb-4"
+                className={`flex flex-wrap gap-1 rounded-md border p-1 mb-4 ${mostraDetalhe ? '' : 'hidden'}`}
                 role="tablist"
                 aria-label="Para quem é esta leitura"
                 style={{ borderColor: 'var(--laudo-linha)', background: 'var(--laudo-superficie)' }}
@@ -507,7 +534,7 @@ ${violationsText}
                 })}
             </div>
 
-            {leitor === 'executiva' && (
+            {mostraDetalhe && leitor === 'executiva' && (
                 <VisaoExecutiva
                     url={result.url}
                     score={result.score}
@@ -522,7 +549,7 @@ ${violationsText}
                 />
             )}
 
-            {leitor === 'juridica' && (
+            {mostraDetalhe && leitor === 'juridica' && (
                 <VisaoJuridica
                     url={result.url}
                     timestamp={result.timestamp}
@@ -537,7 +564,7 @@ ${violationsText}
             )}
 
             {/* ─── Main tabs ─── */}
-            <Tabs defaultValue="dashboard" className={`w-full ${leitor === 'tecnica' ? '' : 'hidden'}`}>
+            <Tabs defaultValue="dashboard" className={`w-full ${mostraDetalhe && leitor === 'tecnica' ? '' : 'hidden'}`}>
                 <TabsList className="flex flex-wrap w-full h-auto gap-1 p-1">
                     <TabsTrigger value="dashboard" className="flex items-center gap-1.5 text-xs">
                         <PieChart className="w-3.5 h-3.5" />

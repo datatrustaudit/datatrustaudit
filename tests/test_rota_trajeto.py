@@ -64,6 +64,18 @@ def _subir(client, headers, har, nome="percurso.har"):
     )
 
 
+@pytest.fixture()
+def usuario_premium(client, db, usuario_logado):
+    """Conta paga. O gratuito recebe o veredito de cada passo, não a lista de
+    tags — então o detalhe do percurso só é verificável aqui."""
+    from db.models import User
+    headers, email = usuario_logado
+    user = db.query(User).filter(User.email == email).first()
+    user.plan = "premium"
+    db.commit()
+    return headers, user
+
+
 class TestPercursoAuditado:
     def test_cada_pagina_vira_um_passo(self, client, usuario_logado):
         headers, _ = usuario_logado
@@ -73,9 +85,9 @@ class TestPercursoAuditado:
         assert d["resumo"]["passos"] == 2
         assert [p["nome"] for p in d["passos"]] == ["Home (/)", "Finalizar compra (/checkout)"]
 
-    def test_tag_do_checkout_aparece_no_passo_certo(self, client, usuario_logado):
+    def test_tag_do_checkout_aparece_no_passo_certo(self, client, usuario_premium):
         """O achado que a varredura de home nunca encontraria."""
-        headers, _ = usuario_logado
+        headers, _ = usuario_premium
         d = _subir(client, headers, HAR_DE_CHECKOUT).json()
         checkout = d["passos"][1]
         nomes = [t["name"] for t in checkout["laudo"]["tags"]]
@@ -123,9 +135,9 @@ class TestNenhumaPIIEscapa:
         registro = db.query(Scan).filter(Scan.id == d["scan_id"]).first()
         assert "entries" not in json.dumps(registro.raw_data)
 
-    def test_id_do_pixel_sobrevive(self, client, usuario_logado):
+    def test_id_do_pixel_sobrevive(self, client, usuario_premium):
         """Mascarar demais quebraria a detecção da tag que se quer auditar."""
-        headers, _ = usuario_logado
+        headers, _ = usuario_premium
         bruto = _subir(client, headers, HAR_DE_CHECKOUT).text
         assert "1234567890123456" in bruto
 
