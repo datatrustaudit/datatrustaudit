@@ -54,7 +54,7 @@ STATIC_DIR = os.path.join(BASE_DIR, "static", "dist")  # Vite builds to dist fol
 # Storage and DB
 from db.database import engine, get_db, sync_sqlite_schema
 from db.models import Base, User, Scan, Payment
-from api import auth, payments, scans, audit, exports
+from api import auth, payments, scans, audit, exports, trajeto
 from api.auth import get_current_user, get_current_active_user, resolve_effective_plan
 from audit_engine.url_guard import validate_public_url, UnsafeURLError
 
@@ -201,6 +201,7 @@ app.include_router(payments.router)
 app.include_router(scans.router)
 app.include_router(audit.router)
 app.include_router(exports.router)
+app.include_router(trajeto.router)
 
 
 # Servir assets do frontend (Vite builda para /assets/)

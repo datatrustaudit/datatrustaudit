@@ -20,8 +20,10 @@ import {
   TrendingUp,
   FileCode,
   Layers,
-  Sparkles
+  Sparkles,
+  MapPin
 } from 'lucide-react';
+import AuditoriaDeTrajeto from './laudo/AuditoriaDeTrajeto';
 import FileUploadSection from './FileUploadSection';
 import SiteNavigationAnalysis from './SiteNavigationAnalysis';
 import OmnibugRealTimeDisplay from './OmnibugRealTimeDisplay';
@@ -75,8 +77,10 @@ const AuditForm = ({
     }
   };
 
-  /* O modo Upload não usa URL; os outros três usam a mesma barra. */
-  const modoUsaUrl = activeTab !== 'upload';
+  /* Upload e Trajeto trabalham sobre arquivo — o endereço vem de dentro dele.
+     Mostrar a barra nesses modos convidaria a digitar uma URL que seria
+     ignorada. */
+  const modoUsaUrl = activeTab !== 'upload' && activeTab !== 'trajeto';
 
   const rotuloDoBotao = () => {
     if (!isAuthenticated) return t('home.create_account_to_scan');
@@ -203,7 +207,7 @@ const AuditForm = ({
             </div>
           )}
 
-          <TabsList className="grid w-full grid-cols-4 p-1.5 bg-white/5 rounded-2xl h-auto border border-white/5 mb-8">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 p-1.5 bg-white/5 rounded-2xl h-auto border border-white/5 mb-8">
             <TabsTrigger
               value="url"
               className="flex flex-col sm:flex-row items-center gap-2 py-4 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-xl rounded-xl transition-all text-white/50"
@@ -244,6 +248,19 @@ const AuditForm = ({
                 <div className="text-[9px] opacity-40 font-medium hidden sm:block">{t('home.tab_realtime_desc')}</div>
               </div>
               <Badge className="absolute -top-1.5 -right-1.5 text-[8px] px-1.5 py-0.5 bg-blue-600 border-0 font-black shadow-lg">PRO</Badge>
+            </TabsTrigger>
+
+            {/* Trajeto: o único modo que alcança a área logada, porque quem
+                navega é o auditor, não o scanner. */}
+            <TabsTrigger
+              value="trajeto"
+              className="flex flex-col sm:flex-row items-center gap-2 py-4 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-xl rounded-xl transition-all text-white/50"
+            >
+              <MapPin className="h-4 w-4" />
+              <div className="text-left">
+                <div className="font-bold text-[10px] uppercase tracking-wider">Trajeto</div>
+                <div className="text-[9px] opacity-40 font-medium hidden sm:block">Checkout e área logada</div>
+              </div>
             </TabsTrigger>
           </TabsList>
 
@@ -330,6 +347,9 @@ const AuditForm = ({
           </TabsContent>
           <TabsContent value="navigation" className="mt-6 focus-visible:outline-none">
             <SiteNavigationAnalysis url={url} gatilho={gatilhoDeep} onComplete={onNavigationComplete} />
+          </TabsContent>
+          <TabsContent value="trajeto" className="mt-6 focus-visible:outline-none">
+            <AuditoriaDeTrajeto />
           </TabsContent>
           <TabsContent value="omnibug" className="mt-6 focus-visible:outline-none">
             <OmnibugRealTimeDisplay url={url} gatilho={gatilhoTempoReal} onComplete={(results) => {
