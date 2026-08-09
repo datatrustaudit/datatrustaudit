@@ -14,6 +14,7 @@ import AdminPlanTesting from "@/components/AdminPlanTesting";
 
 // Pages
 import Index from "./pages/Index";
+import Historico from "./pages/Historico";
 import AuthPage from "./pages/Auth";
 import PricingPage from "./pages/Pricing";
 import CheckoutPage from "./pages/Checkout";
@@ -45,6 +46,15 @@ const App = () => (
                   <Routes>
                     {/* Main app */}
                     <Route path="/" element={<Index />} />
+
+                    {/* Histórico e comparação entre varreduras.
+                        A rota é `/historico`, não `/history`: esta última é o
+                        endpoint da API que devolve o JSON do histórico. Ela
+                        está no proxy do Vite e registrada antes do catch-all do
+                        SPA em main.py, então navegar para lá no browser entrega
+                        JSON — em dev e em produção. O menu apontava para
+                        `/history` e nunca poderia ter funcionado. */}
+                    <Route path="/historico" element={<Historico />} />
 
                     {/* Auth */}
                     <Route path="/auth" element={<AuthPage />} />

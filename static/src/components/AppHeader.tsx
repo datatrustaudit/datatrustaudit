@@ -114,7 +114,9 @@ const AppHeader = () => {
                                         </Link>
                                     </DropdownMenuItem>
                                     <DropdownMenuItem asChild className="focus:bg-white/5 cursor-pointer">
-                                        <Link to="/history" className="flex items-center w-full">
+                                        {/* `/historico`, não `/history`: esta é o
+                                            endpoint da API e devolve JSON. */}
+                                        <Link to="/historico" className="flex items-center w-full">
                                             <History className="h-4 w-4 mr-2 text-slate-400" />
                                             {t('nav.history')}
                                         </Link>

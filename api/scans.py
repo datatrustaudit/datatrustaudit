@@ -95,6 +95,76 @@ def create_scan(
     }
 
 
+# ATENÇÃO: esta rota precisa vir ANTES de `/{scan_id}`.
+# O path param casa com qualquer segmento, inclusive a palavra "comparar", e o
+# FastAPI entrega para a primeira rota registrada que casa — a mesma armadilha
+# do catch-all do SPA em main.py, que já engoliu /health e /history.
+@router.get("/comparar")
+def comparar_scans(
+    antes: int,
+    agora: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Diferença entre duas varreduras: o que foi corrigido, o que continua.
+
+    Responde à pergunta que o cliente faz depois de mexer no site — e que hoje
+    ele responde comparando dois relatórios na mão.
+    """
+    from audit_engine.comparador import comparar, resumo_em_texto
+
+    if antes == agora:
+        raise HTTPException(status_code=400, detail="Escolha duas varreduras diferentes.")
+
+    scans = (
+        db.query(Scan)
+        .filter(Scan.id.in_([antes, agora]), Scan.user_id == current_user.id)
+        .all()
+    )
+    por_id = {s.id: s for s in scans}
+
+    # 404 em vez de 403, e sem dizer qual dos dois faltou: 403 (ou uma mensagem
+    # específica) confirmaria a existência de um scan de outro usuário.
+    if antes not in por_id or agora not in por_id:
+        raise HTTPException(status_code=404, detail="Varredura não encontrada.")
+
+    a, b = por_id[antes], por_id[agora]
+
+    if a.url != b.url:
+        raise HTTPException(
+            status_code=400,
+            detail="As duas varreduras precisam ser do mesmo endereço para a comparação fazer sentido.",
+        )
+
+    incompletos = [s.id for s in (a, b) if s.status != "completed"]
+    if incompletos:
+        raise HTTPException(
+            status_code=409,
+            detail="Só é possível comparar varreduras concluídas.",
+        )
+
+    # Compara sobre o dado íntegro. O corte por plano vale para exibir detalhe,
+    # não para decidir o que mudou: comparar listas já truncadas inventaria
+    # correções que não aconteceram.
+    diff = comparar(a.raw_data, b.raw_data, score_anterior=a.score, score_atual=b.score)
+
+    return {
+        "url": a.url,
+        "antes": {
+            "id": a.id,
+            "data": a.created_at.isoformat() if a.created_at else None,
+            "score": a.score,
+        },
+        "agora": {
+            "id": b.id,
+            "data": b.created_at.isoformat() if b.created_at else None,
+            "score": b.score,
+        },
+        "resumo": resumo_em_texto(diff),
+        **diff,
+    }
+
+
 @router.get("/{scan_id}")
 def get_scan(
     scan_id: int,
