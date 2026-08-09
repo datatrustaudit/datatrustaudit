@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import os
 from datetime import timedelta
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional, Dict, Any
 
 import mercadopago
@@ -22,50 +23,70 @@ if MP_ACCESS_TOKEN:
     sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
 
 VALID_PAID_PLANS = {"pro", "premium"}
-SUBSCRIPTION_PERIOD_DAYS = int(os.getenv("SUBSCRIPTION_PERIOD_DAYS", "30"))
-ANNUAL_PERIOD_DAYS = int(os.getenv("ANNUAL_PERIOD_DAYS", "365"))
+
+#: Por quanto tempo o acesso vale depois de pago.
+#:
+#: A cobrança deixou de ser assinatura: é compra avulsa, sem renovação
+#: automática. A validade continua sendo carimbada — sem ela, um pagamento
+#: valeria para sempre, e foi assim que `current_period_end` nulo já deu acesso
+#: vitalício por uma mensalidade.
+ACCESS_PERIOD_DAYS = int(os.getenv("ACCESS_PERIOD_DAYS", "365"))
+
+#: Formas de pagamento oferecidas.
+VALID_METHODS = {"pix", "card"}
+
+#: Desconto do PIX. Cai direto no bolso: PIX não tem taxa de parcelamento nem
+#: risco de chargeback, então parte disso volta para quem paga à vista.
+PIX_DISCOUNT = float(os.getenv("PIX_DISCOUNT_PCT", "5")) / 100
 
 
-VALID_CYCLES = {"monthly", "annual"}
+def _price(plan: str, default: str) -> float:
+    """Preço do plano em BRL, pagamento único.
 
-
-def _price(plan: str, cycle: str, default: str) -> float:
-    """Preço do plano em BRL, por ciclo de cobrança.
-
-    Lê PRICE_PRO_BRL / PRICE_PREMIUM_BRL (mensal) e PRICE_PRO_ANNUAL_BRL /
-    PRICE_PREMIUM_ANNUAL_BRL (anual) — os nomes que existem no .env. O código
-    lia PRICE_PRO / PRICE_PREMIUM, que nunca foram definidos, então caía sempre
-    no default embutido: premium era cobrado a 297 com o .env em 247.
+    Lê PRICE_PRO_BRL / PRICE_PREMIUM_BRL — os nomes que existem no `.env`. O
+    código já leu PRICE_PRO / PRICE_PREMIUM, que nunca foram definidos, e caía
+    no default embutido: o premium era cobrado a 297 com o `.env` em 247.
 
     Este módulo é a ÚNICA fonte de preço do sistema. O frontend busca daqui via
     GET /api/payments/plans, em vez de manter a própria tabela — havia três
     listas divergentes (aqui, SubscriptionContext.tsx e pricing.config.ts), e o
     cliente via um valor na tela enquanto o checkout cobrava outro.
     """
-    sufixo = "_ANNUAL_BRL" if cycle == "annual" else "_BRL"
-    raw = os.getenv(f"PRICE_{plan.upper()}{sufixo}") or default
+    raw = os.getenv(f"PRICE_{plan.upper()}_BRL") or default
     try:
         valor = float(str(raw).replace(",", "."))
     except ValueError:
-        raise RuntimeError(f"PRICE_{plan.upper()}{sufixo} inválido no .env: {raw!r}")
+        raise RuntimeError(f"PRICE_{plan.upper()}_BRL inválido no .env: {raw!r}")
     if valor < 0:
-        raise RuntimeError(f"PRICE_{plan.upper()}{sufixo} negativo: {valor}")
+        raise RuntimeError(f"PRICE_{plan.upper()}_BRL negativo: {valor}")
     return valor
 
 
 PRICES = {
-    "monthly": {
-        "free": 0.0,
-        "pro": _price("pro", "monthly", "97"),
-        "premium": _price("premium", "monthly", "247"),
-    },
-    "annual": {
-        "free": 0.0,
-        # padrão: 12 meses com 20% de desconto, arredondado em 2 casas
-        "pro": _price("pro", "annual", str(round(_price("pro", "monthly", "97") * 12 * 0.8, 2))),
-        "premium": _price("premium", "annual", str(round(_price("premium", "monthly", "247") * 12 * 0.8, 2))),
-    },
+    "free": 0.0,
+    "pro": _price("pro", "97"),
+    "premium": _price("premium", "247"),
 }
+
+
+def preco_com_metodo(plano: str, metodo: str) -> float:
+    """Valor a cobrar, já com o desconto do método.
+
+    A conta é feita em `Decimal`, não em float. Com float, `247 * 0.95` dá
+    234.64999… e o cliente que faz a conta no papel chega a 234,65 — um centavo
+    de diferença entre o que a página anuncia e o que o checkout cobra é
+    exatamente o tipo de coisa que vira contestação.
+    """
+    base = PRICES.get(plano, 0.0)
+    if base <= 0:
+        return 0.0
+    if metodo != "pix":
+        return base
+
+    valor = (Decimal(str(base)) * (Decimal("1") - Decimal(str(PIX_DISCOUNT)))).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+    return float(valor)
 
 
 @router.get("/plans")
@@ -77,15 +98,17 @@ def listar_planos():
     """
     return {
         "currency": "BRL",
+        # Compra avulsa, sem renovação automática — o frontend usa isto para
+        # não escrever "por mês" ao lado do valor.
+        "billing": "one_time",
+        "accessDays": ACCESS_PERIOD_DAYS,
+        "pixDiscountPct": round(PIX_DISCOUNT * 100),
         "plans": {
             plano: {
-                "monthly": PRICES["monthly"][plano],
-                "annual": PRICES["annual"][plano],
-                "monthly_equivalent_annual": round(PRICES["annual"][plano] / 12, 2) if PRICES["annual"][plano] else 0,
-                "savings_pct": (
-                    round((1 - (PRICES["annual"][plano] / (PRICES["monthly"][plano] * 12))) * 100)
-                    if PRICES["monthly"][plano] else 0
-                ),
+                "price": PRICES[plano],
+                "pix": preco_com_metodo(plano, "pix"),
+                "card": preco_com_metodo(plano, "card"),
+                "pixSavings": round(PRICES[plano] - preco_com_metodo(plano, "pix"), 2),
             }
             for plano in ("free", "pro", "premium")
         },
@@ -98,16 +121,18 @@ def create_preference(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    plan = payload.get("plan") or payload.get("plan_id") or "pro"
-    cycle = payload.get("billing_cycle") or payload.get("cycle") or "monthly"
+    plan = payload.get("plan") or payload.get("plan_id") or "premium"
+    metodo = (payload.get("method") or payload.get("metodo") or "card").lower()
 
     if plan not in VALID_PAID_PLANS:
         raise HTTPException(status_code=400, detail="Plano inválido")
-    if cycle not in VALID_CYCLES:
-        raise HTTPException(status_code=400, detail="Ciclo de cobrança inválido")
+    if metodo not in VALID_METHODS:
+        raise HTTPException(status_code=400, detail="Forma de pagamento inválida")
 
-    # O valor sai da tabela do servidor, nunca do que o cliente mandou.
-    amount = PRICES[cycle][plan]
+    # O valor sai da tabela do servidor, nunca do que o cliente mandou — e o
+    # desconto do PIX é aplicado aqui, não aceito de fora: mandar
+    # {"amount": 1} não pode comprar o plano por um real.
+    amount = preco_com_metodo(plan, metodo)
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Plano sem preço configurado.")
 
@@ -120,35 +145,75 @@ def create_preference(
             detail="Pagamento indisponível no momento. Tente novamente em instantes.",
         )
 
-    periodo = "anual" if cycle == "annual" else "mensal"
+    frontend = os.getenv("FRONTEND_URL", "http://localhost:3000")
+    meses = round(ACCESS_PERIOD_DAYS / 30)
+    titulo = (
+        f"DataTrust Audit {plan.capitalize()} — acesso por "
+        f"{'1 ano' if ACCESS_PERIOD_DAYS >= 360 else f'{meses} meses'}"
+    )
+
     preference_data = {
-            "items": [
+        "items": [
             {
-                "title": f"Assinatura DataTrust Audit - {plan.capitalize()} ({periodo})",
+                "title": titulo,
                 "quantity": 1,
                 "currency_id": "BRL",
-                "unit_price": amount
+                "unit_price": amount,
             }
         ],
         "payer": {
             "email": current_user.email,
         },
         "back_urls": {
-            "success": os.getenv("FRONTEND_URL", "http://localhost:3000") + "/payment/success",
-            "failure": os.getenv("FRONTEND_URL", "http://localhost:3000") + "/payment/failed",
-            "pending": os.getenv("FRONTEND_URL", "http://localhost:3000") + "/payment/pending"
+            "success": frontend + "/payment/success",
+            "failure": frontend + "/payment/failed",
+            "pending": frontend + "/payment/pending",
         },
         "auto_return": "approved",
         # separador "|": o plano é lido de volta no webhook por split, e e-mail
         # ou id com "_" embaralhava os campos.
-        # o ciclo viaja junto: é ele que define a validade carimbada no webhook
-        "external_reference": f"{current_user.id}|{plan}|{cycle}",
+        # O método viaja junto porque o valor difere entre PIX e cartão — sem
+        # ele não dá para conferir, depois, quanto deveria ter sido cobrado.
+        "external_reference": f"{current_user.id}|{plan}|{metodo}",
     }
+
+    if metodo == "pix":
+        # O desconto é do PIX: se o checkout aceitasse cartão nesta preferência,
+        # daria para pagar parcelado pelo preço à vista.
+        preference_data["payment_methods"] = {
+            "excluded_payment_types": [
+                {"id": "credit_card"},
+                {"id": "debit_card"},
+                {"id": "ticket"},        # boleto
+                {"id": "atm"},
+                {"id": "prepaid_card"},
+            ],
+            "installments": 1,
+        }
+        # PIX expira; sem prazo o pagamento fica pendente para sempre e o
+        # cliente acha que comprou.
+        preference_data["expires"] = True
+        preference_data["date_of_expiration"] = (
+            (utcnow() + timedelta(minutes=30)).isoformat().replace("+00:00", "Z")
+        )
+    else:
+        preference_data["payment_methods"] = {
+            "excluded_payment_types": [{"id": "ticket"}, {"id": "atm"}],
+        }
 
     try:
         preference_response = sdk.preference().create(preference_data)
         preference = preference_response["response"]
-        return {"id": preference["id"], "init_point": preference["init_point"]}
+        return {
+            "id": preference["id"],
+            "init_point": preference["init_point"],
+            # Devolvidos para a tela confirmar o que será cobrado — sem isso
+            # ela precisaria recalcular o desconto por conta própria, e é assim
+            # que preço na tela passa a divergir do preço no checkout.
+            "amount": amount,
+            "method": metodo,
+            "listPrice": PRICES[plan],
+        }
     except Exception as e:
         print(f"[payments] erro ao criar preferência para user {current_user.id}: {e}")
         raise HTTPException(status_code=502, detail="Não foi possível iniciar o pagamento. Tente novamente.")
@@ -187,12 +252,15 @@ def _assinatura_valida(request_body_id: str, x_signature: str, x_request_id: str
     return hmac.compare_digest(esperado, recebido)
 
 
-def _ativar_plano(db: Session, user: User, plan_name: str, cycle: str = "monthly") -> None:
-    """Aplica o plano e carimba a validade.
+def _ativar_plano(db: Session, user: User, plan_name: str, metodo: str = "card") -> None:
+    """Aplica o plano comprado e carimba até quando ele vale.
 
-    Antes só fazia `user.plan = plan_name`: current_period_end ficava nulo e
-    status nunca era conferido, então um pagamento único valia como assinatura
-    vitalícia — cancelar ou parar de pagar não tirava o acesso.
+    A validade continua existindo mesmo sendo compra avulsa: sem ela,
+    `current_period_end` fica nulo e o acesso nunca expira — foi assim que um
+    pagamento único já valeu como assinatura vitalícia.
+
+    Comprar de novo antes de vencer SOMA ao que resta, em vez de reiniciar a
+    contagem. Reiniciar tomaria do cliente os dias que ele já tinha pago.
     """
     if plan_name not in VALID_PAID_PLANS:
         print(f"[payments] plano desconhecido no webhook: {plan_name!r} — ignorado")
@@ -203,10 +271,19 @@ def _ativar_plano(db: Session, user: User, plan_name: str, cycle: str = "monthly
         assinatura = Subscription(user_id=user.id)
         db.add(assinatura)
 
+    agora = utcnow()
+    restante = assinatura.current_period_end
+    # `current_period_end` pode vir naive do banco (SQLite não guarda tzinfo);
+    # comparar naive com aware levanta TypeError e derrubaria o webhook, que é
+    # justamente o caminho que libera o acesso já pago.
+    if restante is not None and restante.tzinfo is None:
+        restante = restante.replace(tzinfo=agora.tzinfo)
+
+    base = restante if (restante and restante > agora) else agora
+
     assinatura.plan_name = plan_name
     assinatura.status = "active"
-    dias = ANNUAL_PERIOD_DAYS if cycle == "annual" else SUBSCRIPTION_PERIOD_DAYS
-    assinatura.current_period_end = utcnow() + timedelta(days=dias)
+    assinatura.current_period_end = base + timedelta(days=ACCESS_PERIOD_DAYS)
 
     # Espelho consultado por User.has_active_subscription e pelo frontend.
     # Precisa andar junto com a assinatura, senão os dois campos divergem.
@@ -277,14 +354,18 @@ async def mp_webhook(
         return {"status": "ignored"}
 
     plan_name = parts[1]
-    cycle = parts[2] if len(parts) > 2 and parts[2] in VALID_CYCLES else "monthly"
+    # A terceira parte era o ciclo de cobrança (monthly/annual) e hoje é a forma
+    # de pagamento. Referências antigas ainda podem chegar — o Mercado Pago
+    # reenvia eventos por dias —, então valores desconhecidos caem em "card" e
+    # não impedem a liberação de um pagamento que já entrou.
+    metodo = parts[2] if len(parts) > 2 and parts[2] in VALID_METHODS else "card"
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         print(f"[payments] pagamento {payment_id} aprovado para user {user_id} inexistente")
         return {"status": "ignored"}
 
-    _ativar_plano(db, user, plan_name, cycle)
+    _ativar_plano(db, user, plan_name, metodo)
 
     # Registra o pagamento — idempotente: o MP reenvia o mesmo evento
     existing_payment = db.query(Payment).filter(Payment.mp_payment_id == str(payment_id)).first()

@@ -22,37 +22,33 @@ def _usuario(db, email, **assinatura):
 class TestPrecos:
     """O código lia PRICE_PRO/PRICE_PREMIUM; o .env define PRICE_PRO_BRL/
     PRICE_PREMIUM_BRL. Nunca batiam, então valia o default embutido — premium
-    era cobrado a 297 com o .env configurado a 247."""
+    era cobrado a 297 com o .env configurado a 247.
 
-    def test_preco_mensal_vem_das_variaveis_com_sufixo_brl(self):
-        from api.payments import PRICES
-        assert PRICES["monthly"]["pro"] == 97.0
-        assert PRICES["monthly"]["premium"] == 247.0
+    A cobrança virou compra avulsa: um preço por plano, sem ciclo. O detalhe do
+    PIX e da validade está em tests/test_pagamento_unico.py."""
 
-    def test_preco_anual_tem_desconto_sobre_o_mensal(self):
+    def test_preco_vem_das_variaveis_com_sufixo_brl(self):
         from api.payments import PRICES
-        for plano in ("pro", "premium"):
-            anual = PRICES["annual"][plano]
-            doze_meses = PRICES["monthly"][plano] * 12
-            assert 0 < anual < doze_meses, f"{plano}: anual ({anual}) deveria ser menor que 12x mensal ({doze_meses})"
+        assert PRICES["pro"] == 97.0
+        assert PRICES["premium"] == 247.0
 
     def test_endpoint_de_planos_e_a_fonte_unica_do_frontend(self, client):
         """Havia três tabelas de preço divergentes: api/payments.py,
         SubscriptionContext.tsx e pricing.config.ts. O cliente via R$ 49,90 na
         tela e o checkout cobrava R$ 97."""
-        from api.payments import PRICES
+        from api.payments import PRICES, preco_com_metodo
         corpo = client.get("/api/payments/plans").json()
         assert corpo["currency"] == "BRL"
         for plano in ("free", "pro", "premium"):
-            assert corpo["plans"][plano]["monthly"] == PRICES["monthly"][plano]
-            assert corpo["plans"][plano]["annual"] == PRICES["annual"][plano]
+            assert corpo["plans"][plano]["price"] == PRICES[plano]
+            assert corpo["plans"][plano]["pix"] == preco_com_metodo(plano, "pix")
 
 
-class TestCicloDeCobranca:
-    def test_ciclo_invalido_e_recusado(self, client, usuario_logado):
+class TestFormaDePagamento:
+    def test_metodo_invalido_e_recusado(self, client, usuario_logado):
         headers, _ = usuario_logado
         r = client.post("/api/payments/create-preference",
-                        json={"plan": "pro", "billing_cycle": "decenal"}, headers=headers)
+                        json={"plan": "pro", "method": "cheque"}, headers=headers)
         assert r.status_code == 400
 
     def test_plano_invalido_e_recusado(self, client, usuario_logado):

@@ -46,7 +46,7 @@ interface SubscriptionContextValue {
         opts?: { currency?: string; localPrice?: string; usdPrice?: number; providerRef?: string }
     ) => void;
     markFailed: () => void;
-    markPending: (plan: SubscriptionPlan, cycle: BillingCycle) => void;
+    markPending: (plan: SubscriptionPlan, cycle?: BillingCycle) => void;
     cancelSubscription: () => void;
     auditQuota: { used: number; max: number };
     consumeAudit: () => boolean;
@@ -163,7 +163,10 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
         localStorage.removeItem('gtm-checkout-state');
     }, []);
 
-    const markPending = useCallback((plan: SubscriptionPlan, cycle: BillingCycle) => {
+    /* O ciclo virou opcional: a cobrança é compra avulsa e não há mais
+       mensal/anual para registrar. Continua aceito para não quebrar chamadas
+       antigas, e o padrão mantém o campo preenchido no estado. */
+    const markPending = useCallback((plan: SubscriptionPlan, cycle: BillingCycle = 'monthly') => {
         setSubscription(prev => ({ ...prev, plan, billingCycle: cycle, status: 'pending' }));
     }, []);
 

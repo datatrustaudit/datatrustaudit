@@ -13,15 +13,26 @@
  */
 import { useEffect, useState } from 'react';
 
+export type FormaDePagamento = 'pix' | 'card';
+
 export interface PlanPrice {
-    monthly: number;
-    annual: number;
-    monthly_equivalent_annual: number;
-    savings_pct: number;
+    /** Preço cheio, sem desconto de método. */
+    price: number;
+    /** Valor à vista no PIX. */
+    pix: number;
+    /** Valor no cartão — igual ao cheio. */
+    card: number;
+    /** Quanto o PIX economiza, em reais. */
+    pixSavings: number;
 }
 
 export interface PricingResponse {
     currency: string;
+    /** `one_time`: compra avulsa, sem renovação automática. */
+    billing: string;
+    /** Por quantos dias o acesso vale depois de pago. */
+    accessDays: number;
+    pixDiscountPct: number;
     plans: Record<'free' | 'pro' | 'premium', PlanPrice>;
 }
 

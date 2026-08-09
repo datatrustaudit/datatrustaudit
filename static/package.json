@@ -9,7 +9,9 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
-    "check:encoding": "node ../scripts/check-encoding.js"
+    "check:encoding": "node ../scripts/check-encoding.js",
+    "//typecheck": "APONTA PARA tsconfig.app.json DE PROPÓSITO: o tsconfig.json raiz tem \"files\": [] e só referencia sub-projetos, então `tsc -p tsconfig.json` checa ZERO arquivos e sempre passa — dando a impressão de código verificado quando nada foi olhado.",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",

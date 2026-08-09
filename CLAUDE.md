@@ -33,6 +33,24 @@ Testes: `pytest` (160 casos, um por bug já corrigido — ver `tests/`).
 
 Coisas que já quebraram aqui e não são óbvias lendo o código.
 
+### `tsc -p tsconfig.json` não verifica nada — use `npm run typecheck`
+
+O `tsconfig.json` do `static/` tem `"files": []` e só referencia
+`tsconfig.app.json` e `tsconfig.node.json`. Rodar `tsc --noEmit -p tsconfig.json`
+compila **zero arquivos** e sai com código 0: parece verificação limpa e não
+olhou uma linha. O comando certo é `npm run typecheck` (aponta para
+`tsconfig.app.json`).
+
+Some a isso um detalhe do próprio TypeScript: quando existe **erro de sintaxe**
+em qualquer arquivo, ele reporta só os erros sintáticos e **pula a checagem
+semântica do projeto inteiro**. Um `\"` escapado dentro de um data URI no
+`LoginScreen.tsx` — que o esbuild aceita e o `vite build` nunca reclamou —
+mascarou sete erros reais em outros arquivos, incluindo um import faltando e um
+`setState` recebendo o tipo errado. Em data URI, aspas se escrevem `%22`.
+
+Ou seja: build passando não é typecheck, e typecheck "limpo" pode não ter
+checado nada. Ao verificar frontend, confira que a saída lista arquivos.
+
 ### O catch-all do SPA precisa ser a última rota
 
 `@app.get("/{full_path:path}")` casa com qualquer GET. Starlette entrega para a

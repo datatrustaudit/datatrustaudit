@@ -6,6 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { usePlan, PlanType } from '@/context/PlanContext';
 import { useSubscription, BillingCycle } from '@/context/SubscriptionContext';
 import { PRICING_CONFIG } from '@/config/pricing.config';
+import { usePricing, type FormaDePagamento } from '@/hooks/usePricing';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import LocaleSelector from '@/components/LocaleSelector';
@@ -48,12 +49,18 @@ const PricingPage = () => {
     const { language, t } = useI18n();
     const { isAuthenticated } = useAuth();
     const { plan: currentPlan, selectPlan, selectedPlan } = usePlan();
-    const { billingCycle, setBillingCycle } = useSubscription();
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
     const [showCompare, setShowCompare] = useState(false);
     const [hoveredPlan, setHoveredPlan] = useState<string | null>(null);
     const [clickedPlan, setClickedPlan] = useState<string | null>(null);
+
+    /* Forma de pagamento no lugar do ciclo de cobrança: a compra é avulsa, e o
+       que muda o valor é o método. */
+    const [formaDePagamento, setFormaDePagamento] = useState<FormaDePagamento>('pix');
+    const { pricing: precos } = usePricing();
+    const descontoPix = precos?.pixDiscountPct ?? 5;
+    const diasDeAcesso = precos?.accessDays ?? 365;
 
     useEffect(() => {
         const planParam = searchParams.get('plan');
@@ -65,11 +72,11 @@ const PricingPage = () => {
     const handleSelect = (planId: string) => {
         setClickedPlan(planId);
         selectPlan(planId as PlanType);
-        localStorage.setItem('gtm-billing-cycle', billingCycle);
 
         if (planId === 'free') { navigate('/'); return; }
 
-        const dest = `/checkout?plan=${planId}&cycle=${billingCycle}`;
+        // A forma escolhida viaja para o checkout: é ela que define o valor.
+        const dest = `/checkout?plan=${planId}&method=${formaDePagamento}`;
 
         if (!isAuthenticated) {
             localStorage.setItem('gtm-redirect-after-auth', dest);
@@ -119,38 +126,42 @@ const PricingPage = () => {
                         {t('pricing.subtitle')}
                     </p>
 
-                    {/* ─── Billing cycle toggle ──────────────────────────────────────────── */}
+                    {/* ─── Forma de pagamento ────────────────────────────────────────────
+                        Substituiu o seletor mensal/anual: a cobrança virou compra
+                        avulsa, sem renovação automática. O que muda o valor agora é
+                        o método — o PIX não tem taxa de parcelamento nem risco de
+                        chargeback, e parte disso volta para quem paga à vista. */}
                     <div className="inline-flex items-center bg-white/5 border border-white/10 rounded-full p-1 gap-1">
                         <button
-                            onClick={() => setBillingCycle('monthly')}
-                            className={`px-5 py-2 rounded-full text-sm font-semibold transition-all ${
-                                billingCycle === 'monthly'
-                                    ? 'bg-white text-slate-900 shadow-md'
-                                    : 'text-white/60 hover:text-white'
-                            }`}
-                        >
-                            {t('pricing.monthly')}
-                        </button>
-                        <button
-                            onClick={() => setBillingCycle('annual')}
+                            onClick={() => setFormaDePagamento('pix')}
                             className={`px-5 py-2 rounded-full text-sm font-semibold transition-all flex items-center gap-2 ${
-                                billingCycle === 'annual'
+                                formaDePagamento === 'pix'
                                     ? 'bg-white text-slate-900 shadow-md'
                                     : 'text-white/60 hover:text-white'
                             }`}
                         >
-                            {t('pricing.annual')}
+                            PIX
                             <span className="bg-green-500 text-white text-xs px-2 py-0.5 rounded-full font-bold">
-                                {t('pricing.save_20')}
+                                -{descontoPix}%
                             </span>
                         </button>
+                        <button
+                            onClick={() => setFormaDePagamento('card')}
+                            className={`px-5 py-2 rounded-full text-sm font-semibold transition-all ${
+                                formaDePagamento === 'card'
+                                    ? 'bg-white text-slate-900 shadow-md'
+                                    : 'text-white/60 hover:text-white'
+                            }`}
+                        >
+                            Cartão
+                        </button>
                     </div>
-                    {billingCycle === 'annual' && (
-                        <p className="text-green-400/80 text-xs mt-3 flex items-center justify-center gap-1.5">
-                            <Sparkles className="w-3.5 h-3.5" />
-                            {t('pricing.billed_annual_notice')}
-                        </p>
-                    )}
+                    <p className="text-white/40 text-xs mt-3 flex items-center justify-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5" />
+                        Pagamento único, sem mensalidade. O acesso vale por {diasDeAcesso >= 360
+                            ? '1 ano'
+                            : `${Math.round(diasDeAcesso / 30)} meses`}.
+                    </p>
 
                     {/* Locale selector — language + currency */}
                     <div className="mt-12 flex flex-col items-center gap-4">
@@ -164,12 +175,16 @@ const PricingPage = () => {
                 <div className="grid md:grid-cols-3 gap-5 mb-12 items-start mt-12">
                     {(['free', 'pro', 'premium'] as PlanType[]).map((planId) => {
                         const config = PRICING_CONFIG[planId];
-                        const pricing = config.pricing;
-                        const effectiveUsd = billingCycle === 'annual' && planId !== 'free'
-                            ? Math.round((pricing.annual / 12) * 100) / 100   // show monthly equivalent
-                            : pricing.monthly;
-                        
-                        const displayPrice = planId === 'free' ? t('pricing.free_label') : formatPrice(effectiveUsd);
+                        /* O preço vem do backend, que é quem monta a cobrança.
+                           `PRICING_CONFIG` só sobrevive como fallback da primeira
+                           renderização: ela e o servidor já divergiram, e a tela
+                           mostrava R$ 49,90 enquanto o checkout cobrava R$ 97. */
+                        const doServidor = precos?.plans?.[planId];
+                        const valor = doServidor
+                            ? doServidor[formaDePagamento]
+                            : config.pricing.monthly;
+
+                        const displayPrice = planId === 'free' ? t('pricing.free_label') : formatPrice(valor);
                         const isCurrentPlan = currentPlan?.type === planId;
                         const isHovered = hoveredPlan === planId;
                         const isSelected = selectedPlan === planId || clickedPlan === planId;
@@ -220,21 +235,27 @@ const PricingPage = () => {
                                         </span>
                                     </div>
 
-                                    {/* Price */}
+                                    {/* Preço */}
                                     <div className="flex items-baseline gap-1.5 mb-1">
                                         <span className="text-4xl font-extrabold text-white">{displayPrice}</span>
                                         {planId !== 'free' && (
-                                            <span className="text-white/40 text-sm">{t('pricing.per_month')}</span>
+                                            <span className="text-white/40 text-sm">uma vez</span>
                                         )}
                                     </div>
-                                    
-                                    {/* Annual billing total */}
-                                    {billingCycle === 'annual' && planId !== 'free' && (
+
+                                    {/* Quanto o PIX economiza, e de quanto era antes.
+                                        Sem o preço riscado ao lado, "234,65" é só um
+                                        número — o desconto precisa ser visível para
+                                        pesar na decisão. */}
+                                    {formaDePagamento === 'pix' && planId !== 'free' && doServidor && doServidor.pixSavings > 0 && (
                                         <div className="mb-3">
-                                            <span className="text-green-400/80 text-xs flex items-center gap-1">
+                                            <span className="text-green-400/80 text-xs flex items-center gap-1.5">
                                                 <Calendar className="w-3 h-3" />
-                                                {t('pricing.billed_annual')} {formatPrice(pricing.annual)}
-                                                <Badge className="bg-green-500/20 text-green-400 text-[10px] border-0 h-4 px-1.5 ml-1">-20%</Badge>
+                                                <span className="line-through text-white/30">{formatPrice(doServidor.card)}</span>
+                                                no cartão
+                                                <Badge className="bg-green-500/20 text-green-400 text-[10px] border-0 h-4 px-1.5 ml-1">
+                                                    -{descontoPix}%
+                                                </Badge>
                                             </span>
                                         </div>
                                     )}

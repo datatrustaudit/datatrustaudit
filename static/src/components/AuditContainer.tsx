@@ -75,8 +75,17 @@ interface NewAuditResult {
         securityIssuesCount?: number;
         eventsDetected?: number;
         duplicatesDetected?: number;
+        violationsBySeverity?: Record<string, number>;
     };
     pageReports?: any[];
+    /* Cookies sem consentimento, ordem de disparo e guias de correção. O
+       normalizador reconstrói o objeto campo a campo, então o que não estiver
+       declarado aqui some em silêncio — foi assim que o agregado por gravidade
+       e o storage morreram a um passo da tela. */
+    storage?: any;
+    scanMethod?: string | null;
+    veredito?: any;
+    showsDetail?: boolean;
 }
 interface AuditContainerProps {
   onStateChange?: (isActive: boolean) => void;
@@ -319,7 +328,9 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
         if (!dados.result) {
           throw new Error('Esta varredura não chegou a produzir um laudo.');
         }
-        setCurrentScanId(Number(idNaUrl));
+        // O estado guarda string: é assim que ele viaja para a exportação de
+        // PDF/Excel, que monta a URL com ele.
+        setCurrentScanId(String(idNaUrl));
         setCurrentAuditUrl(dados.url || '');
         setUrl(dados.url || '');
         setAnalysisType('url');

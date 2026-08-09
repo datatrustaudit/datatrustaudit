@@ -5,7 +5,7 @@ import { useLocale, localizePrice } from '@/hooks/useLocale';
 import { useI18n } from '@/context/I18nContext';
 import { useSubscription, PLAN_PRICING, BillingCycle, SubscriptionPlan } from '@/context/SubscriptionContext';
 import { apiRequest } from '@/lib/apiClient';
-import { usePricing } from '@/hooks/usePricing';
+import { usePricing, type FormaDePagamento } from '@/hooks/usePricing';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/use-toast';
@@ -72,10 +72,19 @@ const CheckoutPage = () => {
     const { markPending } = useSubscription();
 
     const planId = (params.get('plan') ?? localStorage.getItem('gtm-selected-plan') ?? 'pro') as SubscriptionPlan;
-    const cycleParam = (params.get('cycle') ?? localStorage.getItem('gtm-billing-cycle') ?? 'monthly') as BillingCycle;
-    const isAnnual = cycleParam === 'annual';
+    /* Forma de pagamento no lugar do ciclo: a compra é avulsa, e é o método que
+       muda o valor. `cycle` ainda pode chegar em link antigo — é ignorado. */
+    const metodo: FormaDePagamento = params.get('method') === 'card' ? 'card' : 'pix';
+
+    /* O ciclo de cobrança acabou junto com a assinatura. Estas duas constantes
+       mantêm os blocos de "cobrado anualmente" fora da tela sem exigir reescrever
+       as 400 linhas do checkout agora — os ramos ficam mortos e o TypeScript os
+       elimina. Débito registrado: a tela ainda tem estrutura de assinatura por
+       baixo, e vale limpar quando ela for repaginada. */
+    const isAnnual = false;
+    const cycleParam: BillingCycle = 'monthly';
     const plan = PLAN_META[planId] ?? PLAN_META.pro;
-    const pricing = PLAN_PRICING[planId]?.[cycleParam] ?? PLAN_PRICING.pro.monthly;
+    const pricing = PLAN_PRICING[planId]?.monthly ?? PLAN_PRICING.pro.monthly;
     const isEn = language !== 'pt-BR';
     const localeKey: 'en' | 'pt' = isEn ? 'en' : 'pt';
     const L = (obj: { en: string; pt: string }) => obj[localeKey] ?? obj.en;
@@ -86,10 +95,11 @@ const CheckoutPage = () => {
     // aqui — a tela mostrava R$ 49,90 e o checkout cobrava R$ 97.
     const { pricing: serverPricing } = usePricing();
     const serverPlan = serverPricing?.plans?.[planId as 'pro' | 'premium'];
-    const serverTotalBrl = serverPlan ? (isAnnual ? serverPlan.annual : serverPlan.monthly) : null;
-    const serverMonthlyBrl = serverPlan
-        ? (isAnnual ? serverPlan.monthly_equivalent_annual : serverPlan.monthly)
-        : null;
+    const serverTotalBrl = serverPlan ? serverPlan[metodo] : null;
+    const economiaDoPix = serverPlan && metodo === 'pix' ? serverPlan.pixSavings : 0;
+    const diasDeAcesso = serverPricing?.accessDays ?? 365;
+    // Não há mais equivalência mensal: o valor é único.
+    const serverMonthlyBrl = serverTotalBrl;
 
     const formatBrl = (valor: number) =>
         new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
@@ -155,16 +165,21 @@ const CheckoutPage = () => {
             // como não existe webhook da Kiwify no backend, quem pagava ficava
             // esperando ativação manual.
             if (!isAuthenticated || !token) {
-                navigate(`/auth?redirect=/checkout?plan=${planId}&cycle=${cycleParam}`);
+                navigate(`/auth?redirect=/checkout?plan=${planId}&method=${metodo}`);
                 return;
             }
 
-            const preference = await apiRequest<{ id: string; init_point: string }>(
+            /* Só o método viaja — nunca o valor. O servidor calcula o preço e o
+               desconto do PIX a partir da própria tabela; mandar `amount` daqui
+               deixaria qualquer um comprar o premium por um real. */
+            const preference = await apiRequest<{
+                id: string; init_point: string; amount?: number; method?: string;
+            }>(
                 '/api/payments/create-preference',
                 {
                     method: 'POST',
                     token,
-                    body: { plan: planId, billing_cycle: cycleParam },
+                    body: { plan: planId, method: metodo },
                     context: 'checkout',
                 }
             );
