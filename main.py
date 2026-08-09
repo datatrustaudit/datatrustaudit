@@ -1599,15 +1599,27 @@ async def deep_analyze(request: Request, current_user: Optional[User] = Depends(
         except UnsafeURLError as e:
             return JSONResponse({"status": "error", "msg": str(e)}, status_code=400)
 
-        # 1. Auditar página inicial
-        scan_results = await scanner.scan(base_url)
-        if scan_results.get("error") and not scan_results.get("html"):
+        # 1. Auditar página inicial pelo mesmo motor do scan Rápido.
+        #    Antes usava `generate_audit_report`, o motor legado deste arquivo,
+        #    que infere consentimento por posição no HTML. O modo mais caro do
+        #    produto era o que menos enxergava: sem interceptação de rede, sem
+        #    cookie real, sem teste do botão "Recusar". Para o mesmo site, o
+        #    Deep acusava menos que o Rápido — e o cliente não tinha como saber
+        #    qual acreditar.
+        from api.audit import auditar_pagina
+
+        base_report = await auditar_pagina(base_url, plan)
+        if not base_report.get("success"):
             return JSONResponse(
-                {"status": "error", "msg": f"Falha ao carregar página: {scan_results['error']}"},
+                {"status": "error", "msg": base_report.get("message") or "Falha ao carregar a página inicial."},
                 status_code=502,
             )
-        base_report = generate_audit_report(scan_results)
-        soup = BeautifulSoup(scan_results.get("html", ""), 'html.parser')
+        base_report.pop("_audit_result", None)
+
+        # O HTML para descobrir os links vem do scan que a auditoria já fez —
+        # abrir a página duas vezes dobraria o custo do modo mais caro.
+        scan_da_base = base_report.pop("_scan", None)
+        soup = BeautifulSoup(getattr(scan_da_base, "html", "") or "", 'html.parser')
         domain = urlparse(base_url).netloc
         links = []
         for a in soup.find_all('a', href=True):
@@ -1631,23 +1643,40 @@ async def deep_analyze(request: Request, current_user: Optional[User] = Depends(
         falhas = []
         for link in target_links:
             try:
-                sub_scan = await scanner.scan(link)
-                if sub_scan.get("error") and not sub_scan.get("html"):
-                    falhas.append({"url": link, "motivo": sub_scan["error"]})
+                relatorio = await auditar_pagina(link, plan)
+                relatorio.pop("_audit_result", None)
+                relatorio.pop("_scan", None)
+                if not relatorio.get("success"):
+                    falhas.append({"url": link, "motivo": relatorio.get("message") or "falha ao carregar"})
                     continue
-                sub_reports.append(generate_audit_report(sub_scan))
+                sub_reports.append(relatorio)
             except Exception as e:
                 # nada falha em silêncio: a falha vai no retorno
                 print(f"[deep-analyze] falha ao auditar {link}: {e}")
                 falhas.append({"url": link, "motivo": str(e)})
 
-        # 3. Consolidar resultados — a chave é "privacy"; "lgpdAnalysis" nunca
-        # existiu no relatório e estourava KeyError, derrubando o endpoint inteiro.
-        total_violations = sum(
-            (r.get("privacy") or {}).get("totalViolations", 0) for r in sub_reports
-        )
+        # 3. Consolidar. As páginas vêm no formato de /api/audit, então a
+        # contagem sai de `summary.violationsCount` — o agregado que sobrevive
+        # ao corte por plano, ao contrário da lista `violations`.
+        def _violacoes_da_pagina(r: dict) -> int:
+            summary = r.get("summary") or {}
+            if summary.get("violationsCount") is not None:
+                return int(summary["violationsCount"])
+            privacy = r.get("privacy") or {}
+            return int(privacy.get("totalViolations") or len(privacy.get("violations") or []))
+
+        total_violations = sum(_violacoes_da_pagina(r) for r in sub_reports)
         scores = [r.get("score", 0) for r in sub_reports]
         avg_score = sum(scores) / len(scores) if scores else 0
+
+        # Gravidade somada entre páginas: sem isso o gráfico do Deep ficaria
+        # vazio ao lado do total, o mesmo defeito já corrigido no laudo único.
+        gravidade = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+        for r in sub_reports:
+            for nivel, quantos in ((r.get("summary") or {}).get("violationsBySeverity") or {}).items():
+                if nivel in gravidade:
+                    gravidade[nivel] += int(quantos or 0)
+
         all_tags = []
         for r in sub_reports:
             all_tags.extend(r.get("tags") or [])
@@ -1662,14 +1691,18 @@ async def deep_analyze(request: Request, current_user: Optional[User] = Depends(
             "pagesFailed": falhas,
             "urls": [r.get("url") for r in sub_reports],
             "totalViolations": total_violations,
+            "violationsBySeverity": gravidade,
             "averageScore": round(avg_score, 1),
             "uniqueTagsFound": len(unique_tags),
             "consolidatedTags": unique_tags,
             "pageReports": sub_reports
         }
 
-        for report in deep_report["pageReports"]:
-            plan_strip_report(report, plan)
+        # O corte por plano já foi aplicado por `auditar_pagina` (via
+        # `_normalize_audit_response`). Passar `plan_strip_report` por cima
+        # cortaria de novo, com regra diferente da fonte única em
+        # `audit_engine.guia_de_correcao` — foi assim que o free chegou a ver
+        # 15% do laudo em vez de 50%.
 
         return JSONResponse({
             "status": "ok",

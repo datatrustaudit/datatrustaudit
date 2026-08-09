@@ -381,6 +381,72 @@ def _failed_response(code: str, errors: Optional[List[Dict[str, Any]]] = None, s
     )
 
 
+def _corpo_de_falha(code: str, errors: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    """Mesmo conteúdo de `_failed_response`, como dicionário.
+
+    O Deep Scan precisa registrar a falha de uma página sem interromper as
+    outras, então não pode receber um JSONResponse pronto.
+    """
+    return {
+        "success": False,
+        "status": "failed",
+        "errorCode": code,
+        "message": _friendly_message(code),
+        "errors": errors or [],
+    }
+
+
+async def auditar_pagina(url: str, plan: str) -> Dict[str, Any]:
+    """Auditoria de uma página pelo `audit_engine`, no formato da API.
+
+    Fonte única do que é "auditar". Existia só dentro de `run_direct_audit`, e
+    o `/deep-analyze` mantinha um caminho próprio com o motor legado do
+    `main.py` — que compara posição no HTML em vez de olhar a rede. O mesmo
+    site recebia dois laudos diferentes conforme a aba escolhida, e o Deep,
+    justamente o modo mais caro, era o que enxergava menos.
+
+    Não persiste nem consome cota: quem chama decide isso. Devolve o corpo de
+    falha em vez de levantar, para que uma página ruim não derrube a varredura.
+
+    As chaves `_audit_result` e `_scan` carregam os objetos do motor para quem
+    precisa deles (persistência, extração de links) e devem ser removidas antes
+    de a resposta ir para a rede.
+    """
+    try:
+        scan = await asyncio.wait_for(
+            asyncio.to_thread(browser_scan, url, FETCH_TIMEOUT_MS),
+            timeout=(FETCH_TIMEOUT_MS / 1000) + 20,
+        )
+    except asyncio.TimeoutError:
+        return _corpo_de_falha("TIMEOUT", [{"message": "Backend fetch timed out."}])
+    except Exception as exc:
+        return _corpo_de_falha("FETCH_FAILED", [{"message": str(exc)}])
+
+    try:
+        audit_result = run_audit(url, scan, use_view_source=(plan == "premium"))
+        response = _normalize_audit_response(url, plan, scan, audit_result)
+    except Exception as exc:
+        return _corpo_de_falha("FETCH_FAILED", [{"message": str(exc)}])
+
+    # HTML vazio é falha, mesmo quando o motor não levanta: sem código não há
+    # o que auditar, e devolver score de página em branco vira falso negativo.
+    scan_status = getattr(scan, "scan_status", "completed")
+    if not getattr(scan, "html", ""):
+        response["success"] = False
+        response["status"] = scan_status if scan_status != "completed" else "failed"
+        codigo = {
+            "protocol_error": "PROTOCOL_ERROR",
+            "blocked": "BLOCKED",
+            "timeout": "TIMEOUT",
+        }.get(scan_status, "FETCH_FAILED")
+        response["errorCode"] = codigo
+        response["message"] = _friendly_message(codigo)
+
+    response["_audit_result"] = audit_result
+    response["_scan"] = scan
+    return response
+
+
 @router.post("")
 @router.post("/")
 async def run_direct_audit(
@@ -418,37 +484,13 @@ async def run_direct_audit(
             )
 
     try:
-        scan = await asyncio.wait_for(
-            asyncio.to_thread(browser_scan, url, FETCH_TIMEOUT_MS),
-            timeout=(FETCH_TIMEOUT_MS / 1000) + 20,
-        )
-    except asyncio.TimeoutError:
-        return _failed_response("TIMEOUT", [{"message": "Backend fetch timed out."}])
-    except (socket.gaierror, OSError) as exc:
-        return _failed_response("FETCH_FAILED", [{"message": str(exc)}])
-    except Exception as exc:
-        return _failed_response("FETCH_FAILED", [{"message": str(exc)}])
+        # Mesmo caminho que o Deep Scan percorre por página.
+        response = await auditar_pagina(url, plan)
+        audit_result = response.pop("_audit_result", None)
+        response.pop("_scan", None)
 
-    try:
-        audit_result = run_audit(url, scan, use_view_source=(plan == "premium"))
-        response = _normalize_audit_response(url, plan, scan, audit_result)
-
-        scan_status = getattr(scan, "scan_status", "completed")
-        if not getattr(scan, "html", ""):
-            response["success"] = False
-            response["status"] = scan_status if scan_status != "completed" else "failed"
-            if scan_status == "protocol_error":
-                response["errorCode"] = "PROTOCOL_ERROR"
-                response["message"] = _friendly_message("PROTOCOL_ERROR")
-            elif scan_status == "blocked":
-                response["errorCode"] = "BLOCKED"
-                response["message"] = _friendly_message("BLOCKED")
-            elif scan_status == "timeout":
-                response["errorCode"] = "TIMEOUT"
-                response["message"] = _friendly_message("TIMEOUT")
-            else:
-                response["errorCode"] = "FETCH_FAILED"
-                response["message"] = _friendly_message("FETCH_FAILED")
+        if audit_result is None:
+            return JSONResponse(response, status_code=200)
 
         # Persiste o resultado. Este endpoint é o que o frontend usa de fato, e
         # não gravava nada: sem linha em `scans`, o histórico ficava vazio, a

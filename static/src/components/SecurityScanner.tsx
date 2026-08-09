@@ -349,9 +349,14 @@ const SecurityScanner = ({ detectedTags, hasConsentTool, url }: SecurityScannerP
                                 ANPD Brasil
                             </a>
                         </Button>
+                        {/* O link para a extensão Omnibug saiu: o ID apontava
+                            para item inexistente na Chrome Web Store (havia
+                            dois IDs diferentes no código, ambos mortos), e o
+                            produto não depende dela para nada — a varredura
+                            roda no servidor, com navegador real. */}
                         <Button variant="outline" size="sm" asChild>
-                            <a href="https://chromewebstore.google.com/detail/omnibug/bknpehncffejahipecakbfkomebjmokl" target="_blank" rel="noopener noreferrer">
-                                Omnibug Extension
+                            <a href="https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm" target="_blank" rel="noopener noreferrer">
+                                Texto da LGPD
                             </a>
                         </Button>
                         <Button variant="outline" size="sm" asChild>
