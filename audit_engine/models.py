@@ -302,6 +302,10 @@ class PrivacyViolation:
     confidence: str
     data_collected: List[str] = field(default_factory=list)
     tag_id: Optional[str] = None
+    #: O que fazer a respeito. Apontar o problema sem dizer a providência
+    #: transfere o trabalho de volta para quem contratou o laudo — e a visão
+    #: jurídica precisa disso para responder "o que estamos fazendo?".
+    recommendation: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -313,6 +317,7 @@ class PrivacyViolation:
             "confidence": self.confidence,
             "dataCollected": self.data_collected,
             "tagId": self.tag_id,
+            "recommendation": self.recommendation,
         }
 
 

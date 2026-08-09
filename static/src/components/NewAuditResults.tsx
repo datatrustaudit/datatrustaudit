@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -29,6 +30,8 @@ import FeatureGate from './FeatureGate';
 import EventAuditPanel from './EventAuditPanel';
 import GTMQualityPanel from './GTMQualityPanel';
 import DataQualityNotes from './DataQualityNotes';
+import VisaoExecutiva from './laudo/VisaoExecutiva';
+import VisaoJuridica from './laudo/VisaoJuridica';
 import { useI18n } from '@/context/I18nContext';
 import { usePlan } from '@/context/PlanContext';
 import { useAuth } from '@/context/AuthContext';
@@ -124,6 +127,47 @@ const NewAuditResults = ({ result, scanId }: { result: NewAuditResult, scanId?: 
     const { t } = useI18n();
     const { limits, isFeatureAvailable, setShowUpgradeModal, setBlockedFeature } = usePlan();
     const { token } = useAuth();
+
+    /** Qual das três saídas do laudo está aberta. */
+    const [leitor, setLeitor] = useState<'executiva' | 'juridica' | 'tecnica'>('executiva');
+
+    /* Números compartilhados pelas três visões. Cada uma apresenta de um jeito,
+       mas todas leem daqui: se divergirem na tela, é bug de leitura, não
+       diferença de critério — foi assim que o produto chegou a mostrar três
+       respostas para o mesmo site. */
+    const totalDeAchados = result.summary?.violationsCount
+        ?? result.privacy?.total_violations
+        ?? (result.privacy?.violations || []).length;
+
+    const porGravidade: Record<string, number> =
+        (result.summary as any)?.violationsBySeverity
+        // Fallback para resposta antiga em cache: a lista pode vir cortada pelo
+        // plano, então o total acima continua sendo a fonte da contagem.
+        || (result.privacy?.violations || []).reduce((acc: Record<string, number>, v: any) => {
+            const nivel = v?.severity || 'medium';
+            acc[nivel] = (acc[nivel] || 0) + 1;
+            return acc;
+        }, {});
+
+    const temCmp = Boolean(result.privacy?.has_consent_tool ?? result.summary?.consentDetected);
+    const tagsAntesDoConsentimento = (result.tags || []).filter(t => t.isBeforeConsent).length;
+    const cookiesSemConsentimento =
+        ((result as any).storage?.cookiesWithoutConsent || []).length;
+
+    /* Recomendações do motor, da mais grave para a menos. O executivo lê as
+       cinco primeiras; a aba técnica mostra todas. */
+    const proximosPassos = ((result.recommendations || []) as any[])
+        .map(r => ({
+            titulo: r?.title || r?.recommendation || r?.issue || '',
+            porque: r?.why || r?.description || r?.impact,
+            gravidade: r?.severity,
+            esforco: r?.effort || r?.esforco,
+        }))
+        .filter(p => p.titulo)
+        .sort((a, b) => {
+            const ordem: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+            return (ordem[a.gravidade] ?? 4) - (ordem[b.gravidade] ?? 4);
+        });
 
     const handleUpgradeLock = (feature: string) => {
         setBlockedFeature(feature);
@@ -424,8 +468,76 @@ ${violationsText}
                 </CardContent>
             </Card>
 
+            {/* ─── Seletor de leitor ───
+                O mesmo laudo, três saídas. O conteúdo já existia todo no
+                motor; o que faltava era admitir que quem paga, quem responde
+                juridicamente e quem corrige não leem a mesma coisa. Servir os
+                três na mesma tela deixava ela técnica demais para uns e rasa
+                demais para outros. */}
+            <div
+                className="flex flex-wrap gap-1 rounded-md border p-1 mb-4"
+                role="tablist"
+                aria-label="Para quem é esta leitura"
+                style={{ borderColor: 'var(--laudo-linha)', background: 'var(--laudo-superficie)' }}
+            >
+                {([
+                    ['executiva', 'Resumo', 'Veredito, evidência e por onde começar'],
+                    ['juridica', 'Jurídico', 'Base legal e cadeia de evidência'],
+                    ['tecnica', 'Técnico', 'Tags, eventos, código e linha'],
+                ] as const).map(([chave, rotulo, descricao]) => {
+                    const ativa = leitor === chave;
+                    return (
+                        <button
+                            key={chave}
+                            role="tab"
+                            aria-selected={ativa}
+                            onClick={() => setLeitor(chave)}
+                            title={descricao}
+                            className="flex-1 min-w-[8rem] rounded px-3 py-2 text-left transition-colors"
+                            style={{
+                                background: ativa ? 'color-mix(in srgb, var(--laudo-carimbo) 14%, transparent)' : 'transparent',
+                                color: ativa ? 'var(--laudo-texto)' : 'var(--laudo-texto-fraco)',
+                                boxShadow: ativa ? 'inset 0 0 0 1px var(--laudo-carimbo)' : 'none',
+                            }}
+                        >
+                            <span className="block text-sm font-semibold">{rotulo}</span>
+                            <span className="block text-[11px] leading-tight mt-0.5">{descricao}</span>
+                        </button>
+                    );
+                })}
+            </div>
+
+            {leitor === 'executiva' && (
+                <VisaoExecutiva
+                    url={result.url}
+                    score={result.score}
+                    totalDeAchados={totalDeAchados}
+                    porGravidade={porGravidade}
+                    temCmp={temCmp}
+                    tagsAntesDoConsentimento={tagsAntesDoConsentimento}
+                    cookiesSemConsentimento={cookiesSemConsentimento}
+                    piiExposto={result.summary?.piiExposureCount || 0}
+                    exposicaoLegal={result.privacy?.estimatedRiskExposure}
+                    proximosPassos={proximosPassos}
+                />
+            )}
+
+            {leitor === 'juridica' && (
+                <VisaoJuridica
+                    url={result.url}
+                    timestamp={result.timestamp}
+                    scanMethod={(result as any).scanMethod}
+                    violacoes={result.privacy?.violations || []}
+                    totalDeAchados={totalDeAchados}
+                    temCmp={temCmp}
+                    jurisdicao={result.privacy?.jurisdiction}
+                    framework={result.privacy?.framework}
+                    exposicaoLegal={result.privacy?.estimatedRiskExposure}
+                />
+            )}
+
             {/* ─── Main tabs ─── */}
-            <Tabs defaultValue="dashboard" className="w-full">
+            <Tabs defaultValue="dashboard" className={`w-full ${leitor === 'tecnica' ? '' : 'hidden'}`}>
                 <TabsList className="flex flex-wrap w-full h-auto gap-1 p-1">
                     <TabsTrigger value="dashboard" className="flex items-center gap-1.5 text-xs">
                         <PieChart className="w-3.5 h-3.5" />

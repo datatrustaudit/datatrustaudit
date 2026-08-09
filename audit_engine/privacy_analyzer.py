@@ -105,36 +105,54 @@ def detect_jurisdiction(html: str, url: str) -> dict:
 # diz a ninguém o que fazer na segunda-feira de manhã.
 _RISK_TABLE = {
     "storage_without_consent": {
+        "recommendation": (
+            "Configurar o CMP para bloquear a gravação de cookies de rastreamento até o aceite, e apagar os que já foram gravados sem base legal."
+        ),
         "article": "LGPD art. 7º, I e art. 16",
         "description": "Cookie de rastreamento gravado antes de qualquer consentimento",
         "min_fine": 8_000,
         "max_fine": 60_000,
     },
     "no_cmp": {
+        "recommendation": (
+            "Implantar um controle de consentimento que apresente aceitar e recusar com o mesmo destaque, e que bloqueie o rastreamento até a escolha."
+        ),
         "article": "LGPD art. 7º, I",
         "description": "Rastreamento sem mecanismo de consentimento na página",
         "min_fine": 5_000,
         "max_fine": 50_000,
     },
     "tracking_before_consent": {
+        "recommendation": (
+            "Condicionar o disparo das tags ao consentimento registrado — no GTM, por gatilho vinculado ao evento do CMP, e não por ordem no HTML."
+        ),
         "article": "LGPD art. 8º, §1º",
         "description": "Tag de rastreamento disparando antes da manifestação do titular",
         "min_fine": 10_000,
         "max_fine": 50_000,
     },
     "critical_tracker": {
+        "recommendation": (
+            "Suspender a gravação de sessão até o aceite e revisar se a finalidade declarada na política cobre esse tratamento."
+        ),
         "article": "LGPD art. 6º, VII e art. 46",
         "description": "Ferramenta de alto impacto — gravação de sessão ou identificação persistente",
         "min_fine": 15_000,
         "max_fine": 50_000,
     },
     "advertising_tracker": {
+        "recommendation": (
+            "Bloquear as tags de publicidade até o aceite e revisar o contrato de operador com a plataforma que recebe os dados."
+        ),
         "article": "LGPD art. 7º, I e art. 33",
         "description": "Compartilhamento com plataforma de publicidade sem consentimento",
         "min_fine": 10_000,
         "max_fine": 40_000,
     },
     "obsolete_ua": {
+        "recommendation": (
+            "Remover o Universal Analytics: ele não recebe mais dados e mantém identificadores ativos no navegador sem finalidade."
+        ),
         "article": "LGPD art. 46",
         "description": "Tecnologia descontinuada em uso (Universal Analytics)",
         "min_fine": 5_000,
@@ -205,6 +223,7 @@ def analyze_privacy(
                 description=r["description"],
                 severity="critical",
                 confidence=CONFIDENCE_HIGH,
+                recommendation=r.get("recommendation"),
             ))
             disclosure_gaps.append("Sem controle de consentimento na página")
             total_min += r["min_fine"]
@@ -256,6 +275,7 @@ def analyze_privacy(
                 description=r["description"],
                 severity=tag.privacy_risk,
                 confidence=CONFIDENCE_MEDIUM,
+                recommendation=r.get("recommendation"),
                 data_collected=tag.data_collected,
                 tag_id=tag.tag_id,
             ))
@@ -280,6 +300,7 @@ def analyze_privacy(
                 description=r["description"],
                 severity="critical",
                 confidence=CONFIDENCE_HIGH,
+                recommendation=r.get("recommendation"),
             ))
             consent_risks.append(f"Cookie {achado.nome} gravado sem consentimento")
             total_min += r["min_fine"]
@@ -296,6 +317,7 @@ def analyze_privacy(
                 description=r["description"],
                 severity=achado.severidade,
                 confidence=CONFIDENCE_HIGH,
+                recommendation=r.get("recommendation"),
             ))
             total_min += r["min_fine"]
             total_max += r["max_fine"]
@@ -349,6 +371,7 @@ def analyze_privacy(
             description=r["description"],
             severity="critical",
             confidence=CONFIDENCE_HIGH,
+                recommendation=r.get("recommendation"),
         ))
         total_min += r["min_fine"]
         total_max += r["max_fine"]
@@ -375,6 +398,7 @@ def analyze_privacy(
             description=r["description"],
             severity="critical",
             confidence=CONFIDENCE_MEDIUM,
+                recommendation=r.get("recommendation"),
             data_collected=tag.data_collected,
         ))
         total_min += r["min_fine"]

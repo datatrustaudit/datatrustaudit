@@ -152,8 +152,17 @@ const normalizeAuditResult = (raw: any): NewAuditResult => {
     hasUniversalAnalytics: privacy.has_universal_analytics || tags.some((t: any) => t.id === 'ua' || t.name === 'Universal Analytics'),
     violationsCount: privacy.total_violations,
     estimatedFine: privacy.estimatedRiskExposure,
-    piiExposureCount: (safeRaw.datalayer_findings || []).filter((f: any) => f.type === 'pii_exposure').length,
-    securityIssuesCount: 0,
+    /* Agregado por gravidade. Este normalizador reconstrói o `summary` campo a
+       campo, então tudo que a API acrescenta e ninguém repassa aqui some em
+       silêncio — foi assim que o gráfico de gravidade ficou vazio ao lado do
+       contador cheio. A lista `violations` chega cortada pelo plano; este
+       agregado, não. */
+    violationsBySeverity: safeRaw.summary?.violationsBySeverity
+      ?? safeRaw.summary?.violations_by_severity
+      ?? undefined,
+    piiExposureCount: safeRaw.summary?.piiExposureCount
+      ?? (safeRaw.datalayer_findings || []).filter((f: any) => f.type === 'pii_exposure').length,
+    securityIssuesCount: safeRaw.summary?.securityIssuesCount ?? 0,
     eventsDetected: safeRaw.summary?.totalEvents ?? rawEvents.totalEvents ?? rawEvents.total_events ?? 0,
     duplicatesDetected: safeRaw.summary?.duplicatesDetected ?? (safeRaw.duplicates || []).length,
   };
@@ -226,6 +235,14 @@ const normalizeAuditResult = (raw: any): NewAuditResult => {
     events,
     consentAudit: safeRaw.consent || { findings: [], cmpDetected: false },
     recommendations: safeRaw.recommendations || [],
+    summary,
+    /* Cookies sem consentimento, ordem real de disparo e os guias de correção.
+       O motor produz tudo isso e a API expõe; se não passar daqui, o trabalho
+       morre a um passo da tela. */
+    storage: safeRaw.storage || null,
+    /* Como a página foi lida. A visão jurídica declara o método na
+       identificação da varredura — laudo sem método não se sustenta. */
+    scanMethod: safeRaw.scanMethod || safeRaw.scan_method || null,
     dataQualityNotes: (safeRaw.data_quality_notes || safeRaw.dataQualityNotes || []).map((n: any) => ({
       limitation: n.limitation || '',
       reason: n.reason || '',
