@@ -190,6 +190,50 @@ GUIAS: Dict[str, GuiaDeCorrecao] = {
         quem_resolve="CMP + Tag Manager",
     ),
 
+    "server_side_tagging": GuiaDeCorrecao(
+        o_que_esta_errado=(
+            "O site encaminha dados de navegação a partir do próprio servidor "
+            "(tagueamento server-side)."
+        ),
+        por_que_importa=(
+            "Não é irregularidade por si — é técnica legítima, e comum. O que muda "
+            "é o papel de quem opera o site: a coleta deixa de ir do navegador "
+            "direto para o fornecedor e passa pelo servidor do cliente, que decide "
+            "o que repassar. Quem antes só hospedava a tag agora trata e encaminha "
+            "dado pessoal, com dever de registro e de base legal sobre isso. "
+            "Some junto a capacidade do visitante de observar: bloqueador de "
+            "rastreio não alcança o que sai do servidor, e o cookie gravado por "
+            "Set-Cookie sobrevive às restrições que o navegador impõe a script."
+        ),
+        como_corrigir=[
+            "Mapeie o que o container server-side recebe e para onde encaminha — "
+            "é isso que precisa constar do registro de operações de tratamento.",
+            "Declare na política de privacidade que os dados passam por servidor "
+            "próprio antes de seguirem para Google, Meta ou outro destino.",
+            "Formalize o contrato de operador com cada destino que recebe dado a "
+            "partir do seu servidor: a responsabilidade agora é sua também.",
+            "Ligue o consentimento ao servidor, não só ao navegador: o container "
+            "precisa receber o estado do Consent Mode e parar de encaminhar quando "
+            "houver recusa.",
+            "Confirme que o encaminhamento realmente para depois de uma recusa — "
+            "sem isso, o consentimento vira enfeite no lado do cliente.",
+        ],
+        exemplo=(
+            "// No container server-side, condicione o encaminhamento ao consentimento\n"
+            "// recebido do cliente, em vez de repassar tudo que chega:\n"
+            "if (eventData['x-ga-gcs'] && eventData['x-ga-gcs'].indexOf('G1') === -1) {\n"
+            "  return; // sem analytics_storage concedido, não encaminha\n"
+            "}"
+        ),
+        como_verificar=(
+            "Recuse os cookies e confira, no log do container server-side, que "
+            "nenhum evento foi encaminhado aos destinos de marketing."
+        ),
+        base_legal="LGPD art. 37 (registro das operações) e art. 39 (operador segue as instruções do controlador)",
+        esforco="medio",
+        quem_resolve="Tag Manager server-side + jurídico",
+    ),
+
     # ── Cookies e armazenamento ──────────────────────────────────────────────
     "storage_without_consent": GuiaDeCorrecao(
         o_que_esta_errado=(

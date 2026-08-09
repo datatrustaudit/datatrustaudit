@@ -149,6 +149,18 @@ _RISK_TABLE = {
         "min_fine": 10_000,
         "max_fine": 40_000,
     },
+    "server_side_tagging": {
+        "recommendation": (
+            "Registrar esse tratamento no inventário de dados: nessa arquitetura o "
+            "site deixa de ser só origem e passa a encaminhar dados, com dever de "
+            "base legal e de contrato com quem os recebe. Declarar na política de "
+            "privacidade quais dados saem do servidor e para onde."
+        ),
+        "article": "LGPD art. 37 e art. 39",
+        "description": "Encaminhamento de dados a partir do servidor do site (tagueamento server-side)",
+        "min_fine": 8_000,
+        "max_fine": 40_000,
+    },
     "obsolete_ua": {
         "recommendation": (
             "Remover o Universal Analytics: ele não recebe mais dados e mantém identificadores ativos no navegador sem finalidade."
@@ -203,6 +215,46 @@ def analyze_privacy(
     disclosure_gaps: List[str] = []
 
     has_ua = any(t.id == "ua" for t in tags)
+
+    # ── Rastreamento em domínio próprio ───────────────────────────────────────
+    # Server-side tagging é técnica legítima e não é violação por si. O que a
+    # torna relevante num laudo de LGPD é o efeito colateral: o dado deixa de
+    # ir do navegador para o fornecedor e passa a ir do NAVEGADOR PARA O
+    # SERVIDOR DO CLIENTE, que então o encaminha. Quem opera o site vira
+    # controlador de um fluxo que antes não passava por ele — com dever de
+    # registro e de base legal sobre um tratamento que nem sempre sabe que faz.
+    #
+    # É por isso que o achado precisa aparecer mesmo em site com CMP: o titular
+    # não tem como observar esse encaminhamento, e nenhum bloqueador o impede.
+    server_side = [
+        t for t in tags
+        if t.id == "sgtm_first_party" or "domínio próprio" in (t.name or "") or "server-side" in (t.name or "")
+    ]
+    if server_side:
+        r = _RISK_TABLE["server_side_tagging"]
+        nomes = ", ".join(t.name for t in server_side[:3])
+        evidencias = [t.matched_pattern for t in server_side if t.matched_pattern]
+        violations.append(PrivacyViolation(
+            tag="Infraestrutura do site",
+            violation=(
+                f"O site encaminha dados de navegação a partir do próprio servidor "
+                f"({nomes}). Nessa arquitetura a coleta não sai do navegador do "
+                f"visitante direto para o fornecedor: ela passa pelo servidor do site, "
+                f"que decide o que repassar. O visitante não tem como observar esse "
+                f"encaminhamento, e bloqueador de rastreio não o alcança."
+            ),
+            article=r["article"],
+            description=r["description"],
+            # Alto, não crítico: a técnica é legal. A gravidade sobe pela
+            # ausência de consentimento, que é avaliada em outra regra.
+            severity="high",
+            confidence=CONFIDENCE_HIGH,
+            recommendation=r.get("recommendation"),
+        ))
+        if evidencias:
+            disclosure_gaps.append(f"Tagueamento server-side: {evidencias[0][:120]}")
+        total_min += r["min_fine"]
+        total_max += r["max_fine"]
 
     # ── No CMP ────────────────────────────────────────────────────────────────
     if not has_consent_tool:

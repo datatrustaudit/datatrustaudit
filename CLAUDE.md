@@ -266,16 +266,13 @@ com TLD real nos testes.
 - `main.py` ainda tem o motor legado (`generate_audit_report`), mas só a rota
   `/analyze` o usa, e nenhuma tela chama essa rota. Pode sair quando se
   confirmar que não há consumidor externo.
-- A detecção em domínio próprio (sGTM hospedado, tipo Stape) é o buraco mais
-  caro que sobrou: script que não aparece no HTML, cookie first-party, dado
-  saindo do servidor do cliente para Meta/Google. É onde mora o risco de LGPD
-  que ninguém audita.
+- A detecção em domínio próprio cobre o container servido do próprio host, o
+  beacon de GA4/Meta e os cookies que só o servidor grava (`FPID`, `FPLC`).
+  Falta o caso mais difícil: fornecedor com proxy próprio cujo payload não
+  segue o protocolo do Google nem da Meta — aí não há assinatura para casar.
 - O catálogo de cookies e de chaves de storage em `storage_auditor.py` é uma
   lista fixa: cobre os rastreadores comuns, mas cookie de fornecedor menos
   conhecido passa despercebido. Ampliar conforme aparecerem casos reais.
-- A detecção em domínio próprio cobre GA4 server-side e o gateway da CAPI da
-  Meta, por assinatura de payload. Outros fornecedores com proxy próprio ainda
-  escapam.
 - `static/dist/` é build antigo; precisa de rebuild para refletir `static/src/`.
 - `legacy_attic/`, `static_broken/`, `db_broken/`, `audit_engine_old/` seguem no
   disco, fora do git. Podem ser apagados quando não forem mais necessários.

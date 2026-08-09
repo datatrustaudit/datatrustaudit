@@ -431,7 +431,7 @@ ASSINATURAS_DE_PAYLOAD = [
     {
         "vendor_id": "ga4",
         "nome": "Google Analytics 4 (server-side / domínio próprio)",
-        "caminho": re.compile(r"/(g|mp)/collect", re.IGNORECASE),
+        "caminho": re.compile(r"/(g|mp|j)/collect", re.IGNORECASE),
         "exigidos": [re.compile(r"[?&]v=2(&|$)"), re.compile(r"[?&]tid=G-", re.IGNORECASE)],
     },
     {
@@ -440,6 +440,21 @@ ASSINATURAS_DE_PAYLOAD = [
         "caminho": re.compile(r"/tr/?(\?|$)", re.IGNORECASE),
         "exigidos": [re.compile(r"[?&]id=\d{10,}"), re.compile(r"[?&]ev=", re.IGNORECASE)],
     },
+    {
+        # O container em si, servido pelo servidor do cliente. É a assinatura
+        # mais direta de sGTM: o arquivo que só o googletagmanager.com deveria
+        # servir vem de um subdomínio do próprio site.
+        "vendor_id": "gtm",
+        "nome": "Google Tag Manager server-side (container em domínio próprio)",
+        "caminho": re.compile(r"/gtm\.js(\?|$)", re.IGNORECASE),
+        "exigidos": [re.compile(r"[?&]id=GTM-", re.IGNORECASE)],
+    },
+    {
+        "vendor_id": "ga4",
+        "nome": "Google Analytics 4 (carregador em domínio próprio)",
+        "caminho": re.compile(r"/gtag/js(\?|$)", re.IGNORECASE),
+        "exigidos": [re.compile(r"[?&]id=(G|AW|DC)-", re.IGNORECASE)],
+    },
 ]
 
 # Hosts oficiais: se o pedido saiu para cá, já foi detectado pelo caminho normal
@@ -447,6 +462,50 @@ _HOSTS_OFICIAIS = re.compile(
     r"(google-analytics|googletagmanager|analytics\.google|facebook\.com|facebook\.net)",
     re.IGNORECASE,
 )
+
+#: Cookies que só um servidor de tagueamento grava.
+#:
+#: A diferença importa para o laudo: `_ga` é escrito pelo JavaScript no
+#: navegador e some quando o script é bloqueado; `FPID` é gravado pelo servidor
+#: via Set-Cookie, sobrevive a bloqueador de anúncio e às restrições de vida
+#: útil que o Safari impõe a cookie de script. É a marca de que o cliente montou
+#: infraestrutura para não ser bloqueado — e, num laudo, isso muda a conversa:
+#: não é configuração descuidada, é decisão de arquitetura.
+COOKIES_DE_SERVIDOR = {
+    "FPID": "Identificador first-party do GA4 server-side, gravado pelo servidor",
+    "FPLC": "Cookie de ligação do GA4 server-side entre domínios",
+    "FPGSID": "Identificador de sessão do GA4 server-side",
+    "FPGCLAW": "Identificador de clique do Google Ads em first-party",
+    "FPGCLGB": "Identificador de clique do Google Ads em first-party",
+    "_sst_session": "Sessão de tagueamento server-side",
+}
+
+
+def detectar_cookies_de_servidor(scan) -> List[dict]:
+    """Cookies que denunciam tagueamento server-side, mesmo sem requisição visível.
+
+    Um sGTM com carregador personalizado (o produto que Stape e concorrentes
+    vendem) usa caminho aleatório justamente para não casar com padrão nenhum —
+    não há URL para reconhecer. O cookie, porém, precisa manter o nome que o
+    GA4 espera ler.
+    """
+    achados: List[dict] = []
+    vistos = set()
+    for cookie in (getattr(scan, "cookies", None) or []):
+        if not isinstance(cookie, dict):
+            continue
+        nome = str(cookie.get("name") or "")
+        descricao = COOKIES_DE_SERVIDOR.get(nome)
+        if not descricao or nome in vistos:
+            continue
+        vistos.add(nome)
+        achados.append({
+            "nome": nome,
+            "descricao": descricao,
+            "dominio": cookie.get("domain") or "",
+            "http_only": bool(cookie.get("httpOnly")),
+        })
+    return achados
 
 
 def detectar_rastreamento_em_dominio_proprio(scan) -> List[dict]:
@@ -662,6 +721,47 @@ def detect_tags(html: str, scan=None) -> List[TagFinding]:
             privacy_risk=vendor.get("privacy_risk", "high"),
             position=10_000_000,   # sem posição no HTML: vai para o fim da lista
         )
+
+    # ── 5. Tagueamento server-side denunciado por cookie ─────────────────────
+    # Último recurso, e o que fecha o buraco mais caro: com carregador
+    # personalizado o caminho da requisição é aleatório de propósito, então não
+    # há URL para reconhecer. O cookie precisa manter o nome que o GA4 espera
+    # ler — e é gravado pelo servidor, não pelo script.
+    cookies_de_servidor = detectar_cookies_de_servidor(scan) if scan else []
+    if cookies_de_servidor:
+        nomes = ", ".join(c["nome"] for c in cookies_de_servidor)
+        dominios = {c["dominio"] for c in cookies_de_servidor if c["dominio"]}
+        evidencia = f"Cookies gravados pelo servidor: {nomes}"
+        if dominios:
+            evidencia += f" (domínio {', '.join(sorted(dominios))})"
+
+        ja = findings.get("gtm")
+        if ja is not None and "server-side" in (ja.name or ""):
+            ja.matched_pattern = f"{ja.matched_pattern or ''} | {evidencia}"[:200]
+        else:
+            vendor = VENDOR_CATALOG.get("ga4", {})
+            findings["sgtm_first_party"] = TagFinding(
+                id="sgtm_first_party",
+                name="Tagueamento server-side em domínio próprio",
+                vendor=vendor.get("vendor", "Google"),
+                type="analytics",
+                confidence=CONFIDENCE_HIGH,
+                detection_method=DETECT_NETWORK,
+                occurrence_count=1,
+                line_number=None,
+                source_block=None,
+                matched_pattern=evidencia[:200],
+                tag_id=None,
+                data_collected=[
+                    "Identificador persistente gravado pelo servidor",
+                    "Dados de navegação encaminhados a partir do servidor do site",
+                ],
+                # Alto e não crítico: server-side é técnica legítima. O que a
+                # torna grave é a combinação com ausência de consentimento, e
+                # isso quem avalia é o privacy_analyzer.
+                privacy_risk="high",
+                position=10_000_001,
+            )
 
     # Sort by source position (network-intercepted go after HTML-detected)
     return sorted(findings.values(), key=lambda f: f.position)
