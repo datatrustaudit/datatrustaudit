@@ -114,8 +114,10 @@ const Index = () => {
               <a href="/docs" className="hover:text-blue-400 transition-colors">{t('nav.docs')}</a>
               <a href="/terms" className="hover:text-blue-400 transition-colors">{t('nav.terms')}</a>
             </div>
+            {/* O ano sai do relógio, não do arquivo de tradução: preso no JSON
+                ele ficou marcando 2024 nos dez idiomas. */}
             <p className="text-xs text-slate-600">
-              {t('footer.copyright')}
+              © {new Date().getFullYear()} {t('footer.copyright')}
             </p>
           </div>
         </div>

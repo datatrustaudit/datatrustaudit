@@ -83,3 +83,6 @@ desktop.ini
 .idea/
 *.swp
 *~
+
+# Config local do Claude Code (permissoes da maquina) — o launch.json e compartilhado
+.claude/settings.local.json

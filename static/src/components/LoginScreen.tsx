@@ -90,7 +90,7 @@ const LoginScreen = ({ onLogin, onClose }: LoginScreenProps) => {
                         <Shield className="h-10 w-10 text-white" />
                     </div>
                     <h1 className="text-3xl font-bold text-white mb-2">
-                        Tracknology
+                        DataTrust Audit
                     </h1>
                     <p className="text-blue-200/70">
                         Compliance LGPD para seu site

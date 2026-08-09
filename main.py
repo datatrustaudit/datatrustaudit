@@ -1810,35 +1810,54 @@ async def chat(request: Request, current_user: Optional[User] = Depends(get_curr
         }, status_code=500)
 
 
+def _ficha_do_site(context: Dict) -> str:
+    """Resumo do laudo que vai no system prompt do chat.
+
+    As tags entram por nome: dizer só "12 tags encontradas" fazia o assistente
+    responder no genérico ("verifique suas tags de marketing") quando ele tinha
+    como dizer "o Meta Pixel 1234 grava _fbp antes do aceite".
+    """
+    nomes = [str(t) for t in (context.get("tags") or []) if t][:15]
+    total_tags = context.get("tagCount") or len(context.get("tags") or [])
+    linhas = [
+        f"- Site auditado: {context.get('url') or 'nao informado'}",
+        f"- Score de conformidade: {context.get('score', 0)}%",
+        f"- Nao conformidades observadas: {context.get('violations', 0)}",
+        f"- Controle de consentimento: {'detectado' if context.get('hasConsentTool') else 'AUSENTE na pagina'}",
+        f"- Tags detectadas ({total_tags}): {', '.join(nomes) if nomes else 'nenhuma identificada'}",
+        f"- Exposicao estimada: {context.get('estimatedFine') or 'nao calculada'}",
+        f"- Dados pessoais expostos: {context.get('piiExposure', 0)}",
+        f"- Scripts sem protecao de integridade: {context.get('securityIssues', 0)}",
+        f"- Tipo de varredura: {'Deep Scan (varias paginas)' if context.get('isDeepScan') else 'pagina unica'}",
+    ]
+    return "\n".join(linhas)
+
+
 async def generate_gemini_response(message: str, context: Dict) -> tuple:
     """Gera resposta usando Gemini AI como agente programador orquestrador"""
     try:
-        # System prompt SUPER PODEROSO para agente programador
-        system_prompt = f"""Você é o **DataTrust Audit AI**, um consultor sênior de Tech e Compliance.
-    Você está analisando o site: {context.get('url', 'Desconhecido')}
-    
-    **Métricas Atuais:**
-    - Score LGPD: {context.get('score', 0)}%
-    - Violações: {context.get('violations', 0)}
-    - CMP (Consentimento): {'Detectado' if context.get('hasConsentTool') else 'Ausente'}
-    - Tags Encontradas: {len(context.get('tags', []))}
-    - Multa Estimada: {context.get('estimatedFine', 'Indisponível')}
-    - Vazamentos PII: {context.get('piiExposure', 0)}
-    - Falhas Segurança: {context.get('securityIssues', 0)}
-    
-    **Diretrizes:**
-    1. **Especialista Técnico**: Forneça trechos de código REAIS para corrigir as violações (ex: scripts para CMP, dataLayer.push seguro).
-    2. **Especialista Jurídico**: Cite artigos específicos da LGPD (ex: Art. 7, Art. 18) ao explicar riscos.
-    3. **Especialista em Performance**: Sugira melhorias na ordem de carregamento das tags.
-    4. **Educador**: Explique o PORQUÊ de cada risco de forma clara mas profissional.
-    
-    **Poderes do DataTrust Audit AI:**
-    - Você pode analisar tanto auditorias de página única quanto o **Deep Scan** (multi-página).
-    - Se o usuário perguntar sobre "como corrigir", foque em soluções práticas de Tag Management.
-    - Se detectar vazamento de PII (e-mails no dataLayer), priorize isso como ALERTA MÁXIMO.
-    
-    Responda em Português Brasil. Use Markdown rico com tabelas e blocos de código."""
-        
+        system_prompt = f"""Você é o **DataTrust Audit AI**, consultor sênior de tag management e conformidade LGPD.
+
+    **O que a varredura encontrou neste site:**
+{_ficha_do_site(context)}
+
+    **Como responder:**
+    1. **Técnico**: entregue o código real da correção (bloqueio no CMP, gtag consent, dataLayer.push seguro) — não descreva o que fazer, escreva o que digitar.
+    2. **Jurídico**: cite o artigo da LGPD que sustenta o risco (art. 7 para base legal, art. 18 para direitos do titular, art. 52 para sanção).
+    3. **Concreto**: use os números da ficha acima. Se o site não tem CMP, diga isso; não fale em hipótese.
+    4. **Honesto**: a varredura vê uma visita sem aceitar o banner. Não afirme nada que ela não observou, e diga quando algo depende de conferência manual.
+
+    **Prioridade**: dado pessoal em texto claro (e-mail, CPF, telefone) vem antes de qualquer outro achado.
+
+    **Formato** — a tela renderiza apenas isto, e nada mais:
+    - `**negrito**`
+    - listas com `- ` no início da linha
+    - `código inline` entre crases
+    - blocos de código entre ```
+    NÃO use tabelas, títulos com #, links markdown ou aninhamento de lista: aparecem como texto cru na tela do cliente.
+
+    Responda em português do Brasil, direto ao ponto."""
+
         # Usa a nova API do Gemini
         response = gemini_client.models.generate_content(
             model=GEMINI_MODEL,
