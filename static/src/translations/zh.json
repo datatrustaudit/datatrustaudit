@@ -112,7 +112,7 @@
     "tab_deep": "????",
     "tab_deep_desc": "全站扫描",
     "tab_realtime": "??",
-    "tab_realtime_desc": "Omnibug 风格",
+    "tab_realtime_desc": "逐个事件记录，不接受 Cookie",
     "url_placeholder": "???? URL??? example.com?",
     "audit_btn": "??",
     "audit_button": "审计",

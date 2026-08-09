@@ -112,7 +112,7 @@
     "tab_deep": "Deep Scan",
     "tab_deep_desc": "Site complet",
     "tab_realtime": "Temps r?el",
-    "tab_realtime_desc": "Style Omnibug",
+    "tab_realtime_desc": "Événement par événement, sans accepter les cookies",
     "url_placeholder": "Saisissez l?URL du site (ex. example.com)",
     "audit_btn": "Auditer",
     "audit_button": "Auditer",

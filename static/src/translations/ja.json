@@ -112,7 +112,7 @@
     "tab_deep": "????????",
     "tab_deep_desc": "全サイトスキャン",
     "tab_realtime": "??????",
-    "tab_realtime_desc": "Omnibugスタイル",
+    "tab_realtime_desc": "Cookieを受け入れずにイベントごとに記録",
     "url_placeholder": "???URL????? example.com?",
     "audit_btn": "??",
     "audit_button": "監査",
