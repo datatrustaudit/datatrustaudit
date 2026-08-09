@@ -287,6 +287,65 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
     }
   }, [url]);
 
+  /* Reabre um laudo já existente a partir de `?scan=123`.
+     É o que faz F5 não custar uma varredura, e o que permite o histórico
+     apontar para cada laudo em vez de só listá-lo. Não consome cota: apenas
+     lê o que já foi gravado. */
+  useEffect(() => {
+    const idNaUrl = new URLSearchParams(window.location.search).get('scan');
+    if (!idNaUrl || auditResult || loading) return;
+
+    let cancelado = false;
+    const reabrir = async () => {
+      setLoading(true);
+      setAuditPhase(t('audit.phase_reading'));
+      onStateChange?.(true);
+      try {
+        const r = await fetch(`/api/scans/${idNaUrl}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!r.ok) {
+          // 404 aqui é o caso normal de laudo de outra conta ou já apagado:
+          // a rota devolve 404 em vez de 403 justamente para não confirmar
+          // que o id existe.
+          throw new Error(
+            r.status === 404
+              ? 'Este laudo não está mais disponível nesta conta.'
+              : `O servidor respondeu ${r.status}.`,
+          );
+        }
+        const dados = await r.json();
+        if (cancelado) return;
+        if (!dados.result) {
+          throw new Error('Esta varredura não chegou a produzir um laudo.');
+        }
+        setCurrentScanId(Number(idNaUrl));
+        setCurrentAuditUrl(dados.url || '');
+        setUrl(dados.url || '');
+        setAnalysisType('url');
+        setAuditResult(normalizeAuditResult(dados.result));
+        setAuditPhase(t('audit.phase_completed'));
+      } catch (e) {
+        if (cancelado) return;
+        setAuditError((e as Error).message);
+        // Tira o id da barra: deixá-lo faria a mensagem de erro voltar a cada
+        // recarga, sem o usuário entender por quê.
+        const destino = new URL(window.location.href);
+        destino.searchParams.delete('scan');
+        window.history.replaceState({}, '', destino.toString());
+      } finally {
+        if (!cancelado) {
+          setLoading(false);
+          onStateChange?.(false);
+        }
+      }
+    };
+
+    reabrir();
+    return () => { cancelado = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
   // Force-disable view-source for non-Premium users even if toggle somehow got set
   const effectiveViewSource = useViewSource && isFeatureAvailable('showScripts');
 
@@ -298,6 +357,13 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
     setAuditError(null);
     setAuditPhase('');
     setCurrentAuditUrl('');
+    // Sem isto, limpar a tela e recarregar traria o laudo de volta pelo `?scan`
+    // — a tela diria uma coisa e a URL outra.
+    const destino = new URL(window.location.href);
+    if (destino.searchParams.has('scan')) {
+      destino.searchParams.delete('scan');
+      window.history.replaceState({}, '', destino.toString());
+    }
     onStateChange?.(false);
   };
 
@@ -425,6 +491,19 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
       setAuditPhase(data.status === 'partial' ? t('audit.phase_partial') : t('audit.phase_completed'));
       setAuditResult(normalizeAuditResult(data));
       useAudit();
+
+      /* O id vai para a URL. O laudo já está gravado no banco desde sempre,
+         mas vivia só no estado do React: recarregar a página descartava um
+         resultado que existia, e o usuário gastava outra varredura da cota
+         para ver de novo o que já tinha. Com o id na barra de endereço, o
+         laudo sobrevive a F5, pode ser guardado nos favoritos e mandado para
+         um colega da mesma conta. */
+      if (scanId) {
+        const destino = new URL(window.location.href);
+        destino.searchParams.set('scan', String(scanId));
+        destino.searchParams.delete('scanUrl');
+        window.history.replaceState({}, '', destino.toString());
+      }
 
       const violationCount = data.summary?.totalViolations ?? data.privacy?.totalViolations ?? 0;
       const score = data.score ?? 0;

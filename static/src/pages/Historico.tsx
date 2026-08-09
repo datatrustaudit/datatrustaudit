@@ -14,7 +14,7 @@ import { Link } from 'react-router-dom';
 import AppHeader from '@/components/AppHeader';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Clock, GitCompare, RefreshCw } from 'lucide-react';
+import { Clock, ExternalLink, GitCompare, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import ComparadorDeVarreduras from '@/components/laudo/ComparadorDeVarreduras';
 
@@ -181,11 +181,9 @@ const Historico = () => {
                                     {varreduras.map(v => {
                                         const marcado = selecionados.includes(v.id);
                                         return (
-                                            <button
+                                            <div
                                                 key={v.id}
-                                                onClick={() => alternar(v.id, url)}
-                                                aria-pressed={marcado}
-                                                className="flex items-center justify-between gap-4 rounded-md border px-4 py-3 text-left transition-colors"
+                                                className="flex items-center gap-2 rounded-md border transition-colors"
                                                 style={{
                                                     borderColor: marcado ? 'var(--laudo-carimbo)' : 'var(--laudo-linha)',
                                                     background: marcado
@@ -193,19 +191,38 @@ const Historico = () => {
                                                         : 'var(--laudo-superficie)',
                                                 }}
                                             >
-                                                <span className="flex items-center gap-3 min-w-0">
-                                                    <Clock className="h-4 w-4 shrink-0" style={{ color: 'var(--laudo-texto-fraco)' }} />
-                                                    <span className="voz-evidencia text-sm" style={{ color: 'var(--laudo-texto)' }}>
-                                                        {dataLonga(v.timestamp)}
-                                                    </span>
-                                                </span>
-                                                <span
-                                                    className="voz-evidencia text-sm font-bold shrink-0"
-                                                    style={{ color: 'var(--laudo-texto-suave)' }}
+                                                <button
+                                                    onClick={() => alternar(v.id, url)}
+                                                    aria-pressed={marcado}
+                                                    title="Selecionar para comparar"
+                                                    className="flex flex-1 items-center justify-between gap-4 px-4 py-3 text-left min-w-0"
                                                 >
-                                                    {v.score !== null ? `${Math.round(v.score)}/100` : '—'}
-                                                </span>
-                                            </button>
+                                                    <span className="flex items-center gap-3 min-w-0">
+                                                        <Clock className="h-4 w-4 shrink-0" style={{ color: 'var(--laudo-texto-fraco)' }} />
+                                                        <span className="voz-evidencia text-sm" style={{ color: 'var(--laudo-texto)' }}>
+                                                            {dataLonga(v.timestamp)}
+                                                        </span>
+                                                    </span>
+                                                    <span
+                                                        className="voz-evidencia text-sm font-bold shrink-0"
+                                                        style={{ color: 'var(--laudo-texto-suave)' }}
+                                                    >
+                                                        {v.score !== null ? `${Math.round(v.score)}/100` : '—'}
+                                                    </span>
+                                                </button>
+
+                                                {/* Reabre o laudo gravado, sem gastar outra varredura da cota.
+                                                    Listar sem poder abrir era metade do recurso. */}
+                                                <Link
+                                                    to={`/?scan=${v.id}`}
+                                                    title="Abrir este laudo"
+                                                    className="flex shrink-0 items-center gap-1.5 px-3 py-3 text-xs transition-colors hover:underline"
+                                                    style={{ color: 'var(--laudo-carimbo)' }}
+                                                >
+                                                    Abrir
+                                                    <ExternalLink className="h-3.5 w-3.5" />
+                                                </Link>
+                                            </div>
                                         );
                                     })}
                                 </div>

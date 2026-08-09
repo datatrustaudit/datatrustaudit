@@ -232,10 +232,22 @@ def _plan_filtered_result(raw_data, status: str, plan: str):
                 tag.pop("matchedPattern", None)
                 tag.pop("dataCollected", None)
 
-    # 3. Strip privacy violation details for free
+    # 3. Corta o DETALHE das violações para o free — nunca a contagem.
+    #
+    # Zerar a lista, como era feito aqui, produzia duas respostas para o mesmo
+    # scan: o laudo recém-gerado mostrava metade dos achados (é o que
+    # `_normalize_audit_response` faz, via `quantidade_visivel`), e o mesmo
+    # laudo reaberto pelo histórico mostrava nenhum. O usuário via o número
+    # cair sozinho ao dar F5.
+    #
+    # A contagem tem de sobreviver ao corte: mostrar 2 de 22 e dizer que são 22
+    # é o que motiva o upgrade; mostrar 0 e dizer que são 22 parece defeito.
     privacy = res.get("privacy")
     if plan == "free" and isinstance(privacy, dict):
-        privacy["violations"] = []
+        violacoes = privacy.get("violations")
+        if isinstance(violacoes, list) and violacoes:
+            privacy["violations"] = violacoes[:quantidade_visivel(len(violacoes), plan)]
+            privacy["locked_violations"] = True
         # snake_case: é a chave que jsonable_encoder realmente grava em raw_data.
         # Escrever só "estimatedRiskExposure" deixava o valor real intacto na
         # resposta — o dado pago vazava para o plano free.
