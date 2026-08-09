@@ -56,6 +56,35 @@ Ler `estimatedRiskExposure` ou `totalViolations` de `raw_data` devolve vazio
 silenciosamente. Já fez o gating do plano free não esconder nada e o PDF sair
 sem violações. O motor legado de `main.py` usa camelCase — os dois convivem.
 
+### Auditar uma página tem um caminho só: `api.audit.auditar_pagina`
+
+O produto já teve três motores respondendo sobre o mesmo site. O scan Rápido
+reprovava terra.com.br com 22 achados; o Deep, menos; e a aba Tempo Real exibia
+"100% conforme". Cada caminho era testado contra si mesmo, e todos passavam.
+
+Medido no mesmo HTML (`tests/test_motor_unico.py`), o legado achava 6 não
+conformidades e score 18; o `audit_engine`, 8 e score 42 — e só ele enumerava
+os 4 cookies gravados sem consentimento. Os scores divergiam no sentido oposto
+ao das violações: escalas diferentes, impossíveis de conciliar na mesma tela.
+
+A raiz é sempre a mesma: **posição no HTML não prova bloqueio de consentimento**
+(o legado inferia por posição), e **chave lida errado vira lista vazia
+silenciosa**. O Tempo Real lia `data.lgpdAnalysis.violations` de uma resposta
+que só tem `privacy` — o optional chaining devolvia `[]`, nada estourava, e a
+tela dizia "conforme". Num laudo, esse é o defeito mais caro que existe: erro
+para mais o cliente confere e reclama; "conforme" por engano ele publica.
+
+**Não escreva um segundo caminho de auditoria.** Modo novo chama
+`auditar_pagina`, que devolve o formato de `/api/audit`. Ela não persiste nem
+consome cota — quem chama decide — e devolve corpo de falha em vez de levantar,
+para que uma página ruim não derrube a varredura das outras. As chaves
+`_audit_result` e `_scan` carregam objetos do motor e **precisam ser removidas
+antes da resposta ir para a rede**, senão o `JSONResponse` estoura.
+
+Para contar violação, use `summary.violationsCount` e
+`summary.violationsBySeverity`: a lista `violations` chega cortada pelo plano, e
+contar por ela zera o gráfico no free.
+
 ### O motor: falso positivo custa mais que falso negativo
 
 Duas armadilhas já produziram laudo errado, e as duas passam despercebidas
@@ -234,9 +263,13 @@ com TLD real nos testes.
 - Celery está configurado mas não é usado: `api/scans.py` chama a task via
   `BackgroundTasks`, então o Chromium sobe dentro do processo web, sem pool nem
   teto de concorrência.
-- `main.py` mantém um motor de auditoria próprio, paralelo ao `audit_engine/`.
-- O frontend manda URLs de clientes para proxies de terceiros (`allorigins`,
-  `cors-anywhere`, `thingproxy`) — sem contrato, num produto de compliance.
+- `main.py` ainda tem o motor legado (`generate_audit_report`), mas só a rota
+  `/analyze` o usa, e nenhuma tela chama essa rota. Pode sair quando se
+  confirmar que não há consumidor externo.
+- A detecção em domínio próprio (sGTM hospedado, tipo Stape) é o buraco mais
+  caro que sobrou: script que não aparece no HTML, cookie first-party, dado
+  saindo do servidor do cliente para Meta/Google. É onde mora o risco de LGPD
+  que ninguém audita.
 - O catálogo de cookies e de chaves de storage em `storage_auditor.py` é uma
   lista fixa: cobre os rastreadores comuns, mas cookie de fornecedor menos
   conhecido passa despercebido. Ampliar conforme aparecerem casos reais.
