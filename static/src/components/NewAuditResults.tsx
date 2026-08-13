@@ -169,6 +169,11 @@ const NewAuditResults = ({ result, scanId }: { result: NewAuditResult, scanId?: 
             porque: r?.why || r?.description || r?.impact,
             gravidade: r?.severity,
             esforco: r?.effort || r?.esforco,
+            /* O motor escreve o que digitar para corrigir e a API entrega em
+               `howToFix`. Este `map` descartava o campo: o laudo apontava o
+               problema e calava sobre a solução — que já estava pronta, a um
+               nome de propriedade de distância. */
+            comoCorrigir: r?.howToFix || r?.fix || r?.como_corrigir,
         }))
         .filter(p => p.titulo)
         .sort((a, b) => {
@@ -647,6 +652,8 @@ ${violationsText}
                             tags={result.tags}
                             loadingOrder={result.loadingOrder}
                             hasConsentTool={result.privacy.has_consent_tool}
+                            linhaDoTempo={(result as any).storage?.firingTimeline ?? []}
+                            primeiroDisparoMs={(result as any).storage?.firstTrackerFiredMs}
                         />
                     </FeatureGate>
                 </TabsContent>

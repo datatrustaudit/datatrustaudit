@@ -180,6 +180,14 @@ class BrowserScanResult:
     # Scan metadata — populated by browser_scan() orchestration
     scan_status: str = "completed"  # completed|partial|failed|blocked|protocol_error|timeout
     failure_reason: Optional[str] = None
+    #: Status HTTP da navegação principal. Era descartado, e um 403 de desafio
+    #: anti-bot passava por página normal: HTML válido, nenhum rastreador
+    #: encontrado, veredito "site conforme" sobre uma página que nunca foi vista.
+    http_status: Optional[int] = None
+    #: Instante (epoch) em que a navegação começou — o marco zero da linha do
+    #: tempo. Sem ele, o tempo de cada disparo era medido a partir do primeiro
+    #: rastreador, e o primeiro dava sempre 0 ms.
+    navigation_started_at: Optional[float] = None
     stages: List[Dict[str, Any]] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
@@ -357,8 +365,35 @@ async def _browser_scan_async(url: str, timeout_ms: int = 30000, testar_recusa: 
 
         # ── Navigate ──────────────────────────────────────────────────────────
         t0 = time.time()
+        # Marco zero da página, em epoch — a mesma escala do `timestamp` de cada
+        # requisição interceptada. Sem ele, a linha do tempo media a partir do
+        # PRIMEIRO rastreador, e o primeiro dava sempre 0 ms: a frase "o pixel
+        # disparou aos 380 ms, antes do banner aparecer" nunca podia ser dita,
+        # embora o dado para dizê-la já estivesse capturado.
+        result.navigation_started_at = t0
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            resposta = await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+
+            # O status HTTP era descartado, e isso produzia o pior laudo
+            # possível: um desafio de bot (403 da Cloudflare), um 404 ou um 500
+            # devolvem HTML válido. O Playwright não levanta, `html` não fica
+            # vazio — então o guarda de "sem HTML" não pega —, nenhum
+            # rastreador é encontrado, e o veredito conclui "Seu site está de
+            # parabéns: não encontramos ferramentas de rastreamento".
+            #
+            # O cliente recebe selo verde sobre uma página que nunca foi vista.
+            # Vale para qualquer portal grande atrás de Cloudflare ou Akamai.
+            status = getattr(resposta, "status", None) if resposta is not None else None
+            result.http_status = status
+            if status is not None and status >= 400:
+                result.error = (
+                    f"O site respondeu {status} para o scanner. "
+                    "Isso costuma ser proteção contra automação: a página que "
+                    "chegou é a do bloqueio, não a do site."
+                )
+                result.scan_status = "blocked"
+                result.failure_reason = f"http_{status}"
+
             # Wait up to 8s for network to calm down (catches lazy-loaded tags)
             try:
                 await page.wait_for_load_state("networkidle", timeout=8000)

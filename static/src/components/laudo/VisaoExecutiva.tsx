@@ -27,7 +27,14 @@ interface Props {
     piiExposto: number;
     exposicaoLegal?: string;
     /** Recomendações do motor, já ordenadas por gravidade. */
-    proximosPassos: Array<{ titulo: string; porque?: string; gravidade?: string; esforco?: string }>;
+    proximosPassos: Array<{
+        titulo: string;
+        porque?: string;
+        gravidade?: string;
+        esforco?: string;
+        /** O que digitar para resolver. O motor escreve; a tela descartava. */
+        comoCorrigir?: string;
+    }>;
 }
 
 const GRAVIDADE_ROTULO: Record<string, string> = {
@@ -245,6 +252,29 @@ const VisaoExecutiva = ({
                                                 style={{ color: 'var(--laudo-texto-suave)', maxWidth: '66ch' }}
                                             >
                                                 {passo.porque}
+                                            </p>
+                                        )}
+
+                                        {/* A providência. Sem ela o laudo aponta o
+                                            problema e devolve o trabalho para quem
+                                            contratou — e o texto já vinha pronto do
+                                            motor. */}
+                                        {passo.comoCorrigir && (
+                                            <p
+                                                className="text-sm mt-2 pl-3 border-l"
+                                                style={{
+                                                    color: 'var(--laudo-texto)',
+                                                    borderColor: 'var(--laudo-carimbo)',
+                                                    maxWidth: '66ch',
+                                                }}
+                                            >
+                                                <span
+                                                    className="voz-evidencia text-[10px] uppercase tracking-widest block mb-0.5"
+                                                    style={{ color: 'var(--laudo-carimbo)' }}
+                                                >
+                                                    Como corrigir
+                                                </span>
+                                                {passo.comoCorrigir}
                                             </p>
                                         )}
                                         <div className="flex flex-wrap gap-3 mt-1.5">

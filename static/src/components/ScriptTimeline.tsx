@@ -22,13 +22,34 @@ interface LoadingOrderItem {
   severity: string;
 }
 
+interface EventoDeRede {
+  order?: number;
+  msSincePageStart?: number;
+  url?: string;
+  owner?: string;
+}
+
 interface ScriptTimelineProps {
   tags: Tag[];
   loadingOrder: LoadingOrderItem[];
   hasConsentTool: boolean;
+  /**
+   * Ordem REAL de disparo, medida pelo navegador (`storage.firingTimeline`).
+   *
+   * Sem isto a aba ordenava por `position` — a posição da tag no HTML, que é
+   * ordem de DECLARAÇÃO, não de execução. Uma tag declarada no fim do body e
+   * carregada com `async` dispara antes de outra declarada no head; a tela
+   * dizia o contrário, e é exatamente essa ordem que sustenta a acusação de
+   * "disparou antes do consentimento".
+   */
+  linhaDoTempo?: EventoDeRede[];
+  /** Quanto tempo depois do início da página o primeiro rastreador disparou. */
+  primeiroDisparoMs?: number | null;
 }
 
-const ScriptTimeline = ({ tags, loadingOrder, hasConsentTool }: ScriptTimelineProps) => {
+const ScriptTimeline = ({
+  tags, loadingOrder, hasConsentTool, linhaDoTempo = [], primeiroDisparoMs,
+}: ScriptTimelineProps) => {
   const getTypeColor = (type: string) => {
     const colors: Record<string, string> = {
       consent: 'bg-green-500',
@@ -106,13 +127,51 @@ const ScriptTimeline = ({ tags, loadingOrder, hasConsentTool }: ScriptTimelinePr
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Clock className="h-5 w-5" />
-          ⏱️ Ordem de Carregamento de Scripts
+          Ordem de carregamento
         </CardTitle>
         <CardDescription>
-          Visualização da ordem em que os scripts são carregados no site
+          {linhaDoTempo.length > 0
+            ? 'Ordem real de disparo, medida no navegador durante a visita.'
+            : 'Ordem de declaração no HTML — esta varredura não trouxe a medição de rede.'}
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {/* A ordem REAL, quando existe. É outra coisa da ordem no HTML: uma tag
+            declarada no fim do body e carregada com `async` dispara antes de
+            outra declarada no head. Sem isto, a aba prometia "ordem de
+            carregamento" e entregava ordem de declaração — e é a ordem de
+            disparo que sustenta a acusação de coleta antes do consentimento. */}
+        {linhaDoTempo.length > 0 && (
+          <div className="mb-6 rounded-lg border p-4" style={{ borderColor: 'var(--laudo-linha)', background: 'var(--laudo-superficie)' }}>
+            <p className="voz-evidencia text-[11px] uppercase tracking-widest mb-3" style={{ color: 'var(--laudo-texto-fraco)' }}>
+              Quem disparou primeiro
+              {typeof primeiroDisparoMs === 'number' && primeiroDisparoMs > 0 && (
+                <span style={{ color: 'var(--laudo-critico)' }}>
+                  {' '}· o primeiro rastreador saiu {primeiroDisparoMs} ms após o início da página
+                </span>
+              )}
+            </p>
+            <ol className="space-y-1.5 list-none p-0 m-0">
+              {linhaDoTempo.slice(0, 12).map((e, i) => (
+                <li key={i} className="flex items-baseline gap-3 text-sm">
+                  <span className="voz-evidencia text-xs w-6 shrink-0" style={{ color: 'var(--laudo-texto-fraco)' }}>
+                    {e.order ?? i + 1}
+                  </span>
+                  <span className="voz-evidencia text-xs w-16 shrink-0 text-right" style={{ color: 'var(--laudo-alto)' }}>
+                    {typeof e.msSincePageStart === 'number' ? `${e.msSincePageStart} ms` : '—'}
+                  </span>
+                  <span style={{ color: 'var(--laudo-texto)' }}>{e.owner}</span>
+                </li>
+              ))}
+            </ol>
+            {linhaDoTempo.length > 12 && (
+              <p className="text-xs mt-2 m-0" style={{ color: 'var(--laudo-texto-fraco)' }}>
+                e mais {linhaDoTempo.length - 12} requisição(ões).
+              </p>
+            )}
+          </div>
+        )}
+
         {!hasConsentTool && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
             <div className="flex items-start gap-3">

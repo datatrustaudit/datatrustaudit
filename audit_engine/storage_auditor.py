@@ -232,15 +232,32 @@ def auditar_armazenamento(scan, tem_cmp: bool) -> ResultadoDeArmazenamento:
 
     if eventos:
         eventos.sort(key=lambda e: e[0])
-        inicio = eventos[0][0]
+
+        # Marco zero: o começo da navegação, não o primeiro rastreador.
+        #
+        # Medir a partir do primeiro disparo fazia o primeiro dar sempre 0 ms e
+        # `primeiro_disparo_ms` ficar fixo em zero — o que anulava justamente a
+        # frase que dá valor à seção: "o pixel disparou aos 380 ms, antes de o
+        # banner de cookies aparecer". Sem o marco (scan antigo, ou HAR sem a
+        # informação), a régua continua sendo o primeiro evento, e aí o valor é
+        # relativo — melhor que inventar um absoluto errado.
+        inicio_da_pagina = getattr(scan, "navigation_started_at", None)
+        referencia = inicio_da_pagina if isinstance(inicio_da_pagina, (int, float)) and inicio_da_pagina > 0 else eventos[0][0]
+
         for i, (instante, url, dono) in enumerate(eventos[:60], start=1):
+            decorrido = int((instante - referencia) * 1000)
             resultado.linha_do_tempo.append(EventoDeRede(
                 ordem=i,
-                ms_desde_o_inicio=int((instante - inicio) * 1000),
+                # Relógio pode voltar atrás entre medições; negativo aqui seria
+                # lido como "disparou antes da página existir".
+                ms_desde_o_inicio=max(0, decorrido),
                 url=url[:200],
                 dono=dono,
             ))
-        resultado.primeiro_disparo_ms = 0
+
+        resultado.primeiro_disparo_ms = (
+            resultado.linha_do_tempo[0].ms_desde_o_inicio if resultado.linha_do_tempo else None
+        )
 
     return resultado
 

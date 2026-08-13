@@ -478,8 +478,14 @@ async def auditar_pagina(url: str, plan: str) -> Dict[str, Any]:
 
     # HTML vazio é falha, mesmo quando o motor não levanta: sem código não há
     # o que auditar, e devolver score de página em branco vira falso negativo.
+    #
+    # `scan_status != "completed"` cobre o caso mais traiçoeiro: a página de
+    # bloqueio anti-bot devolve HTML válido, então o teste de HTML vazio não
+    # pega, e o laudo sairia com selo verde sobre uma página que nunca foi
+    # vista. Um laudo que erra para mais o cliente confere e reclama; um que
+    # diz "conforme" por engano, ele publica.
     scan_status = getattr(scan, "scan_status", "completed")
-    if not getattr(scan, "html", ""):
+    if not getattr(scan, "html", "") or scan_status not in ("completed", "partial"):
         response["success"] = False
         response["status"] = scan_status if scan_status != "completed" else "failed"
         codigo = {
