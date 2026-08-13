@@ -51,6 +51,81 @@ mascarou sete erros reais em outros arquivos, incluindo um import faltando e um
 Ou seja: build passando não é typecheck, e typecheck "limpo" pode não ter
 checado nada. Ao verificar frontend, confira que a saída lista arquivos.
 
+E mesmo o typecheck certo é frouxo: `tsconfig.app.json` tem `strict: false` e
+`noImplicitAny: false`, então **acessar chave inexistente de um objeto literal
+não é erro, é `any`**. Foi assim que `planLabels['premium']` passou — o objeto
+tinha `pro` e `full`, o índice vinha de um tipo `'pro' | 'premium'`, e o
+`undefined` só apareceu em produção, como tela branca. `--strict` na linha de
+comando **não corrige**: as sub-flags explícitas do arquivo vencem a CLI.
+Ligar `noImplicitAny` hoje custa 34 erros.
+
+Enquanto isso não acontece, a defesa é tipar o mapa: `Record<'pro' | 'premium',
+…>` faz o compilador cobrar a correspondência das chaves mesmo sem strict —
+o erro passa a ser de atribuição, que ele checa.
+
+### Conferir o laudo: `/dev/laudo`, sem sessão e sem cota
+
+O laudo é a tela mais difícil de olhar durante o desenvolvimento: exige login,
+consome cota e leva quase um minuto de Chromium. O resultado prático era
+mudança no laudo indo para o commit verificada só por typecheck e build — que
+provam que compila, não que a tela está certa.
+
+`http://localhost:8080/dev/laudo` abre o laudo completo em um segundo, com um
+laudo **real** congelado em `static/src/dev/laudo-de-exemplo.json`. Regenere com
+`python scripts/gerar_amostra_do_laudo.py` sempre que mexer no formato da
+resposta de `/api/audit` — amostra velha confere uma tela que não existe mais, e
+passa, o que é pior do que falhar.
+
+A amostra passa pela mesma `normalizeAuditResult` do fluxo real, exportada de
+`AuditContainer.tsx` justamente para isso: entregá-la crua ao componente
+testaria uma forma de dado que o produto nunca produz.
+
+A rota só é registrada com `import.meta.env.DEV`, e o `lazy()` fica **dentro**
+de um ternário sobre essa flag — não no topo do módulo. Só assim o Vite a
+substitui por `false` e o Rollup poda o `import()`; com o `lazy()` solto, o
+chunk de 187 KB era emitido no build de produção mesmo com a rota ausente.
+
+Abrir essa tela pela primeira vez rendeu três defeitos na hora: "Invalid Date"
+no cabeçalho, "13 eventos · 0 únicos" na aba Eventos e "0%" de conformidade ao
+lado de um índice 38.
+
+### A resposta manda `finished_at`, não `timestamp`
+
+O tipo `NewAuditResult` declara `timestamp`, a API nunca devolveu esse campo, e
+a normalização tinha `safeRaw.timestamp || new Date().toISOString()`. O fallback
+ganhava sempre: o cabeçalho do laudo carimbava o relógio de quem abriu a página.
+Ao reabrir um laudo antigo pelo histórico, a data virava a de hoje.
+
+Vale para qualquer campo com fallback plausível: se o fallback nunca falha, ele
+esconde que a chave certa não existe. `new Date(undefined)` não estoura — devolve
+"Invalid Date" como texto, e vai para a tela.
+
+### `events` é lista; os contadores moram em `summary`
+
+A resposta de `/api/audit` achata `events` para a lista pura. Ler
+`uniqueEventNames`, `duplicatedEventNames` ou `eventsWithIssues` dela devolve
+zero em silêncio — a tela chegou a exibir "13 eventos · 0 únicos · 0 duplicados
+· 0 com problemas": os dois primeiros não podem coexistir, e o último afirmava
+conformidade que ninguém mediu.
+
+Os quatro agregados vão em `summary`, ao lado de `violationsBySeverity` e pelo
+mesmo motivo: contador sobrevive ao corte por plano, lista não. Quem os produz é
+`_agregados_de_evento()` em `api/audit.py`, que respeita o que o motor calculou
+e só recalcula quando o campo não veio. Use `??` e não `||` ao ler: zero é
+resposta legítima.
+
+### O método da varredura descreve a coleta, não a análise
+
+`scan_method` vale `browser`, `har`, `static_fallback` ou `html_source`, e a
+visão jurídica publica isso como "Método" na identificação da varredura. Ele já
+foi sobrescrito para `"view_source"` sempre que a análise view-source estava
+ligada — que é o caso de **todo plano premium**. O laudo pago declarava ter lido
+só o HTML enquanto listava cookies e uma linha do tempo de requisições, que só o
+navegador enxerga. Numa peça de evidência, essa contradição derruba tudo o que
+vem depois.
+
+Análise adicional sobre a mesma coleta não renomeia o método.
+
 ### O catch-all do SPA precisa ser a última rota
 
 `@app.get("/{full_path:path}")` casa com qualquer GET. Starlette entrega para a
@@ -312,3 +387,10 @@ com TLD real nos testes.
 - `static/dist/` é build antigo; precisa de rebuild para refletir `static/src/`.
 - `legacy_attic/`, `static_broken/`, `db_broken/`, `audit_engine_old/` seguem no
   disco, fora do git. Podem ser apagados quando não forem mais necessários.
+- `noImplicitAny` está desligado no `tsconfig.app.json` e ligá-lo hoje custa 34
+  erros. É o que deixou passar o acesso a chave inexistente que trocava o laudo
+  por uma tela de erro — vale a dívida, mas não no meio de uma entrega.
+- O login do frontend é só Supabase (`signInWithPassword`). O backend também
+  aceita JWT local (`POST /api/auth/token`), e é por ele que os testes entram —
+  mas não há caminho de login local pela interface. Sem conta no Supabase não se
+  chega ao laudo pela navegação normal; use `/dev/laudo` para conferir a tela.
