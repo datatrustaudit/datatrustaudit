@@ -241,7 +241,8 @@ interface PlanContextType {
     isFeatureAvailable: (feature: keyof PlanLimits) => boolean;
     canPerformAudit: () => boolean;
     useAudit: () => void;
-    upgradePlan: (newPlan: PlanType) => void;
+    /** Devolve null se trocou; a mensagem do impedimento, se não. */
+    upgradePlan: (newPlan: PlanType) => Promise<string | null>;
     selectPlan: (newPlan: PlanType) => void;
     selectedPlan: PlanType | null;
     getUsagePercentage: () => number;
@@ -397,39 +398,59 @@ export const PlanProvider = ({ children }: PlanProviderProps) => {
         }));
     };
 
-    const upgradePlan = async (newPlan: PlanType) => {
+    /* Troca o plano no banco — e só então na tela.
+       A ordem importa. Antes o estado local mudava primeiro e a chamada ao
+       backend era decorativa: `if (r.ok) refreshProfile()`, sem `else`. Quando
+       a rota não respondia — servidor desatualizado sem ela, sessão expirada,
+       produção onde ela nem existe — nada era dito. O crachá passava a exibir
+       "DEV: Premium" enquanto `effectivePlan` continuava lendo `user.plan` do
+       backend, ou seja free: cadeado em toda aba paga, ao lado de um crachá
+       que jurava ser premium.
+
+       Agora a promessa só é feita depois de cumprida, e o motivo da recusa
+       chega a quem apertou o botão. Devolve o texto do erro, ou null se deu
+       certo — quem chama decide como mostrar. */
+    const upgradePlan = async (newPlan: PlanType): Promise<string | null> => {
         const config = PLAN_CONFIGS[newPlan];
-        setPlan(prev => ({
-            ...prev,
-            type: newPlan,
-            name: config.name,
-            scansRemaining: config.limits.scansPerWeek,
-            scansLimit: config.limits.scansPerWeek,
-            features: Object.entries(config.limits)
-                .filter(([_, v]) => v === true || (typeof v === 'number' && v > 0))
-                .map(([k]) => k)
-        }));
-        setShowUpgradeModal(false);
 
-        /* Troca o plano no banco também.
-           Mudar só o estado do React dava dois problemas ao mesmo tempo:
-           recarregar a página voltava para o gratuito, e a tela mostrava
-           "50% visível" enquanto a resposta da API vinha cortada como free —
-           daí "0 tags detectadas" ao lado de "15 achados".
+        const aplicarLocalmente = () => {
+            setPlan(prev => ({
+                ...prev,
+                type: newPlan,
+                name: config.name,
+                scansRemaining: config.limits.scansPerWeek,
+                scansLimit: config.limits.scansPerWeek,
+                features: Object.entries(config.limits)
+                    .filter(([_, v]) => v === true || (typeof v === 'number' && v > 0))
+                    .map(([k]) => k)
+            }));
+            setShowUpgradeModal(false);
+        };
 
-           A rota só existe em desenvolvimento; em produção devolve 404 e o
-           estado local segue como estava, que é o comportamento de antes. */
-        if (!token) return;
+        /* Sem sessão não há plano para trocar: o backend trata anônimo como
+           free sempre, e mudar o estado local só produziria a contradição
+           acima. Melhor dizer que precisa entrar. */
+        if (!token) {
+            return 'Entre na sua conta para trocar de plano — sem sessão o servidor trata todo mundo como free.';
+        }
+
         try {
             const r = await fetch('/api/auth/dev/plano', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                 body: JSON.stringify({ plan: newPlan }),
             });
-            if (r.ok) await refreshProfile?.();
+            if (!r.ok) {
+                if (r.status === 404 || r.status === 405) {
+                    return 'A rota de troca de plano não respondeu. Em desenvolvimento, reinicie o backend; em produção ela não existe mesmo.';
+                }
+                return `O servidor recusou a troca de plano (HTTP ${r.status}).`;
+            }
+            await refreshProfile?.();
+            aplicarLocalmente();
+            return null;
         } catch {
-            /* Sem rede o estado local já mudou; o backend continua mandando o
-               plano real, e é ele que decide o corte. */
+            return 'Não foi possível falar com o servidor para trocar o plano.';
         }
     };
 

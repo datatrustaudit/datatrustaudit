@@ -63,9 +63,21 @@ const FeatureGate = ({
             .format(precoPremium.pix)
         : null;
 
-    const planLabels = {
+    /* As chaves precisam ser exatamente as de `unlockPlan`.
+       A segunda chamava-se `full`, então `planLabels['premium']` vinha
+       `undefined` e o `target.color` da linha seguinte levantava TypeError.
+       Quem pagava a conta era o error boundary: as abas IA PRO e Timeline —
+       as duas que exigem premium — trocavam o laudo inteiro por "Algo deu
+       errado durante a auditoria", e a varredura se perdia. As features de
+       nível pro não passavam por aqui, então o cadeado delas desenhava
+       normalmente e o defeito parecia intermitente.
+
+       O tipo explícito faz o compilador cobrar a correspondência: com
+       `Record<'pro' | 'premium', …>`, renomear uma chave vira erro de
+       typecheck em vez de tela branca. */
+    const planLabels: Record<'pro' | 'premium', { name: string; color: string; icon: ReactNode }> = {
         pro: { name: 'Premium', color: 'from-blue-500 to-indigo-600', icon: <Zap className="h-4 w-4" /> },
-        full: { name: 'Premium', color: 'from-amber-500 to-orange-600', icon: <Crown className="h-4 w-4" /> },
+        premium: { name: 'Premium', color: 'from-amber-500 to-orange-600', icon: <Crown className="h-4 w-4" /> },
     };
     const target = planLabels[unlockPlan];
 
@@ -78,17 +90,20 @@ const FeatureGate = ({
             title: '🔢 Debugging de Alta Precisão',
             desc: 'Veja exatamente em qual linha o script foi carregado — exclusivo do Premium',
         },
+        /* "disponível no Pro" convidava para um plano que ninguém mais pode
+           assinar: o Pro está descontinuado e a tela de preços nem o exibe.
+           O cliente lia o convite e não encontrava onde comprar. */
         showViolationDetails: {
             title: '⚠️ Detalhes de violações LGPD',
-            desc: 'Entenda cada violação com contexto completo — disponível no Pro',
+            desc: 'Qual tag causa cada violação, em que linha, e como corrigir — no Premium',
         },
         pdfExport: {
             title: '📄 Exportação PDF profissional',
-            desc: 'Relatórios prontos para enviar ao cliente — disponível no Pro',
+            desc: 'Laudo pronto para enviar ao cliente — no Premium',
         },
         jsonExport: {
             title: '📦 Exportação JSON',
-            desc: 'Dados completos para integrar com seus sistemas — disponível no Pro',
+            desc: 'Dados completos para integrar com seus sistemas — no Premium',
         },
         excelExport: {
             title: '📊 Exportação Excel',

@@ -16,8 +16,13 @@ import { usePlan, PlanType, PLAN_CONFIGS } from '@/context/PlanContext';
  * Only visible in development environment.
  */
 const DevPlanSwitcher = () => {
-    const { plan, upgradePlan, limits } = usePlan();
+    const { plan, upgradePlan, limits, effectivePlan } = usePlan();
     const [isOpen, setIsOpen] = useState(false);
+    const [recusa, setRecusa] = useState<string | null>(null);
+
+    const trocar = async (planType: PlanType) => {
+        setRecusa(await upgradePlan(planType));
+    };
 
     const isDev = import.meta.env.DEV || window.location.hostname === 'localhost';
     if (!isDev) return null;
@@ -47,7 +52,11 @@ const DevPlanSwitcher = () => {
                         className="bg-yellow-100 border-yellow-400 text-yellow-800 hover:bg-yellow-200 shadow-lg"
                     >
                         <Bug className="h-4 w-4 mr-2" />
-                        DEV: {plan.name}
+                        {/* O crachá mostra o plano EFETIVO — o mesmo que decide
+                            os cadeados. Mostrar `plan.name` (estado local) fazia
+                            ele anunciar "Premium" enquanto o gate cortava como
+                            free. Se os dois divergirem, é aqui que se vê. */}
+                        DEV: {effectivePlan}
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-56">
@@ -58,20 +67,23 @@ const DevPlanSwitcher = () => {
 
                     {(['free', 'pro', 'premium'] as PlanType[]).map((planType) => {
                         const config = PLAN_CONFIGS[planType];
-                        const isActive = plan.type === planType;
+                        const isActive = effectivePlan === planType;
 
                         return (
                             <DropdownMenuItem
                                 key={planType}
-                                onClick={() => upgradePlan(planType)}
+                                onSelect={(e) => { e.preventDefault(); void trocar(planType); }}
                                 className={`flex items-center justify-between ${isActive ? 'bg-blue-50' : ''}`}
                             >
                                 <div className="flex items-center gap-2">
                                     <div className={`w-2 h-2 rounded-full ${planColors[planType]}`} />
                                     {config.name}
+                                    {/* O preço vinha com "/mês" — a cobrança é
+                                        pagamento único desde a mudança do
+                                        checkout. */}
                                     {config.price > 0 && (
                                         <span className="text-xs text-gray-400">
-                                            R$ {String(config.price).replace('.', ',')}/mês
+                                            R$ {String(config.price).replace('.', ',')}
                                         </span>
                                     )}
                                 </div>
@@ -85,6 +97,12 @@ const DevPlanSwitcher = () => {
                     })}
 
                     <DropdownMenuSeparator />
+
+                    {recusa && (
+                        <div className="px-2 py-1.5 text-xs text-red-600 dark:text-red-400 max-w-[13rem] whitespace-normal">
+                            {recusa}
+                        </div>
+                    )}
 
                     <div className="px-2 py-1.5 text-xs text-gray-500">
                         <div>Escaneamentos: {plan.scansLimit === -1 ? 'Ilimitado' : `${plan.scansRemaining}/${plan.scansLimit}`}</div>
