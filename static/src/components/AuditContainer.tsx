@@ -417,22 +417,12 @@ const AuditContainer = ({ onStateChange }: AuditContainerProps = {}) => {
       return;
     }
 
-    const parsedScanUrl = new URL(validUrl);
-    const scanDomain = parsedScanUrl.hostname.replace(/^www\./i, '').toLowerCase();
-    if (plan.type === 'premium') {
-      const storedDomain = localStorage.getItem('datatrust-premium-scan-domain');
-      if (storedDomain && storedDomain !== scanDomain) {
-        toast({
-          title: t('audit.limit_reached'),
-          description: t('audit.premium_domain_locked'),
-          variant: "destructive"
-        });
-        return;
-      }
-      if (!storedDomain) {
-        localStorage.setItem('datatrust-premium-scan-domain', scanDomain);
-      }
-    }
+    /* A trava de "um domínio por plano" saiu.
+       Ela gravava o primeiro domínio escaneado no localStorage e recusava
+       qualquer outro — regra do modelo de assinatura, que virou compra avulsa.
+       E era trava só no cliente: quem limpasse o storage passava, então nunca
+       protegeu nada; só atrapalhava quem audita vários sites, que é
+       exatamente o público que mais paga. */
 
     if (!canPerformAudit()) {
       toast({

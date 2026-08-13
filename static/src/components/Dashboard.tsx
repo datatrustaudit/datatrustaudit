@@ -180,10 +180,13 @@ const Dashboard = ({ result }: DashboardProps) => {
     const { t } = useI18n();
     const { limits } = usePlan();
     
-    const visibilityPercentage = limits.visibilityPercentage || 100;
-    const isTruncated = visibilityPercentage < 100;
-    const visibleCount = Math.ceil(result.tags.length * (visibilityPercentage / 100));
-    const visibleTags = result.tags.slice(0, visibleCount);
+    /* O corte por plano acontece no servidor, que é quem sabe o plano de
+       verdade. Cortar de novo aqui era corte duplo: 50% no backend vezes 30%
+       no frontend deixava o gratuito vendo 15% do laudo. E, desde que o
+       gratuito passou a receber só o veredito, esta linha zerava a lista
+       inteira e produzia "0 tags detectadas" ao lado de "15 achados". */
+    const visibleTags = result.tags;
+    const isTruncated = (result as any).showsDetail === false;
     
     // Dados para o gráfico de pizza de tipos de tags
     const pieData = Object.entries(result.typeCounts || {}).map(([type, count], index) => {

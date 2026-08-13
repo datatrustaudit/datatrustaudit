@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Lock, Crown, Sparkles, Zap } from 'lucide-react';
 import { usePlan, PlanLimits } from '@/context/PlanContext';
+import { usePricing } from '@/hooks/usePricing';
 import { useNavigate } from 'react-router-dom';
 
 interface FeatureGateProps {
@@ -51,9 +52,20 @@ const FeatureGate = ({
     const unlockPlan = requiredPlan ?? FEATURE_UNLOCK_PLAN[feature] ?? 'premium';
     const isPro = unlockPlan === 'pro';
 
+    /* O preço vem de GET /api/payments/plans — é a mesma tabela que monta a
+       cobrança. Escrito à mão aqui, ele dizia "Pro a partir de R$ 49,90/mês"
+       enquanto o checkout cobrava R$ 247 à vista: preço errado, plano
+       descontinuado e cobrança que já não é mensal. */
+    const { pricing } = usePricing();
+    const precoPremium = pricing?.plans?.premium;
+    const valorFormatado = precoPremium
+        ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
+            .format(precoPremium.pix)
+        : null;
+
     const planLabels = {
-        pro: { name: 'Pro', price: 'R$ 49,90/mês', color: 'from-blue-500 to-indigo-600', icon: <Zap className="h-4 w-4" /> },
-        full: { name: 'Premium', price: 'R$ 149,90/mês', color: 'from-amber-500 to-orange-600', icon: <Crown className="h-4 w-4" /> },
+        pro: { name: 'Premium', color: 'from-blue-500 to-indigo-600', icon: <Zap className="h-4 w-4" /> },
+        full: { name: 'Premium', color: 'from-amber-500 to-orange-600', icon: <Crown className="h-4 w-4" /> },
     };
     const target = planLabels[unlockPlan];
 
@@ -125,10 +137,15 @@ const FeatureGate = ({
                     </p>
                 </div>
 
-                {/* Price hint */}
-                <p className="text-xs text-gray-400">
-                    Plano {target.name} a partir de <strong>{target.price}</strong>
-                </p>
+                {/* Preço. Some enquanto a tabela do servidor não chega: melhor
+                    não mostrar valor nenhum do que mostrar um que o checkout
+                    vai contrariar. */}
+                {valorFormatado && (
+                    <p className="text-xs text-gray-400">
+                        Plano {target.name} por <strong>{valorFormatado}</strong> no PIX,
+                        pagamento único
+                    </p>
+                )}
 
                 {/* CTA */}
                 <div className="flex gap-2">

@@ -57,18 +57,17 @@ export const PLAN_CONFIGS: Record<PlanType, {
         color: 'from-gray-400 to-gray-500',
         features: [
             '10 escaneamentos por semana',
-            'Dashboard básico',
-            '30% de visibilidade dos dados',
-            'Contagem de tags detectadas',
-            'Score geral resumido',
+            'Veredito do site em uma frase',
+            'Quantas não conformidades existem, e a gravidade',
+            'O artigo da LGPD que o site contraria',
             'Chat IA limitado (5 msg/dia)'
         ],
         blockedFeatures: [
+            'Qual tag causa cada problema, e em que linha',
+            'Cookies gravados antes do aceite, um a um',
+            'Passo a passo da correção, com o código pronto',
             'Exportação PDF / JSON / Excel',
-            'Detalhes de violações LGPD/GDPR',
-            'Histórico completo de escaneamentos',
-            'View-source avançado',
-            'Localização exata no HTML'
+            'Histórico e comparação entre varreduras'
         ],
         limits: {
             scansPerWeek: 10,
@@ -84,19 +83,20 @@ export const PLAN_CONFIGS: Record<PlanType, {
             aiChatMessagesPerDay: 5,
             realTimeAnalysis: false,
             dashboardDetails: 'basic',
-            visibilityPercentage: 50
+            visibilityPercentage: 0
         }
     },
+    // Descontinuado: ninguém novo assina. Fica com acesso total por respeito
+    // a quem assinou antes — rebaixar quem já pagou seria quebra de acordo.
     pro: {
         name: 'Pro',
-        price: 49.90,
-        priceLabel: 'R$ 49,90/mês',
+        price: 97,
+        priceLabel: 'Plano descontinuado',
         badge: '⭐',
         color: 'from-blue-500 to-indigo-600',
         features: [
             '50 escaneamentos por semana',
-            'Dashboard detalhado',
-            '70% de visibilidade dos dados',
+            'Laudo completo, achado a achado',
             'Detalhes completos de violações',
             'Exportação PDF e JSON',
             'Chat IA ilimitado',
@@ -125,19 +125,19 @@ export const PLAN_CONFIGS: Record<PlanType, {
             aiChatMessagesPerDay: -1,
             realTimeAnalysis: false,
             dashboardDetails: 'partial',
-            visibilityPercentage: 75
+            visibilityPercentage: 100
         }
     },
     premium: {
         name: 'Premium',
-        price: 149.90,
-        priceLabel: 'R$ 149,90/mês',
+        price: 247,
+        priceLabel: 'R$ 247 — pagamento único',
         badge: '👑',
         color: 'from-amber-500 to-orange-600',
         features: [
             '200 escaneamentos por semana',
-            '100% de visibilidade dos dados',
-            'Tudo do plano Pro',
+            'Laudo completo: cada achado, sua tag e sua linha',
+            'Cookies e storage gravados antes do aceite',
             'View-source avançado — posição exata no HTML',
             'Números de linha e debugging de código',
             'Real-time mode (Omnibug-style)',
@@ -187,18 +187,23 @@ const ADMIN_LIMITS: PlanLimits = {
 };
 
 // Upgrade copy persuasiva por plano
+/* O convite ao upgrade fala do que falta saber, não de percentual.
+   "Você está vendo 30%" convida a comparar frações; "sabemos onde está cada
+   problema" convida a resolver — e é o que o cliente quer. O preço vem de
+   GET /api/payments/plans; os valores aqui são só reserva da primeira
+   renderização. */
 export const UPGRADE_COPY = {
     free: {
-        title: '🔒 Você está vendo apenas 30%',
-        subtitle: 'Desbloqueie violações, PDF, JSON e 70% dos dados com o Pro',
-        cta: 'Assinar Pro — R$ 49,90/mês',
-        urgency: '⚡ Análise completa, 50 escaneamentos por semana'
+        title: 'Sabemos onde está cada problema',
+        subtitle: 'O laudo completo mostra a tag responsável, a linha no código e o passo a passo da correção.',
+        cta: 'Ver o laudo completo',
+        urgency: 'Pagamento único, sem mensalidade'
     },
     pro: {
-        title: '⭐ Falta pouco para o máximo',
-        subtitle: 'Acesse view-source, linha de código, Excel e real-time com o Premium',
-        cta: 'Upgrade para Premium — R$ 149,90/mês',
-        urgency: '🔥 View-source avançado + Excel + Real-time'
+        title: 'Falta a evidência no código-fonte',
+        subtitle: 'O Premium abre a posição exata no HTML, a exportação em Excel e a captura do funil logado.',
+        cta: 'Conhecer o Premium',
+        urgency: 'Pagamento único, sem mensalidade'
     }
 };
 
@@ -206,10 +211,10 @@ export const BLURRED_MESSAGES = {
     scripts: 'View-source avançado com posição exata no HTML é exclusivo do Premium',
     showLineNumbers: 'Números de linha disponíveis apenas no Premium',
     history: 'Histórico de escaneamentos disponível apenas no Premium',
-    details: 'Detalhes de violações disponíveis no plano Pro ou superior',
+    details: 'O laudo detalhado está no plano Premium',
     realtime: 'Análise em tempo real é exclusiva do Premium',
-    jsonExport: 'Exportação JSON disponível a partir do plano Pro',
-    pdfExport: 'Exportação PDF disponível a partir do plano Pro',
+    jsonExport: 'Exportação JSON está no plano Premium',
+    pdfExport: 'Exportação PDF está no plano Premium',
     excelExport: 'Exportação Excel é exclusiva do Premium',
     deepAnalysis: 'Deep Scan avançado disponível apenas no Premium'
 };
@@ -263,7 +268,7 @@ interface PlanProviderProps {
 }
 
 export const PlanProvider = ({ children }: PlanProviderProps) => {
-    const { user } = useAuth();
+    const { user, token, refreshProfile } = useAuth();
     const [adminPreviewPlan, setAdminPreviewPlan] = useState<PlanType | null>(null);
 
     const [plan, setPlan] = useState<UserPlan>(() => {
@@ -392,7 +397,7 @@ export const PlanProvider = ({ children }: PlanProviderProps) => {
         }));
     };
 
-    const upgradePlan = (newPlan: PlanType) => {
+    const upgradePlan = async (newPlan: PlanType) => {
         const config = PLAN_CONFIGS[newPlan];
         setPlan(prev => ({
             ...prev,
@@ -405,6 +410,27 @@ export const PlanProvider = ({ children }: PlanProviderProps) => {
                 .map(([k]) => k)
         }));
         setShowUpgradeModal(false);
+
+        /* Troca o plano no banco também.
+           Mudar só o estado do React dava dois problemas ao mesmo tempo:
+           recarregar a página voltava para o gratuito, e a tela mostrava
+           "50% visível" enquanto a resposta da API vinha cortada como free —
+           daí "0 tags detectadas" ao lado de "15 achados".
+
+           A rota só existe em desenvolvimento; em produção devolve 404 e o
+           estado local segue como estava, que é o comportamento de antes. */
+        if (!token) return;
+        try {
+            const r = await fetch('/api/auth/dev/plano', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ plan: newPlan }),
+            });
+            if (r.ok) await refreshProfile?.();
+        } catch {
+            /* Sem rede o estado local já mudou; o backend continua mandando o
+               plano real, e é ele que decide o corte. */
+        }
     };
 
     const getUsagePercentage = (): number => {

@@ -12,7 +12,7 @@ from pydantic import BaseModel, EmailStr
 
 from api.rate_limit import limiter, RATE_LIMIT_LOGIN, RATE_LIMIT_REGISTER
 from db.database import get_db
-from db.models import User, utcnow
+from db.models import Subscription, User, utcnow
 
 # Configuration
 # Sem valor padrão de propósito: com o fallback anterior
@@ -379,4 +379,54 @@ def read_users_me(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
+    return _serialize_user(current_user, db)
+
+
+@router.post("/dev/plano")
+def trocar_plano_em_desenvolvimento(
+    payload: dict,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Troca o plano do usuário — só em desenvolvimento.
+
+    O seletor de plano do frontend mudava só o estado do React: o backend
+    continuava lendo o plano do banco. Dava duas consequências ruins ao mesmo
+    tempo — recarregar a página voltava para o gratuito, e a tela mostrava
+    "50% visível" enquanto a resposta vinha cortada como free, produzindo
+    "0 tags detectadas" ao lado de "15 achados".
+
+    Trocar de verdade elimina a divergência: existe um plano só, o do banco,
+    e é ele que decide dos dois lados.
+
+    A trava é a mesma da cota de desenvolvimento e pelo mesmo motivo: sem ela,
+    esta rota é um botão de virar premium de graça.
+    """
+    if os.getenv("ENVIRONMENT", "development").strip().lower() != "development":
+        raise HTTPException(status_code=404, detail="Not found")
+
+    plano = str(payload.get("plan") or "").strip().lower()
+    if plano not in VALID_PLANS:
+        raise HTTPException(status_code=400, detail=f"Plano inválido: {plano!r}")
+
+    current_user.plan = plano
+    # Sem validade carimbada, `resolve_effective_plan` até devolve o plano, mas
+    # `has_active_subscription` (que o frontend lê) continuaria dizendo que não
+    # há assinatura — e a tela mostraria plano pago com aviso de expirado.
+    if plano != "free":
+        assinatura = current_user.subscription
+        if assinatura is None:
+            assinatura = Subscription(user_id=current_user.id)
+            db.add(assinatura)
+        assinatura.plan_name = plano
+        assinatura.status = "active"
+        assinatura.current_period_end = utcnow() + timedelta(days=365)
+        current_user.subscription_status = "active"
+    else:
+        current_user.subscription_status = "inactive"
+        if current_user.subscription is not None:
+            current_user.subscription.status = "canceled"
+
+    db.commit()
+    db.refresh(current_user)
     return _serialize_user(current_user, db)
