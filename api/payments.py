@@ -365,20 +365,34 @@ async def mp_webhook(
         print(f"[payments] pagamento {payment_id} aprovado para user {user_id} inexistente")
         return {"status": "ignored"}
 
+    # A checagem de duplicata vem ANTES de liberar o acesso.
+    #
+    # `_ativar_plano` soma o período ao que resta — comportamento correto para
+    # quem compra de novo, e desastroso para reentrega: o Mercado Pago reenvia
+    # o mesmo evento por dias até receber 200, e cada reenvio somava mais um
+    # ano de acesso. Uma compra virava três, cinco, dez anos.
+    #
+    # O registro do pagamento é o que marca "já processei este id". Ativar
+    # antes de consultá-lo tornava o registro inútil como trava.
+    ja_processado = db.query(Payment).filter(Payment.mp_payment_id == str(payment_id)).first()
+
+    if ja_processado:
+        # Reentrega do mesmo pagamento. Confirma o status e não mexe na
+        # validade — o acesso já foi concedido na primeira vez.
+        if ja_processado.status != "approved":
+            ja_processado.status = "approved"
+            db.commit()
+        return {"status": "already_processed"}
+
     _ativar_plano(db, user, plan_name, metodo)
 
-    # Registra o pagamento — idempotente: o MP reenvia o mesmo evento
-    existing_payment = db.query(Payment).filter(Payment.mp_payment_id == str(payment_id)).first()
-    if not existing_payment:
-        db.add(Payment(
-            user_id=user_id,
-            mp_payment_id=str(payment_id),
-            amount=float(payment_details.get("transaction_amount", 0)),
-            status="approved",
-            plan_purchased=plan_name
-        ))
-    else:
-        existing_payment.status = "approved"
+    db.add(Payment(
+        user_id=user_id,
+        mp_payment_id=str(payment_id),
+        amount=float(payment_details.get("transaction_amount", 0)),
+        status="approved",
+        plan_purchased=plan_name
+    ))
 
     db.commit()
     return {"status": "success"}

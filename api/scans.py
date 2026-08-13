@@ -205,10 +205,18 @@ def _plan_filtered_result(raw_data, status: str, plan: str):
     relatório já truncado por cima do original no banco, destruindo os dados
     pagos de forma irreversível.
     """
-    if not raw_data or status != "completed" or plan == "premium":
+    if not raw_data or not isinstance(raw_data, dict):
         return raw_data
-    if not isinstance(raw_data, dict):
+    if status != "completed":
         return raw_data
+
+    if plan == "premium":
+        # Sem corte, mas a resposta precisa declarar o nível de detalhe: a tela
+        # lê `showsDetail` para decidir se mostra o laudo ou só o veredito, e
+        # o campo ausente era lido como "não mostrar".
+        res = copy.deepcopy(raw_data)
+        res["showsDetail"] = True
+        return res
 
     res = copy.deepcopy(raw_data)
 
@@ -263,5 +271,41 @@ def _plan_filtered_result(raw_data, status: str, plan: str):
 
     # 5. Hide viewSourceInfo
     res.pop("viewSourceInfo", None)
+
+    # 6. O mesmo corte que a geração aplica.
+    #
+    # `raw_data` guarda o laudo ÍNTEGRO — é o certo, senão o cliente que
+    # pagasse depois nunca recuperaria o que já foi varrido. Mas isso torna
+    # esta função a única barreira na reabertura, e ela cortava menos do que
+    # `_normalize_audit_response`: quem abrisse o laudo pelo histórico ou por
+    # `?scan=` recebia storage, debugging, eventos e recomendações que a
+    # varredura recém-feita tinha escondido. Bastava dar F5 para o conteúdo
+    # pago aparecer.
+    from audit_engine.guia_de_correcao import plano_ve_detalhe
+
+    if not plano_ve_detalhe(plan):
+        res["showsDetail"] = False
+        res["violations"] = []
+        res["events"] = []
+        res["recommendations"] = []
+        res["storage"] = None
+        res["debugging"] = {}
+        res["dataQualityNotes"] = []
+        res["tags"] = []
+        res["locked_tags"] = True
+
+        privacy = res.get("privacy")
+        if isinstance(privacy, dict):
+            privacy["violations"] = []
+            privacy["tagsBeforeConsent"] = []
+
+        for chave, campos in (("ga4", ("measurementIds", "events")),
+                              ("gtm", ("containerIds", "issues"))):
+            bloco = res.get(chave)
+            if isinstance(bloco, dict):
+                for campo in campos:
+                    bloco[campo] = []
+    else:
+        res["showsDetail"] = True
 
     return res

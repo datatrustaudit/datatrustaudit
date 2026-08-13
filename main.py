@@ -1587,13 +1587,36 @@ MAX_DEEP_SCAN_PAGES = 3
 
 @app.post("/deep-analyze")
 @limiter.limit(RATE_LIMIT_DEEP_SCAN)
-async def deep_analyze(request: Request, current_user: Optional[User] = Depends(get_current_user)):
+async def deep_analyze(
+    request: Request,
+    current_user: Optional[User] = Depends(get_current_user),
+    db=Depends(get_db),
+):
     """Realiza auditoria em múltiplas páginas do mesmo domínio (Real Deep Scan)"""
     try:
         data = await _ler_json(request)
         if data is None:
             return JSONResponse({"status": "error", "msg": "Corpo da requisição inválido."}, status_code=400)
         plan = resolve_effective_plan(current_user)
+
+        # Cota. Esta rota é a mais cara do produto — abre o navegador real até
+        # quatro vezes — e não descontava nada: dava para varrer o dia inteiro
+        # sem consumir uma varredura sequer, enquanto o scan de uma página só
+        # consumia. Anônimo é contido pelo rate limit por IP.
+        if current_user is not None:
+            from api.scans import contar_scans_da_semana
+            from audit_engine.credit_rules import can_perform_scan, get_weekly_limit
+
+            usados = contar_scans_da_semana(db, current_user.id)
+            if not can_perform_scan(plan, usados, bool(getattr(current_user, "is_admin", False))):
+                limite = get_weekly_limit(plan, bool(getattr(current_user, "is_admin", False)))
+                return JSONResponse(
+                    {
+                        "status": "error",
+                        "msg": f"Limite semanal atingido ({usados}/{limite} varreduras no plano {plan}).",
+                    },
+                    status_code=403,
+                )
 
         try:
             base_url = validate_public_url(data.get("url", ""))

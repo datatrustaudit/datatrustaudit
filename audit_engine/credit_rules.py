@@ -107,7 +107,10 @@ def cota_desligada() -> bool:
     trocado em teste sem recarregar o módulo.
     """
     ligada = os.getenv("DEV_UNLIMITED_SCANS", "").strip().lower() in ("1", "true", "yes")
-    desenvolvimento = os.getenv("ENVIRONMENT", "development").strip().lower() == "development"
+    # Sem ENVIRONMENT definida, NÃO é desenvolvimento. O padrão "development"
+    # que estava aqui fazia um deploy sem a variável — o esquecimento mais
+    # comum — suspender a cota de todo mundo, e cota é o que este produto vende.
+    desenvolvimento = os.getenv("ENVIRONMENT", "").strip().lower() == "development"
     return ligada and desenvolvimento
 
 

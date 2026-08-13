@@ -402,7 +402,14 @@ def trocar_plano_em_desenvolvimento(
     A trava é a mesma da cota de desenvolvimento e pelo mesmo motivo: sem ela,
     esta rota é um botão de virar premium de graça.
     """
-    if os.getenv("ENVIRONMENT", "development").strip().lower() != "development":
+    # Falha FECHADA: sem ENVIRONMENT definida, esta rota não existe.
+    #
+    # O padrão era "development", então um deploy que esquecesse de definir a
+    # variável — o caso mais comum de todos — deixava aberto um endpoint que
+    # dá plano premium a qualquer usuário logado, de graça. Errar para o lado
+    # de bloquear é recuperável: o desenvolvedor define a variável e segue.
+    # Errar para o lado de liberar não volta.
+    if os.getenv("ENVIRONMENT", "").strip().lower() != "development":
         raise HTTPException(status_code=404, detail="Not found")
 
     plano = str(payload.get("plan") or "").strip().lower()
