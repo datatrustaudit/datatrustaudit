@@ -58,7 +58,14 @@ export class SiteNavigationService {
     return normalizedUrl;
   }
 
-  async startFullNavigation(url: string): Promise<{
+  /**
+   * @param token Credencial de quem está logado.
+   *
+   * Sem ela, o backend trata a varredura como anônima e devolve o laudo do
+   * plano gratuito: quem pagou pelo Deep Scan recebia o resultado cortado, sem
+   * entender por quê. É o mesmo dado, cortado por um plano que não é o dele.
+   */
+  async startFullNavigation(url: string, token?: string | null): Promise<{
     pages: NavigationPage[];
     ga4PropertyId: string;
     totalEvents: number;
@@ -77,7 +84,10 @@ export class SiteNavigationService {
       // Chama o novo endpoint do backend para auditoria real multi-página
       const response = await fetch("/deep-analyze", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ url: normalizedUrl }),
       });
       

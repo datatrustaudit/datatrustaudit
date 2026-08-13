@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Eye, EyeOff, Shield, Zap, AlertCircle } from 'lucide-react';
 import MinimalTopMenu from '@/components/MinimalTopMenu';
+import MarcaDataTrust from '@/components/MarcaDataTrust';
 
 type AuthMode = 'login' | 'signup' | 'forgot';
 
@@ -131,12 +132,7 @@ const AuthPage = () => {
             <div className="relative w-full max-w-md">
                 {/* Logo */}
                 <Link to="/" className="flex items-center gap-3 justify-center mb-8 group">
-                    <img
-                        src="/logo-datatrust.jpg"
-                        alt="DataTrust Audit"
-                        className="h-10 w-10 rounded-xl object-contain shadow-lg group-hover:scale-105 transition-transform"
-                    />
-                    <span className="text-xl font-bold text-white tracking-tight">DataTrust Audit</span>
+                    <MarcaDataTrust tamanho={34} className="text-white" />
                 </Link>
 
                 {/* Trust chips */}

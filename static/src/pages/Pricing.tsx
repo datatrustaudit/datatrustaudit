@@ -10,6 +10,7 @@ import { usePricing, type FormaDePagamento } from '@/hooks/usePricing';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import LocaleSelector from '@/components/LocaleSelector';
+import MarcaDataTrust from '@/components/MarcaDataTrust';
 import {
     Check, X, Tag, Zap, Star, Crown, ArrowRight, Shield,
     HelpCircle, Lock, TrendingUp, Clock, FileText, Calendar, Sparkles
@@ -93,12 +94,7 @@ const PricingPage = () => {
             <nav className="sticky top-0 z-30 border-b border-white/10 bg-slate-950/80 backdrop-blur-xl">
                 <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
                     <Link to="/" className="flex items-center gap-2.5 group">
-                        <img
-                            src="/logo-datatrust.jpg"
-                            alt="DataTrust Audit"
-                            className="w-8 h-8 rounded-lg object-contain shadow-lg group-hover:scale-105 transition-transform"
-                        />
-                        <span className="font-bold text-white">DataTrust Audit</span>
+                        <MarcaDataTrust tamanho={28} className="text-white" />
                     </Link>
                     <div className="flex items-center gap-4">
                         <a href="mailto:suporte@datatrustauditpro.com" className="text-white/40 hover:text-white/70 text-sm transition-colors hidden sm:block">

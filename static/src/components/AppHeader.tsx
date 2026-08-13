@@ -21,6 +21,7 @@ import {
     DollarSign
 } from 'lucide-react';
 import PlanBadge from './PlanBadge';
+import MarcaDataTrust from './MarcaDataTrust';
 import LocaleSelector from './LocaleSelector';
 
 import { useI18n } from '@/context/I18nContext';
@@ -36,30 +37,39 @@ const AppHeader = () => {
         document.documentElement.classList.add('dark');
     }, []);
 
+    /* Barra translúcida com desfoque forte e saturação — o conteúdo por baixo
+       continua legível como forma, não como detalhe. A sombra pesada saiu: ela
+       criava uma borda dupla com a linha de baixo e empurrava o header para
+       fora da página, em vez de deixá-lo pertencer a ela. */
     return (
-        <header className="sticky top-0 z-50 w-full backdrop-blur-xl bg-[#070b16]/90 border-b border-white/5 shadow-[0_4px_30px_rgba(0,0,0,0.3)]">
+        <header
+            className="sticky top-0 z-50 w-full border-b"
+            style={{
+                background: 'color-mix(in srgb, var(--laudo-fundo) 72%, transparent)',
+                backdropFilter: 'saturate(180%) blur(20px)',
+                WebkitBackdropFilter: 'saturate(180%) blur(20px)',
+                borderColor: 'color-mix(in srgb, var(--laudo-linha) 60%, transparent)',
+            }}
+        >
             <div className="container mx-auto px-4">
                 <div className="flex h-16 items-center justify-between">
-                    {/* Logo & Brand */}
-                    <Link to="/" className="flex items-center gap-3 group">
-                        <div className="flex items-center gap-2">
-                            <img
-                                src="/logo-datatrust.jpg"
-                                alt="DataTrust Audit"
-                                className="h-9 w-9 rounded-xl object-contain shadow-lg group-hover:scale-110 transition-transform duration-300"
-                            />
-                            <div>
-                                <h1 className="font-bold text-lg text-white tracking-tight flex items-center gap-2">
-                                    DataTrust Audit
-                                    <Badge className="bg-white/10 text-white/60 border-white/5 text-[10px]">
-                                        v2.0
-                                    </Badge>
-                                </h1>
-                                <p className="text-[10px] text-blue-400 font-medium -mt-0.5 opacity-90 uppercase tracking-wider">
-                                    {t('home.tagline')}
-                                </p>
-                            </div>
-                        </div>
+                    {/* Marca.
+                        Era um JPG de 1024×1024 (465 KB) exibido em 36×36, sem
+                        transparência: sobre o header escuro virava um quadrado
+                        com fundo próprio, e por isso parecia ter sumido. Agora
+                        é SVG — nítido em qualquer tamanho, alguns bytes, e
+                        herda a cor do texto.
+
+                        O selo com "v2.0" e a linha de tagline saíram: número de
+                        versão é informação de quem constrói, não de quem usa, e
+                        duas linhas de texto ao lado do símbolo competiam entre
+                        si num espaço de 16px de altura. */}
+                    <Link
+                        to="/"
+                        className="flex items-center text-white/95 transition-opacity hover:opacity-80"
+                        aria-label="DataTrust Audit — início"
+                    >
+                        <MarcaDataTrust />
                     </Link>
 
                     {/* Right Actions */}
@@ -69,8 +79,12 @@ const AppHeader = () => {
                             <Link to="/pricing" className="text-sm font-medium text-white/60 hover:text-white transition-colors">
                                 {t('nav.pricing')}
                             </Link>
+                            {/* `/dashboard` nunca existiu como rota e caía no
+                                NotFound — mesmo caso do antigo link de
+                                histórico. O que o usuário chama de painel é a
+                                lista de varreduras dele. */}
                             {isAuthenticated && (
-                                <Link to="/dashboard" className="text-sm font-medium text-white/60 hover:text-white transition-colors">
+                                <Link to="/historico" className="text-sm font-medium text-white/60 hover:text-white transition-colors">
                                     {t('nav.dashboard')}
                                 </Link>
                             )}

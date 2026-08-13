@@ -10,6 +10,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { SiteNavigationService, NavigationPage, NavigationSummary } from '@/services/siteNavigationService';
 import { Globe, Search, ShoppingCart, CheckCircle, AlertTriangle, Timer, BarChart3 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { useAuth } from '@/context/AuthContext';
 
 interface SiteNavigationAnalysisProps {
   url: string;
@@ -19,6 +20,7 @@ interface SiteNavigationAnalysisProps {
 }
 
 const SiteNavigationAnalysis = ({ url, onComplete, gatilho = 0 }: SiteNavigationAnalysisProps) => {
+  const { token } = useAuth();
   const [isNavigating, setIsNavigating] = useState(false);
   const [progress, setProgress] = useState(0);
   const [currentPage, setCurrentPage] = useState('');
@@ -51,7 +53,9 @@ const SiteNavigationAnalysis = ({ url, onComplete, gatilho = 0 }: SiteNavigation
         setCurrentPage(progressData.currentPage || '');
       }, 500);
 
-      const results = await navigationService.startFullNavigation(url);
+      // O token vai junto: sem ele o backend trata como anônimo e devolve
+      // o laudo do plano gratuito a quem pagou pelo Deep Scan.
+      const results = await navigationService.startFullNavigation(url, token);
 
       clearInterval(progressInterval);
       setProgress(100);
