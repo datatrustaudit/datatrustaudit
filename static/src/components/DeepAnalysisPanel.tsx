@@ -23,9 +23,19 @@ interface DeepAnalysisPanelProps {
     hasConsentTool: boolean;
     pages?: any[];
     ga4PropertyId?: string;
+    /* Evidência observada pelo motor. As abas de Cookies e DataLayer
+       fabricavam o conteúdo a partir das tags detectadas — cookie com validade
+       inventada, evento de compra com SKU e preço que nunca existiram. Num
+       laudo, evidência falsa contamina os achados verdadeiros junto. */
+    storage?: any;
+    eventos?: any[];
+    datalayerFindings?: any[];
 }
 
-const DeepAnalysisPanel = ({ url, detectedTags, hasConsentTool, pages, ga4PropertyId }: DeepAnalysisPanelProps) => {
+const DeepAnalysisPanel = ({
+    url, detectedTags, hasConsentTool, pages, ga4PropertyId,
+    storage, eventos, datalayerFindings,
+}: DeepAnalysisPanelProps) => {
     return (
         <div className="space-y-6">
             {/* Header */}
@@ -119,14 +129,15 @@ const DeepAnalysisPanel = ({ url, detectedTags, hasConsentTool, pages, ga4Proper
                 <TabsContent value="cookies" className="mt-6">
                     <CookiesInspector
                         url={url}
-                        detectedTags={detectedTags}
+                        storage={storage}
                     />
                 </TabsContent>
 
                 <TabsContent value="datalayer" className="mt-6">
                     <DataLayerAnalyzer
                         url={url}
-                        detectedTags={detectedTags}
+                        eventos={eventos}
+                        achados={datalayerFindings}
                     />
                 </TabsContent>
 

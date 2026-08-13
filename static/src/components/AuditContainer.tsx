@@ -232,8 +232,19 @@ const normalizeAuditResult = (raw: any): NewAuditResult => {
   return {
     url: safeRaw.url || '',
     timestamp: safeRaw.timestamp || new Date().toISOString(),
+
+    /* O veredito e o nível de detalhe vêm do servidor.
+       Estavam declarados no tipo e nunca eram copiados para cá: o plano
+       gratuito, que recebe SÓ o veredito, ficava com a tela inteira vazia —
+       o produto gratuito simplesmente não existia. */
+    veredito: safeRaw.veredito ?? null,
+    showsDetail: safeRaw.showsDetail !== false,
+
     tags,
-    tagCount: tags.length,
+    /* Contagem vem do agregado do servidor, não da lista.
+       A lista chega cortada pelo plano; contar por ela mostrava
+       "0 tag(s) detectada(s)" ao lado de "15 achados" no gratuito. */
+    tagCount: safeRaw.summary?.totalTags ?? tags.length,
     typeCounts,
     duplicates: safeRaw.duplicates || [],
     loadingOrder: safeRaw.loadingOrder || [],

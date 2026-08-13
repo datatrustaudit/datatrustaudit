@@ -633,6 +633,9 @@ ${violationsText}
                             url={result.url}
                             detectedTags={result.tags}
                             hasConsentTool={result.privacy.has_consent_tool}
+                            storage={(result as any).storage}
+                            eventos={(result.events as any)?.events ?? []}
+                            datalayerFindings={(result as any).datalayerFindings ?? []}
                         />
                     </FeatureGate>
                 </TabsContent>
@@ -673,6 +676,9 @@ ${violationsText}
                                 hasConsentTool={result.privacy.has_consent_tool}
                                 pages={result.pageReports}
                                 ga4PropertyId={result.tags.find(t => t.name.includes('GA4'))?.tagId || ''}
+                                storage={(result as any).storage}
+                                eventos={(result.events as any)?.events ?? []}
+                                datalayerFindings={(result as any).datalayerFindings ?? []}
                             />
                         </FeatureGate>
                     </TabsContent>

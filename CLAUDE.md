@@ -74,6 +74,24 @@ Ler `estimatedRiskExposure` ou `totalViolations` de `raw_data` devolve vazio
 silenciosamente. Já fez o gating do plano free não esconder nada e o PDF sair
 sem violações. O motor legado de `main.py` usa camelCase — os dois convivem.
 
+### A tela só mostra o que foi observado — nunca o que dá para supor
+
+Duas abas do plano pago fabricavam evidência a partir das tags detectadas: o
+`CookiesInspector` montava um `_ga` com "2 anos" de validade, e o
+`DataLayerAnalyzer` inventava um `purchase` com SKU e preço. Os comentários no
+código eram honestos (`// Simular cookies`), mas a tela apresentava tudo como
+observado — e o motor já capturava os cookies de verdade, por
+`context.cookies()`.
+
+Num laudo de conformidade esse é o defeito mais caro que existe: o cliente leva
+ao DPO uma lista que talvez nunca tenha sido gravada, e quando alguém confere e
+não acha, o laudo inteiro vira suspeito — inclusive a parte correta.
+
+A regra: **campo ausente é dito, não preenchido**. "Esta varredura não trouxe a
+leitura de cookies" é uma resposta melhor do que uma lista plausível. Antes de
+exibir qualquer coisa nova, confira de onde vem — se não vier do
+`audit_engine`, não é evidência.
+
 ### Auditar uma página tem um caminho só: `api.audit.auditar_pagina`
 
 O produto já teve três motores respondendo sobre o mesmo site. O scan Rápido
