@@ -186,11 +186,36 @@ const NewAuditResults = ({ result, scanId }: { result: NewAuditResult, scanId?: 
         setShowUpgradeModal(true);
     };
 
-    const getScoreColor = (score: number) => {
-        if (score >= 80) return 'text-green-600 bg-green-100';
-        if (score >= 50) return 'text-yellow-600 bg-yellow-100';
-        return 'text-red-600 bg-red-100';
+    /* A cor do score sai da paleta do laudo — a mesma que pinta a gravidade de
+       cada achado. Antes vinha de classes soltas do Tailwind (`bg-green-100`),
+       que num tema escuro rendem um disco quase branco, e que não têm relação
+       nenhuma com o vermelho usado ao lado para dizer "crítico". */
+    const corDoScore = (score: number) => {
+        if (score >= 80) return 'var(--laudo-conforme)';
+        if (score >= 50) return 'var(--laudo-medio)';
+        return 'var(--laudo-critico)';
     };
+
+    /* Gravidade tem uma escala só no produto inteiro — a de `--laudo-*`. O
+       motor devolve o nível em inglês; a tela mostrava esse valor cru
+       ("critical", "high") numa coluna chamada "Risco LGPD", em português. */
+    const GRAVIDADE: Record<string, { rotulo: string; cor: string }> = {
+        critical: { rotulo: 'Crítico', cor: 'var(--laudo-critico)' },
+        high: { rotulo: 'Alto', cor: 'var(--laudo-alto)' },
+        medium: { rotulo: 'Médio', cor: 'var(--laudo-medio)' },
+        low: { rotulo: 'Baixo', cor: 'var(--laudo-baixo)' },
+    };
+    const gravidade = (nivel?: string) =>
+        GRAVIDADE[String(nivel || '').toLowerCase()] ?? { rotulo: 'Baixo', cor: 'var(--laudo-baixo)' };
+
+    /* `new Date(undefined).toLocaleString()` devolve a string "Invalid Date", e
+       era isso que o cabeçalho do laudo mostrava — a API não manda `timestamp`,
+       manda `finished_at`. Data ruim vira ausência declarada: um campo vazio o
+       leitor cobra, "Invalid Date" ele lê como defeito do produto inteiro. */
+    const dataDoExame = (() => {
+        const d = new Date(result.timestamp);
+        return Number.isNaN(d.getTime()) ? null : d.toLocaleString('pt-BR');
+    })();
 
     const handleCopyReport = () => {
         // Free users get a summary-only copy (no violation details)
@@ -312,173 +337,114 @@ ${violationsText}
 
     return (
         <div className="space-y-6">
-            {/* ─── Header banner ─── */}
-            <Card className="shadow-lg border-0 bg-gradient-to-r from-blue-600 to-indigo-700 text-white overflow-hidden">
-                <CardContent className="pt-6">
-                    <div className="flex items-start justify-between">
-                        <div>
-                            <h2 className="text-2xl font-bold mb-2 flex items-center gap-2">
-                                <Globe className="w-6 h-6" />
-                                Resultado da Auditoria
-                            </h2>
-                            <p className="text-blue-100 flex items-center gap-2">
-                                <code className="bg-white/20 px-2 py-1 rounded text-sm">{result.url}</code>
-                            </p>
-                            <p className="text-blue-200 text-sm mt-2">
-                                {new Date(result.timestamp).toLocaleString('pt-BR')}
-                            </p>
-                        </div>
-                        <div className="text-center">
-                            <div className={`w-24 h-24 rounded-full flex items-center justify-center text-4xl font-bold ${getScoreColor(result.score)} shadow-lg`}>
-                                {result.score}
-                            </div>
-                            <p className="text-blue-100 text-sm mt-2">{t('dashboard.score_title')}</p>
-                        </div>
+            {/* ─── Cabeçalho do laudo ───
+                Era um banner com gradiente azul e cinco caixas de número. Três
+                motivos para sair:
+
+                · Repetia. O veredito logo abaixo já diz quantas violações
+                  existem e se há CMP, e a aba Dashboard mostra os mesmos
+                  números com contexto. Repetir três vezes não reforça, dilui.
+                · Uma das caixas exibia texto inventado. Sem plano pago, a
+                  "Exposição" mostrava a frase "Risco Estimado: Moderado"
+                  desfocada — um valor que ninguém mediu, sobre um site que
+                  podia estar em qualquer situação. Cadeado pode esconder o
+                  número; não pode fabricar um.
+                · Gradiente saturado não é a voz de um laudo. O que carimba
+                  autoridade aqui é a identidade `--laudo-*`.
+
+                Fica o que um cabeçalho de laudo precisa ter: o que foi
+                examinado, quando, o índice, e como levar embora. */}
+            <header
+                className="rounded-xl border overflow-hidden"
+                style={{ borderColor: 'var(--laudo-linha)', background: 'var(--laudo-superficie)' }}
+            >
+                <div className="flex flex-wrap items-start justify-between gap-6 p-6">
+                    <div className="min-w-0 flex-1">
+                        <p
+                            className="text-[10px] uppercase tracking-[0.18em] voz-ferramenta"
+                            style={{ color: 'var(--laudo-texto-fraco)' }}
+                        >
+                            Laudo de auditoria
+                        </p>
+                        {/* A URL em voz de evidência: é o objeto examinado, não
+                            um título. Quebra em qualquer ponto porque endereço
+                            longo não pode empurrar o score para fora da tela. */}
+                        <p
+                            className="voz-evidencia mt-2 text-lg break-all"
+                            style={{ color: 'var(--laudo-texto)' }}
+                        >
+                            {result.url}
+                        </p>
+                        <p className="mt-2 text-xs" style={{ color: 'var(--laudo-texto-suave)' }}>
+                            {dataDoExame && <>Examinado em {dataDoExame}{' · '}</>}
+                            {/* Sem clicar em "aceitar" — é essa a condição que
+                                dá valor a tudo que vem depois, e ela precisa
+                                estar escrita no cabeçalho, não numa nota de
+                                rodapé. */}
+                            sem aceitar cookies
+                        </p>
                     </div>
 
-                    {/* Quick stats */}
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-6">
-                        <div className="bg-white/10 rounded-lg p-4 text-center backdrop-blur-sm">
-                            <div className="text-3xl font-bold">{result.tagCount}</div>
-                            <div className="text-sm text-blue-100">{t('dashboard.tags_detected')}</div>
+                    <div className="flex shrink-0 items-center gap-3">
+                        <div
+                            className="flex h-[68px] w-[68px] items-center justify-center rounded-full text-3xl font-semibold tabular-nums"
+                            style={{
+                                color: corDoScore(result.score),
+                                background: `color-mix(in srgb, ${corDoScore(result.score)} 13%, transparent)`,
+                                boxShadow: `inset 0 0 0 1.5px ${corDoScore(result.score)}`,
+                            }}
+                        >
+                            {result.score}
                         </div>
-                        <div className="bg-white/10 rounded-lg p-4 text-center backdrop-blur-sm">
-                            <div className="text-3xl font-bold text-red-300">{result.privacy.total_violations}</div>
-                            <div className="text-sm text-blue-100">Violações</div>
-                        </div>
-                        <div className="bg-white/10 rounded-lg p-4 text-center backdrop-blur-sm">
-                            <div className="text-3xl font-bold text-cyan-300">{result.summary?.eventsDetected ?? 0}</div>
-                            <div className="text-sm text-blue-100">Eventos GA4</div>
-                        </div>
-                        <div className="bg-white/10 rounded-lg p-4 text-center backdrop-blur-sm">
-                            {result.privacy.has_consent_tool ? (
-                                <CheckCircle className="w-8 h-8 text-green-400 mx-auto" />
-                            ) : (
-                                <AlertTriangle className="w-8 h-8 text-red-400 mx-auto" />
-                            )}
-                            <div className="text-sm text-blue-100 mt-2">
-                                {result.privacy.has_consent_tool ? 'CMP OK' : 'Sem CMP'}
-                            </div>
-                        </div>
-                        <div className="bg-white/10 rounded-lg p-4 text-center backdrop-blur-sm">
-                            {limits.showViolationDetails ? (
-                                <div className="text-lg font-bold text-orange-300 line-clamp-2 leading-tight mt-1">{result.privacy.estimatedRiskExposure}</div>
-                            ) : (
-                                <button
-                                    onClick={() => handleUpgradeLock('showViolationDetails')}
-                                    className="text-lg font-bold text-orange-300 blur-sm select-none cursor-pointer hover:blur-none transition-all mt-1"
-                                    title="Faça upgrade para ver o risco estimado"
-                                >
-                                    Risco Estimado: Moderado
-                                </button>
-                            )}
-                            <div className="text-sm text-blue-100 mt-1">Exposição</div>
+                        <div className="max-w-[7rem]">
+                            <p className="text-sm font-medium" style={{ color: 'var(--laudo-texto)' }}>
+                                {t('dashboard.score_title')}
+                            </p>
+                            <p className="text-[11px] leading-tight" style={{ color: 'var(--laudo-texto-fraco)' }}>
+                                de 0 a 100
+                            </p>
                         </div>
                     </div>
+                </div>
 
-                    {/* ─── Export buttons (plan-gated) ─── */}
-                    <div className="flex gap-2 mt-6 flex-wrap">
-                        {/* Copy: always available */}
-                        <Button variant="secondary" size="sm" onClick={handleCopyReport} className="flex items-center gap-2">
-                            <Copy className="w-4 h-4" />
-                            {t('buttons.copy')}
+                {/* ─── Saídas do laudo, por plano ─── */}
+                <div
+                    className="flex flex-wrap gap-2 border-t px-6 py-3"
+                    style={{ borderColor: 'var(--laudo-linha)', background: 'var(--laudo-fundo)' }}
+                >
+                    <Button variant="outline" size="sm" onClick={handleCopyReport} className="flex items-center gap-2">
+                        <Copy className="w-4 h-4" />
+                        {t('buttons.copy')}
+                    </Button>
+
+                    {isFeatureAvailable('jsonExport') ? (
+                        <Button variant="outline" size="sm" onClick={handleExportJSON} className="flex items-center gap-2">
+                            <Download className="w-4 h-4" />
+                            {t('buttons.export_json')}
                         </Button>
-
-                        {/* JSON: Pro+ */}
-                        {isFeatureAvailable('jsonExport') ? (
-                            <Button variant="secondary" size="sm" onClick={handleExportJSON} className="flex items-center gap-2">
-                                <Download className="w-4 h-4" />
-                                {t('buttons.export_json')}
-                            </Button>
-                        ) : (
-                            <LockedExportButton label={t('buttons.export_json')} icon={Download} feature="jsonExport" onUpgrade={handleUpgradeLock} />
-                        )}
-
-                        {/* PDF: Pro+ */}
-                        {isFeatureAvailable('pdfExport') ? (
-                            <Button variant="secondary" size="sm" onClick={handleExportPDF} className="flex items-center gap-2 bg-red-100 hover:bg-red-200 text-red-800">
-                                <FileText className="w-4 h-4" />
-                                {t('buttons.export_pdf')}
-                            </Button>
-                        ) : (
-                            <LockedExportButton label={t('buttons.export_pdf')} icon={FileText} feature="pdfExport" onUpgrade={handleUpgradeLock} />
-                        )}
-
-                        {/* Excel: Premium only */}
-                        {isFeatureAvailable('excelExport') ? (
-                            <Button variant="secondary" size="sm" onClick={handleExportExcel} className="flex items-center gap-2 bg-green-100 hover:bg-green-200 text-green-800">
-                                <FileSpreadsheet className="w-4 h-4" />
-                                {t('buttons.export_excel')}
-                            </Button>
-                        ) : (
-                            <LockedExportButton label={t('buttons.export_excel')} icon={FileSpreadsheet} feature="excelExport" onUpgrade={handleUpgradeLock} />
-                        )}
-                    </div>
-                </CardContent>
-            </Card>
-
-            {/* ─── Tags by type ─── */}
-            <Card className="shadow-lg border-0">
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <BarChart3 className="w-5 h-5" />
-                        Tags Detectadas por Categoria
-                        <Badge variant="outline" className="ml-auto text-xs">
-                            {limits.visibilityPercentage}% visível
-                        </Badge>
-                    </CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <div className="flex flex-wrap gap-3">
-                        {Object.entries(result.typeCounts || {}).map(([type, count]) => {
-                            const typeLabels: Record<string, { label: string; color: string }> = {
-                                consent: { label: '🔐 Consentimento', color: 'bg-green-100 text-green-800 border-green-300' },
-                                tag_manager: { label: '📦 Tag Manager', color: 'bg-blue-100 text-blue-800 border-blue-300' },
-                                analytics: { label: '📊 Analytics', color: 'bg-indigo-100 text-indigo-800 border-indigo-300' },
-                                advertising: { label: '📢 Publicidade', color: 'bg-orange-100 text-orange-800 border-orange-300' },
-                                heatmap: { label: '🔥 Heatmap', color: 'bg-red-100 text-red-800 border-red-300' },
-                                support: { label: '💬 Suporte', color: 'bg-cyan-100 text-cyan-800 border-cyan-300' },
-                            };
-                            const info = typeLabels[type] || { label: type, color: 'bg-gray-100 text-gray-800' };
-                            return (
-                                <Badge key={type} className={`${info.color} text-base px-4 py-2`}>
-                                    {info.label}: {count}
-                                </Badge>
-                            );
-                        })}
-                    </div>
-
-                    {/* Duplicates — Pro+ */}
-                    {result.duplicates && result.duplicates.length > 0 && (
-                        <FeatureGate feature="showViolationDetails" featureName="Tags duplicadas">
-                            <div className="mt-6 rounded-2xl overflow-hidden border border-orange-200 bg-orange-50/50 shadow-sm relative">
-                                <div className="absolute top-0 left-0 w-1 h-full bg-orange-500" />
-                                <div className="p-5">
-                                    <h4 className="font-semibold text-orange-900 flex items-center gap-2 mb-3">
-                                        <AlertTriangle className="w-5 h-5 text-orange-600" />
-                                        Alerta de Qualidade: Tags Duplicadas Detectadas
-                                    </h4>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        {result.duplicates.map((dup, i) => (
-                                            <div key={i} className="bg-white border border-orange-100 rounded-xl p-4 flex flex-col gap-2 shadow-sm">
-                                                <div className="flex justify-between items-start">
-                                                    <span className="font-medium text-slate-800 break-all pr-2">{dup.tag}</span>
-                                                    <Badge variant="destructive" className="bg-orange-100 text-orange-800 border bg-orange-200 border-none shrink-0">
-                                                        {dup.count}x disparos
-                                                    </Badge>
-                                                </div>
-                                                <p className="text-sm text-slate-600 border-t border-slate-100 pt-2 mt-1">
-                                                    <span className="font-medium text-orange-700">Recomendação:</span> {dup.recommendation}
-                                                </p>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-                        </FeatureGate>
+                    ) : (
+                        <LockedExportButton label={t('buttons.export_json')} icon={Download} feature="jsonExport" onUpgrade={handleUpgradeLock} />
                     )}
-                </CardContent>
-            </Card>
+
+                    {isFeatureAvailable('pdfExport') ? (
+                        <Button variant="outline" size="sm" onClick={handleExportPDF} className="flex items-center gap-2">
+                            <FileText className="w-4 h-4" />
+                            {t('buttons.export_pdf')}
+                        </Button>
+                    ) : (
+                        <LockedExportButton label={t('buttons.export_pdf')} icon={FileText} feature="pdfExport" onUpgrade={handleUpgradeLock} />
+                    )}
+
+                    {isFeatureAvailable('excelExport') ? (
+                        <Button variant="outline" size="sm" onClick={handleExportExcel} className="flex items-center gap-2">
+                            <FileSpreadsheet className="w-4 h-4" />
+                            {t('buttons.export_excel')}
+                        </Button>
+                    ) : (
+                        <LockedExportButton label={t('buttons.export_excel')} icon={FileSpreadsheet} feature="excelExport" onUpgrade={handleUpgradeLock} />
+                    )}
+                </div>
+            </header>
 
             {/* O veredito abre o laudo em qualquer plano. No gratuito ele é o
                 laudo inteiro; no pago, a manchete que resume o que vem
@@ -618,6 +584,118 @@ ${violationsText}
 
                 {/* Dashboard */}
                 <TabsContent value="dashboard" className="mt-6">
+                    {/* ─── O que foi encontrado, por categoria ───
+                        Cada categoria tinha sua própria cor viva. Num laudo
+                        isso desinforma: o leitor lê cor como gravidade, e
+                        "Publicidade" em laranja parece uma acusação quando é só
+                        uma classificação. Aqui a cor ficou reservada para
+                        risco; categoria é superfície neutra, e o emoji
+                        distingue. */}
+                    <div
+                        className="rounded-xl border p-5"
+                        style={{ borderColor: 'var(--laudo-linha)', background: 'var(--laudo-superficie)' }}
+                    >
+                        <div className="mb-4 flex items-center gap-2">
+                            <BarChart3 className="h-4 w-4" style={{ color: 'var(--laudo-texto-suave)' }} />
+                            <h3 className="text-sm font-semibold" style={{ color: 'var(--laudo-texto)' }}>
+                                Tags detectadas por categoria
+                            </h3>
+                            <span className="ml-auto text-[11px]" style={{ color: 'var(--laudo-texto-fraco)' }}>
+                                {result.tagCount} no total
+                            </span>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                            {Object.entries(result.typeCounts || {}).map(([type, count]) => {
+                                const rotulos: Record<string, string> = {
+                                    consent: '🔐 Consentimento',
+                                    tag_manager: '📦 Tag Manager',
+                                    analytics: '📊 Analytics',
+                                    advertising: '📢 Publicidade',
+                                    heatmap: '🔥 Mapa de calor',
+                                    support: '💬 Suporte',
+                                };
+                                return (
+                                    <span
+                                        key={type}
+                                        className="inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm"
+                                        style={{
+                                            borderColor: 'var(--laudo-linha)',
+                                            background: 'var(--laudo-fundo)',
+                                            color: 'var(--laudo-texto-suave)',
+                                        }}
+                                    >
+                                        {rotulos[type] || type}
+                                        <strong className="tabular-nums" style={{ color: 'var(--laudo-texto)' }}>
+                                            {count}
+                                        </strong>
+                                    </span>
+                                );
+                            })}
+                        </div>
+
+                        {/* ─── Disparo repetido ───
+                            Este é um achado de verdade, então mantém cor — a do
+                            nível "alto" da paleta do laudo, a mesma que pinta
+                            um achado alto em qualquer outra tela. */}
+                        {result.duplicates && result.duplicates.length > 0 && (
+                            <FeatureGate feature="showViolationDetails" featureName="Tags duplicadas">
+                                <div
+                                    className="mt-5 overflow-hidden rounded-lg border-l-[3px] border-y border-r p-4"
+                                    style={{
+                                        borderLeftColor: 'var(--laudo-alto)',
+                                        borderTopColor: 'var(--laudo-linha)',
+                                        borderRightColor: 'var(--laudo-linha)',
+                                        borderBottomColor: 'var(--laudo-linha)',
+                                        background: 'color-mix(in srgb, var(--laudo-alto) 8%, transparent)',
+                                    }}
+                                >
+                                    <h4
+                                        className="mb-3 flex items-center gap-2 text-sm font-semibold"
+                                        style={{ color: 'var(--laudo-texto)' }}
+                                    >
+                                        <AlertTriangle className="h-4 w-4" style={{ color: 'var(--laudo-alto)' }} />
+                                        Tags disparando mais de uma vez
+                                    </h4>
+                                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                        {result.duplicates.map((dup, i) => (
+                                            <div
+                                                key={i}
+                                                className="flex flex-col gap-2 rounded-lg border p-3"
+                                                style={{ borderColor: 'var(--laudo-linha)', background: 'var(--laudo-superficie)' }}
+                                            >
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <span
+                                                        className="voz-evidencia break-all pr-2 text-sm"
+                                                        style={{ color: 'var(--laudo-texto)' }}
+                                                    >
+                                                        {dup.tag}
+                                                    </span>
+                                                    <span
+                                                        className="shrink-0 rounded px-2 py-0.5 text-xs font-semibold tabular-nums"
+                                                        style={{
+                                                            color: 'var(--laudo-alto)',
+                                                            background: 'color-mix(in srgb, var(--laudo-alto) 15%, transparent)',
+                                                        }}
+                                                    >
+                                                        {dup.count}× disparos
+                                                    </span>
+                                                </div>
+                                                <p
+                                                    className="border-t pt-2 text-sm"
+                                                    style={{ borderColor: 'var(--laudo-linha)', color: 'var(--laudo-texto-suave)' }}
+                                                >
+                                                    <strong style={{ color: 'var(--laudo-texto)' }}>Como corrigir: </strong>
+                                                    {dup.recommendation}
+                                                </p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </FeatureGate>
+                        )}
+                    </div>
+
                     <Dashboard result={result} />
                 </TabsContent>
 
@@ -695,115 +773,160 @@ ${violationsText}
                 <TabsContent value="details" className="mt-6">
                     <Card className="shadow-lg border-0">
                         <CardHeader>
-                            <CardTitle>📋 Lista de Tags Detectadas</CardTitle>
+                            <CardTitle>Tags encontradas</CardTitle>
                             <CardDescription>
                                 {hasMoreTags ? (
-                                    <span className="flex items-center gap-2">
-                                        <Lock className="w-3 h-3" />
-                                        Mostrando {visibleTagCount} de {result.tags.length} tags ({limits.visibilityPercentage}% visível —{' '}
+                                    <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                                        <Lock className="h-3 w-3" />
+                                        Mostrando {visibleTagCount} de {result.tags.length}.
                                         <button
-                                            className="text-blue-600 underline hover:no-underline"
+                                            className="underline underline-offset-2 hover:no-underline"
+                                            style={{ color: 'var(--laudo-carimbo)' }}
                                             onClick={() => handleUpgradeLock('showViolationDetails')}
                                         >
-                                            faça upgrade para ver todas
+                                            Ver a lista completa
                                         </button>
-                                        )
                                     </span>
                                 ) : (
-                                    `${result.tags.length} tags detectadas no código fonte`
+                                    `${result.tags.length} tags observadas na visita`
                                 )}
                             </CardDescription>
                         </CardHeader>
                         <CardContent>
+                            {/* A tabela é a evidência bruta do laudo, e por isso
+                                fala em voz de evidência (monoespaçada) nas
+                                colunas que um dev vai conferir contra o código:
+                                linha, ID e padrão. */}
                             <div className="overflow-x-auto">
-                                <table className="w-full border-collapse">
+                                <table className="w-full border-collapse text-sm">
                                     <thead>
-                                        <tr className="border-b-2 border-gray-200">
-                                            <th className="text-left p-3 font-semibold">#</th>
-                                            <th className="text-left p-3 font-semibold">Tag</th>
-                                            <th className="text-left p-3 font-semibold">Tipo</th>
-                                            <th className="text-left p-3 font-semibold flex items-center gap-1.5">
-                                                Linha
-                                                {!isFeatureAvailable('showLineNumbers') && <Lock className="w-3 h-3 text-amber-500" />}
-                                            </th>
-                                            {/* Tag ID / pattern — Pro+ */}
-                                            {isFeatureAvailable('showViolationDetails') && (
-                                                <th className="text-left p-3 font-semibold">ID/Padrão</th>
-                                            )}
-                                            <th className="text-left p-3 font-semibold">Risco LGPD</th>
-                                            <th className="text-left p-3 font-semibold">Status</th>
+                                        <tr style={{ borderBottom: '1.5px solid var(--laudo-linha)' }}>
+                                            {[
+                                                '#',
+                                                'Tag',
+                                                'Categoria',
+                                                null, // Linha: tem cadeado, montada abaixo
+                                                ...(isFeatureAvailable('showViolationDetails') ? ['ID / padrão'] : []),
+                                                'Risco',
+                                                'Disparou',
+                                            ].map((titulo, i) => (
+                                                <th
+                                                    key={i}
+                                                    className="p-3 text-left text-[11px] font-semibold uppercase tracking-wider"
+                                                    style={{ color: 'var(--laudo-texto-fraco)' }}
+                                                >
+                                                    {titulo ?? (
+                                                        <span className="inline-flex items-center gap-1.5">
+                                                            Linha
+                                                            {!isFeatureAvailable('showLineNumbers') && (
+                                                                <Lock className="h-3 w-3" style={{ color: 'var(--laudo-medio)' }} />
+                                                            )}
+                                                        </span>
+                                                    )}
+                                                </th>
+                                            ))}
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {visibleTags.map((tag, index) => (
-                                            <tr
-                                                key={index}
-                                                className={`border-b border-gray-100 hover:bg-gray-50 ${tag.isBeforeConsent ? 'bg-red-50' : ''}`}
-                                            >
-                                                <td className="p-3">
-                                                    <Badge variant="outline">{index + 1}</Badge>
-                                                </td>
-                                                <td className="p-3 font-medium">{tag.name}</td>
-                                                <td className="p-3">
-                                                    <Badge className={
-                                                        tag.type === 'consent' ? 'bg-green-100 text-green-800' :
-                                                            tag.type === 'tag_manager' ? 'bg-blue-100 text-blue-800' :
-                                                                tag.type === 'analytics' ? 'bg-indigo-100 text-indigo-800' :
-                                                                    tag.type === 'advertising' ? 'bg-orange-100 text-orange-800' :
-                                                                        tag.type === 'heatmap' ? 'bg-red-100 text-red-800' :
-                                                                            'bg-gray-100 text-gray-800'
-                                                    }>
-                                                        {tag.type}
-                                                    </Badge>
-                                                </td>
-                                                <td className="p-3">
-                                                    {isFeatureAvailable('showLineNumbers') ? (
-                                                        <code className="text-sm bg-gray-100 px-2 py-0.5 rounded">{tag.lineNumber}</code>
-                                                    ) : (
-                                                        <Badge variant="outline" className="text-[10px] uppercase bg-amber-50 text-amber-600 border-amber-200 gap-1 opacity-70 cursor-pointer hover:opacity-100 transition-opacity" onClick={() => handleUpgradeLock('showLineNumbers')}>
-                                                            <Lock className="w-2.5 h-2.5" />
-                                                            Premium
-                                                        </Badge>
-                                                    )}
-                                                </td>
-                                                {/* ID/Pattern — Pro+ */}
-                                                {isFeatureAvailable('showViolationDetails') && (
-                                                    <td className="p-3">
-                                                        <code className="text-xs bg-gray-100 px-2 py-0.5 rounded">
-                                                            {tag.tagId || tag.matchedPattern.substring(0, 20)}
-                                                        </code>
+                                        {visibleTags.map((tag, index) => {
+                                            const risco = gravidade(tag.lgpdRisk);
+                                            return (
+                                                <tr
+                                                    key={index}
+                                                    style={{
+                                                        borderBottom: '1px solid var(--laudo-linha)',
+                                                        /* Realce da linha inteira quando a tag
+                                                           disparou antes do aceite: é a coluna
+                                                           que sustenta a acusação. */
+                                                        background: tag.isBeforeConsent
+                                                            ? 'color-mix(in srgb, var(--laudo-critico) 7%, transparent)'
+                                                            : 'transparent',
+                                                    }}
+                                                >
+                                                    <td className="p-3 tabular-nums" style={{ color: 'var(--laudo-texto-fraco)' }}>
+                                                        {index + 1}
                                                     </td>
-                                                )}
-                                                <td className="p-3">
-                                                    <Badge className={
-                                                        tag.lgpdRisk === 'critical' ? 'bg-red-100 text-red-800' :
-                                                            tag.lgpdRisk === 'high' ? 'bg-orange-100 text-orange-800' :
-                                                                tag.lgpdRisk === 'medium' ? 'bg-yellow-100 text-yellow-800' :
-                                                                    'bg-green-100 text-green-800'
-                                                    }>
-                                                        {tag.lgpdRisk}
-                                                    </Badge>
-                                                </td>
-                                                <td className="p-3">
-                                                    {tag.isBeforeConsent ? (
-                                                        <Badge className="bg-red-100 text-red-800">❌ Violação</Badge>
-                                                    ) : (
-                                                        <Badge className="bg-green-100 text-green-800">✅ OK</Badge>
+                                                    <td className="p-3 font-medium" style={{ color: 'var(--laudo-texto)' }}>
+                                                        {tag.name}
+                                                    </td>
+                                                    <td className="p-3" style={{ color: 'var(--laudo-texto-suave)' }}>
+                                                        {tag.type}
+                                                    </td>
+                                                    <td className="p-3">
+                                                        {isFeatureAvailable('showLineNumbers') ? (
+                                                            <code
+                                                                className="voz-evidencia rounded px-2 py-0.5 text-xs tabular-nums"
+                                                                style={{ background: 'var(--laudo-fundo)', color: 'var(--laudo-texto)' }}
+                                                            >
+                                                                {tag.lineNumber}
+                                                            </code>
+                                                        ) : (
+                                                            <button
+                                                                onClick={() => handleUpgradeLock('showLineNumbers')}
+                                                                className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] uppercase tracking-wide transition-opacity hover:opacity-100"
+                                                                style={{
+                                                                    color: 'var(--laudo-medio)',
+                                                                    background: 'color-mix(in srgb, var(--laudo-medio) 12%, transparent)',
+                                                                    opacity: 0.8,
+                                                                }}
+                                                            >
+                                                                <Lock className="h-2.5 w-2.5" />
+                                                                Premium
+                                                            </button>
+                                                        )}
+                                                    </td>
+                                                    {isFeatureAvailable('showViolationDetails') && (
+                                                        <td className="p-3">
+                                                            <code
+                                                                className="voz-evidencia rounded px-2 py-0.5 text-xs"
+                                                                style={{ background: 'var(--laudo-fundo)', color: 'var(--laudo-texto-suave)' }}
+                                                            >
+                                                                {tag.tagId || tag.matchedPattern.substring(0, 20)}
+                                                            </code>
+                                                        </td>
                                                     )}
-                                                </td>
-                                            </tr>
-                                        ))}
+                                                    <td className="p-3">
+                                                        <span
+                                                            className="inline-block rounded px-2 py-0.5 text-xs font-semibold"
+                                                            style={{
+                                                                color: risco.cor,
+                                                                background: `color-mix(in srgb, ${risco.cor} 14%, transparent)`,
+                                                            }}
+                                                        >
+                                                            {risco.rotulo}
+                                                        </span>
+                                                    </td>
+                                                    {/* "✅ OK" dizia mais do que se mediu: a
+                                                        varredura observa QUANDO a tag disparou,
+                                                        não se ela está correta. O rótulo agora
+                                                        descreve o fato observado. */}
+                                                    <td className="p-3">
+                                                        <span
+                                                            className="inline-block rounded px-2 py-0.5 text-xs font-medium"
+                                                            style={{
+                                                                color: tag.isBeforeConsent ? 'var(--laudo-critico)' : 'var(--laudo-texto-suave)',
+                                                                background: tag.isBeforeConsent
+                                                                    ? 'color-mix(in srgb, var(--laudo-critico) 14%, transparent)'
+                                                                    : 'var(--laudo-fundo)',
+                                                            }}
+                                                        >
+                                                            {tag.isBeforeConsent ? 'Antes do aceite' : 'Não observado antes'}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
 
-                                        {/* Locked rows hint */}
                                         {hasMoreTags && (
-                                            <tr className="border-b border-dashed border-gray-200 bg-gray-50/50">
+                                            <tr style={{ borderBottom: '1px dashed var(--laudo-linha)' }}>
                                                 <td colSpan={7} className="p-3 text-center">
                                                     <button
-                                                        className="flex items-center gap-2 mx-auto text-sm text-gray-400 hover:text-blue-600"
+                                                        className="mx-auto flex items-center gap-2 text-sm transition-colors"
+                                                        style={{ color: 'var(--laudo-texto-fraco)' }}
                                                         onClick={() => handleUpgradeLock('showViolationDetails')}
                                                     >
-                                                        <Lock className="w-3 h-3" />
-                                                        + {result.tags.length - visibleTagCount} tags ocultas — faça upgrade para ver todas
+                                                        <Lock className="h-3 w-3" />
+                                                        Mais {result.tags.length - visibleTagCount} tags no laudo completo
                                                     </button>
                                                 </td>
                                             </tr>

@@ -91,7 +91,11 @@ interface AuditContainerProps {
   onStateChange?: (isActive: boolean) => void;
 }
 
-const normalizeAuditResult = (raw: any): NewAuditResult => {
+/* Exportada para a conferência visual do laudo (`/dev/laudo`) usar exatamente
+   esta normalização, e não uma cópia. Uma amostra montada à mão testaria uma
+   forma de dado que o produto nunca produz — foi assim que a tela passou a
+   ler `timestamp`, campo que a API não devolve. */
+export const normalizeAuditResult = (raw: any): NewAuditResult => {
   const safeRaw = raw || {};
   const rawEvents = Array.isArray(safeRaw.events) ? { events: safeRaw.events, totalEvents: safeRaw.events.length } : (safeRaw.events || {});
   const rawViolations = safeRaw.violations || safeRaw.privacy?.violations || [];
@@ -200,11 +204,17 @@ const normalizeAuditResult = (raw: any): NewAuditResult => {
       sourceSnippet: e.sourceSnippet || e.source_snippet || null,
       isDuplicate: e.isDuplicate || e.is_duplicate || false,
     })),
-    totalEvents: rawEvents.totalEvents || rawEvents.total_events || 0,
-    uniqueEventNames: rawEvents.uniqueEventNames || rawEvents.unique_event_names || 0,
-    duplicatedEventNames: rawEvents.duplicatedEventNames || rawEvents.duplicated_event_names || 0,
-    eventsWithIssues: rawEvents.eventsWithIssues || rawEvents.events_with_issues || 0,
-    ecommerceEventsDetected: rawEvents.ecommerceEventsDetected || rawEvents.ecommerce_events_detected || [],
+    /* Os agregados vêm de `summary`, como os de violação — a chave `events` da
+       resposta é a lista pura, então ler os contadores dela devolvia zero em
+       todos. A tela mostrava "13 eventos · 0 únicos · 0 duplicados · 0 com
+       problemas": os dois primeiros não podem coexistir, e o último afirmava
+       conformidade sem medição. O `??` (e não `||`) importa: zero é uma
+       resposta legítima e não pode cair para o fallback. */
+    totalEvents: rawEvents.totalEvents ?? rawEvents.total_events ?? safeRaw.summary?.eventsDetected ?? 0,
+    uniqueEventNames: safeRaw.summary?.uniqueEventNames ?? rawEvents.uniqueEventNames ?? rawEvents.unique_event_names ?? 0,
+    duplicatedEventNames: safeRaw.summary?.duplicatedEventNames ?? rawEvents.duplicatedEventNames ?? rawEvents.duplicated_event_names ?? 0,
+    eventsWithIssues: safeRaw.summary?.eventsWithIssues ?? rawEvents.eventsWithIssues ?? rawEvents.events_with_issues ?? 0,
+    ecommerceEventsDetected: safeRaw.summary?.ecommerceEventsDetected ?? rawEvents.ecommerceEventsDetected ?? rawEvents.ecommerce_events_detected ?? [],
   };
 
   // Safe GTM Quality mapping
@@ -231,7 +241,15 @@ const normalizeAuditResult = (raw: any): NewAuditResult => {
 
   return {
     url: safeRaw.url || '',
-    timestamp: safeRaw.timestamp || new Date().toISOString(),
+
+    /* Quando a varredura aconteceu — não quando esta aba recebeu a resposta.
+       A API nunca devolveu `timestamp`: ela devolve `finished_at` e
+       `started_at`. Como só `timestamp` era lido, o fallback ganhava sempre, e
+       o cabeçalho do laudo carimbava o relógio do visitante. Num laudo que se
+       propõe a provar o que o site fez e quando, a data do exame não pode ser
+       a hora em que alguém abriu a página — ainda mais ao reabrir um laudo
+       antigo pelo histórico, onde o carimbo passava a ser de hoje. */
+    timestamp: safeRaw.finished_at || safeRaw.started_at || safeRaw.timestamp || new Date().toISOString(),
 
     /* O veredito e o nível de detalhe vêm do servidor.
        Estavam declarados no tipo e nunca eram copiados para cá: o plano

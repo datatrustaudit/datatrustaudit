@@ -8,6 +8,11 @@ IMPORTANT: All wording is indicative only — not legal advice.
 """
 import re
 from typing import List
+
+# A mesma curva usada por todos os eixos do score. Importar em vez de repetir a
+# fórmula é o que impede o produto de voltar a ter duas escalas para o mesmo
+# site.
+from .score_engine import _curva_de_risco
 from .models import (
     PrivacyAnalysisResult, PrivacyViolation, TagFinding,
     CONFIDENCE_HIGH, CONFIDENCE_MEDIUM,
@@ -457,7 +462,22 @@ def analyze_privacy(
         total_max += r["max_fine"]
 
     # ── Score ──────────────────────────────────────────────────────────────────
-    compliance_score = max(0, 100 - len(violations) * 12)
+    # `100 - violações × 12` chegava a zero na nona violação e ficava lá. Um
+    # site com 9 problemas e outro com 40 recebiam a mesma nota, e o laudo
+    # exibia "0%" ao lado do índice geral do cabeçalho — dois números sobre o
+    # mesmo site, em escalas que não se conciliam. É o defeito que este produto
+    # já teve em três motores ao mesmo tempo, agora em duas fórmulas.
+    #
+    # A curva de `score_engine` é a mesma de todos os outros eixos: reage forte
+    # ao primeiro achado grave e nunca satura, então continua separando sites
+    # ruins entre si. Gravidade pesa — dez avisos brandos não equivalem a dez
+    # rastreadores disparando sem consentimento.
+    _PESO_POR_GRAVIDADE = {"critical": 34, "high": 20, "medium": 10, "low": 4}
+    pontos_de_risco = sum(
+        _PESO_POR_GRAVIDADE.get(getattr(v, "severity", "medium"), 10)
+        for v in violations
+    )
+    compliance_score = 100 - _curva_de_risco(pontos_de_risco)
 
     # ── Risk exposure summary ──────────────────────────────────────────────────
     # A versão anterior somava valores fixos em dólar e dividia por 5 — um

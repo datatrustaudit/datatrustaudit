@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -26,6 +27,16 @@ import NotFound from "./pages/NotFound";
 import AuthCallback from "./pages/AuthCallback";
 
 const queryClient = new QueryClient();
+
+/* Conferência visual do laudo, só em desenvolvimento.
+   O ternário sobre `import.meta.env.DEV` não é enfeite: o Vite substitui essa
+   expressão por `false` literal no build, e só então o Rollup consegue podar o
+   `import()` inteiro. Com o `lazy()` no topo, fora de qualquer condição, o
+   chunk era emitido mesmo com a rota ausente — 187 KB de varredura de um site
+   de terceiro publicados junto do produto, para nunca serem baixados. */
+const ConferenciaDoLaudo = import.meta.env.DEV
+  ? lazy(() => import("./pages/dev/ConferenciaDoLaudo"))
+  : null;
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -71,6 +82,20 @@ const App = () => (
 
                     {/* Account Settings */}
                     <Route path="/settings" element={<SettingsPage />} />
+
+                    {/* Conferir o laudo sem sessão, sem cota e sem esperar o
+                        Chromium. Em produção esta rota simplesmente não
+                        existe, e cai no catch-all abaixo. */}
+                    {ConferenciaDoLaudo && (
+                      <Route
+                        path="/dev/laudo"
+                        element={
+                          <Suspense fallback={null}>
+                            <ConferenciaDoLaudo />
+                          </Suspense>
+                        }
+                      />
+                    )}
 
                     {/* Catch-all */}
                     <Route path="*" element={<NotFound />} />

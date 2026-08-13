@@ -185,6 +185,60 @@ def _storage_para_o_plano(storage: Any, plan: str) -> Optional[Dict[str, Any]]:
     }
 
 
+#: Eventos de e-commerce do GA4. Espelha `ECOMMERCE_EVENTS` do
+#: `event_auditor` — usada só quando o motor não devolveu o agregado pronto.
+_EVENTOS_DE_ECOMMERCE = frozenset({
+    "add_payment_info", "add_shipping_info", "add_to_cart", "add_to_wishlist",
+    "begin_checkout", "purchase", "refund", "remove_from_cart", "select_item",
+    "select_promotion", "view_cart", "view_item", "view_item_list",
+    "view_promotion",
+})
+
+
+def _agregados_de_evento(events: Any, event_items: Any) -> Dict[str, Any]:
+    """Contadores de evento que sobrevivem ao corte por plano.
+
+    Prefere o que o motor calculou. Só recalcula a partir da lista quando o
+    agregado não veio — que era o caso de toda resposta de `/api/audit`, porque
+    a chave `events` é achatada para a lista pura antes de chegar aqui.
+
+    Recalcular a partir da lista dá o mesmo número que o motor: ele conta
+    ocorrências por nome e marca `is_duplicate` quando passa de uma.
+    """
+    if isinstance(events, dict):
+        pronto = {
+            "uniqueEventNames": events.get("uniqueEventNames", events.get("unique_event_names")),
+            "duplicatedEventNames": events.get("duplicatedEventNames", events.get("duplicated_event_names")),
+            "eventsWithIssues": events.get("eventsWithIssues", events.get("events_with_issues")),
+            "ecommerceEventsDetected": events.get("ecommerceEventsDetected", events.get("ecommerce_events_detected")),
+        }
+        if all(v is not None for v in pronto.values()):
+            return pronto
+
+    itens = [e for e in (event_items or []) if isinstance(e, dict)]
+
+    ocorrencias: Dict[str, int] = {}
+    for e in itens:
+        nome = e.get("name") or ""
+        if nome:
+            ocorrencias[nome] = ocorrencias.get(nome, 0) + 1
+
+    # "Com problema" na mesma régua do motor: validade parcial ou malformada,
+    # ou faltando parâmetro obrigatório. Evento válido e completo não conta.
+    com_problema = sum(
+        1 for e in itens
+        if str(e.get("validity") or "").lower() in ("partial", "malformed")
+        or (e.get("missing_required_params") or e.get("missingRequiredParams"))
+    )
+
+    return {
+        "uniqueEventNames": len(ocorrencias),
+        "duplicatedEventNames": sum(1 for c in ocorrencias.values() if c > 1),
+        "eventsWithIssues": com_problema,
+        "ecommerceEventsDetected": sorted(set(ocorrencias) & _EVENTOS_DE_ECOMMERCE),
+    }
+
+
 def _normalize_audit_response(url: str, plan: str, scan: Any, audit_result: Any) -> Dict[str, Any]:
     audit = _safe_dict(audit_result) or {}
     tags = audit.get("tags") or []
@@ -308,6 +362,17 @@ def _normalize_audit_response(url: str, plan: str, scan: Any, audit_result: Any)
             "violationsBySeverity": contagem_por_gravidade,
             "estimatedFine": privacy.get("estimatedRiskExposure") if isinstance(privacy, dict) else None,
             "eventsDetected": events.get("totalEvents", len(event_items)) if isinstance(events, dict) else len(event_items or []),
+            # Os outros agregados de evento, pelo mesmo motivo de
+            # `violationsBySeverity`: a resposta só carregava a lista, e a aba
+            # Eventos lia `uniqueEventNames`/`duplicatedEventNames`/
+            # `eventsWithIssues` de um objeto que não existia. Todos caíam no
+            # zero padrão, e a tela exibia "13 eventos · 0 únicos · 0
+            # duplicados · 0 com problemas" — a primeira dupla é impossível, e
+            # a última afirma conformidade que ninguém mediu.
+            #
+            # O motor calcula os quatro em `event_auditor`; era só a resposta
+            # que os descartava.
+            **_agregados_de_evento(events, event_items),
             "duplicatesDetected": len(duplicates),
             "piiExposureCount": len([f for f in datalayer if isinstance(f, dict) and f.get("type") == "pii_exposure"]),
             "securityIssuesCount": 0,

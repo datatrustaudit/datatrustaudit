@@ -167,3 +167,55 @@ class TestSemDados:
     def test_scan_vazio_nao_estoura(self):
         s = compute_scores([], None, None, [], None, None, [])
         assert 0 <= s.overall <= 100
+
+
+class TestComplianceScoreNaoSatura:
+    """A aba Privacidade mostrava "0%" e nota "F" enquanto o cabeçalho do mesmo
+    laudo exibia 38. Dois números sobre o mesmo site, em escalas que não se
+    conciliam — o defeito que este produto já teve com três motores ao mesmo
+    tempo, reaparecido em duas fórmulas.
+
+    `privacy_analyzer` usava `100 - violações × 12`: zerava na nona violação e
+    ficava lá. Um site com 9 problemas e outro com 40 recebiam a mesma nota, e
+    "0%" sugere um piso que a medição não tem.
+    """
+
+    @staticmethod
+    def _compliance(gravidades):
+        from audit_engine.privacy_analyzer import _curva_de_risco
+        pesos = {"critical": 34, "high": 20, "medium": 10, "low": 4}
+        return 100 - _curva_de_risco(sum(pesos[g] for g in gravidades))
+
+    def test_site_sem_violacao_recebe_cem(self):
+        assert self._compliance([]) == 100
+
+    def test_nunca_chega_a_zero(self):
+        """Zero afirma ausência total de conformidade, e não é isso que se
+        mediu: o site continua servindo HTTPS, continua tendo política."""
+        assert self._compliance(["critical"] * 40) > 0
+
+    def test_nove_violacoes_nao_empatam_com_quarenta(self):
+        """O empate era o defeito: a nota parava de informar exatamente onde
+        mais importa distinguir."""
+        nove = self._compliance(["critical"] * 9)
+        quarenta = self._compliance(["critical"] * 40)
+        assert nove > quarenta, f"9 e 40 críticas empataram em {nove}"
+
+    def test_gravidade_pesa(self):
+        """Dez avisos brandos não equivalem a dez rastreadores disparando sem
+        consentimento."""
+        assert self._compliance(["low"] * 10) > self._compliance(["critical"] * 10)
+
+    def test_primeira_critica_move_o_numero(self):
+        """Curva que reage devagar no começo deixa o primeiro achado grave
+        parecer irrelevante."""
+        assert 100 - self._compliance(["critical"]) >= 10
+
+    def test_fica_na_mesma_ordem_de_grandeza_do_score_geral(self):
+        """São eixos diferentes e podem divergir — mas não em 38 pontos, que
+        é o que o leitor lê como contradição."""
+        gravidades = ["critical"] * 11 + ["high", "medium", "medium"]
+        compliance = self._compliance(gravidades)
+        assert 15 <= compliance <= 60, (
+            f"compliance {compliance} longe demais do índice geral do laudo"
+        )
