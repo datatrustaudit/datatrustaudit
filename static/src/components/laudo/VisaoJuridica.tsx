@@ -102,9 +102,20 @@ const VisaoJuridica = ({
                         {[
                             ['Endereço examinado', url],
                             ['Data e hora', dataDaVarredura || 'não registrada'],
-                            ['Método', scanMethod === 'browser'
-                                ? 'Navegador real, com interceptação de rede'
-                                : scanMethod || 'não informado'],
+                            /* O identificador cru do motor não é texto de
+                               laudo: "static_fallback" e "html_fallback" não
+                               dizem nada a um advogado, e escondem justamente
+                               o que ele precisa saber — se houve navegador,
+                               porque é isso que determina o que pôde ou não
+                               ser observado. Método desconhecido é declarado
+                               como tal, nunca omitido. */
+                            ['Método', ({
+                                browser: 'Navegador real, com interceptação de rede',
+                                har: 'Registro de navegação (HAR) enviado pelo cliente',
+                                static_fallback: 'Somente código-fonte — sem execução de scripts',
+                                html_fallback: 'Somente código-fonte — sem execução de scripts',
+                                html_source: 'Somente código-fonte — sem execução de scripts',
+                            } as Record<string, string>)[scanMethod || ''] || 'não informado'],
                             ['Regime aplicável', [jurisdicao, framework].filter(Boolean).join(' · ') || 'LGPD (Lei 13.709/2018)'],
                             ['Consentimento', temCmp
                                 ? 'Controle presente na página'

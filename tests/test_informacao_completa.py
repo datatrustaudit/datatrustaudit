@@ -25,6 +25,7 @@ os.environ.setdefault("SECRET_KEY", "x" * 40)
 
 from audit_engine.storage_auditor import auditar_armazenamento
 from tests.test_campos_das_visoes import AGORA, _Scan
+from tests.test_campos_das_visoes import _Scan as _Scan_base
 
 
 class TestQuandoCadaTagDisparou:
@@ -135,3 +136,44 @@ class TestAProvidenciaChegaJunto:
 
         item = _issue_from_recommendation({"title": "Algo", "severity": "low"})
         assert item["howToFix"]
+
+
+class TestMetodoDeclaradoNoLaudo:
+    """A visão jurídica publica `scan_method` como "método" da varredura. Ele
+    vinha sendo sobrescrito para "view_source" sempre que a análise view-source
+    estava ligada — e ela liga para todo plano premium.
+
+    O laudo pago declarava ter lido o código-fonte enquanto listava cookies
+    gravados e uma linha do tempo de requisições, que só o navegador observa.
+    Numa peça destinada a servir de evidência, essa contradição derruba tudo o
+    que vem depois: se você só leu o HTML, como viu o cookie?
+    """
+
+    @staticmethod
+    def _metodo(use_view_source):
+        from audit_engine.orchestrator import run_audit
+
+        class _Scan(_Scan_base):
+            scan_method = "browser"
+
+        return run_audit("https://loja.com.br", _Scan(), use_view_source=use_view_source).scan_method
+
+    def test_view_source_ligado_nao_troca_o_metodo_de_coleta(self):
+        assert self._metodo(True) == "browser", (
+            "o laudo premium declarava ter lido só o código-fonte, ao lado de "
+            "cookies e requisições que só o navegador enxerga"
+        )
+
+    def test_sem_view_source_tambem_reporta_a_coleta_real(self):
+        assert self._metodo(False) == "browser"
+
+    def test_coleta_estatica_continua_se_declarando_estatica(self):
+        """O caminho inverso importa tanto quanto: quando o navegador falha e
+        sobra o HTML, o laudo precisa dizer isso — é o que explica por que não
+        há cookie nenhum na lista."""
+        from audit_engine.orchestrator import run_audit
+
+        class _Estatico(_Scan_base):
+            scan_method = "static_fallback"
+
+        assert run_audit("https://loja.com.br", _Estatico()).scan_method == "static_fallback"

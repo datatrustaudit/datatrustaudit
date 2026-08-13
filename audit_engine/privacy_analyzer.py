@@ -36,15 +36,15 @@ def detect_jurisdiction(html: str, url: str) -> dict:
     # TLD-based (high confidence)
     if tld in ("br",) or "com.br" in domain or ".br" in domain:
         return {
-            "region": "Brazil",
+            "region": "Brasil",
             "law": "LGPD",
-            "law_full": "Lei Geral de Proteção de Dados (LGPD) — Brazil",
+            "law_full": "Lei Geral de Proteção de Dados (Lei 13.709/2018)",
             "consent_required": True,
             "require_consent_first": True,
         }
     if tld in ("uk", "co") and ".uk" in domain:
         return {
-            "region": "United Kingdom",
+            "region": "Reino Unido",
             "law": "UK GDPR",
             "law_full": "UK General Data Protection Regulation (UK GDPR)",
             "consent_required": True,
@@ -52,17 +52,17 @@ def detect_jurisdiction(html: str, url: str) -> dict:
         }
     if tld in ("eu", "de", "fr", "it", "es", "pt", "nl", "be", "at", "pl", "se", "fi", "dk", "ie", "ch", "no"):
         return {
-            "region": "EU / EEA",
+            "region": "União Europeia / EEE",
             "law": "GDPR",
-            "law_full": "General Data Protection Regulation (GDPR) — EU/EEA",
+            "law_full": "Regulamento Geral sobre a Proteção de Dados (GDPR)",
             "consent_required": True,
             "require_consent_first": True,
         }
     if tld in ("us", "gov", "edu") or ".ca.gov" in domain:
         return {
-            "region": "United States / California",
+            "region": "Estados Unidos / Califórnia",
             "law": "CCPA/CPRA",
-            "law_full": "California Consumer Privacy Act / CPRA (US State Privacy Laws)",
+            "law_full": "California Consumer Privacy Act / CPRA",
             "consent_required": False,    # CCPA is opt-out by default
             "require_consent_first": False,
         }
@@ -74,27 +74,27 @@ def detect_jurisdiction(html: str, url: str) -> dict:
     for pat in pt_signals:
         if re.search(pat, html, re.IGNORECASE):
             return {
-                "region": "Brazil",
+                "region": "Brasil",
                 "law": "LGPD",
-                "law_full": "Lei Geral de Proteção de Dados (LGPD) — Brazil",
+                "law_full": "Lei Geral de Proteção de Dados (Lei 13.709/2018)",
                 "consent_required": True,
                 "require_consent_first": True,
             }
     for pat in gdpr_signals:
         if re.search(pat, html, re.IGNORECASE):
             return {
-                "region": "EU / EEA",
+                "region": "União Europeia / EEE",
                 "law": "GDPR",
-                "law_full": "General Data Protection Regulation (GDPR) — EU/EEA",
+                "law_full": "Regulamento Geral sobre a Proteção de Dados (GDPR)",
                 "consent_required": True,
                 "require_consent_first": True,
             }
 
     # Default: general risk assessment
     return {
-        "region": "Global / Unknown",
+        "region": "Não determinada",
         "law": "General Privacy",
-        "law_full": "General Privacy Risk Assessment (jurisdiction not determinable)",
+        "law_full": "Avaliação geral de risco — jurisdição não determinada",
         "consent_required": None,
         "require_consent_first": None,
     }

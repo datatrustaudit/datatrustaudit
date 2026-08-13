@@ -348,9 +348,21 @@ def run_audit(
     except Exception:
         dq_notes = []
 
-    scan_method = scan.scan_method if not use_view_source else "view_source"
-    if use_view_source:
-        scan_method = "view_source"
+    # `scan_method` descreve COMO a página foi coletada: navegador, HTML
+    # estático ou HAR. É esse campo que a visão jurídica publica como "método"
+    # na identificação da varredura.
+    #
+    # Ele vinha sendo sobrescrito para "view_source" sempre que a análise
+    # view-source estava ligada — e ela liga para todo plano premium. O laudo
+    # pago declarava então ter lido o código-fonte, ao mesmo tempo em que
+    # listava cookies gravados e uma linha do tempo de requisições, que só o
+    # navegador observa. Num documento que se propõe a servir de evidência, uma
+    # contradição dessas derruba a peça inteira: se você só leu o HTML, como viu
+    # o cookie?
+    #
+    # Localizar a posição exata da tag no HTML é uma análise A MAIS sobre a
+    # mesma coleta — não um método de coleta.
+    scan_method = scan.scan_method
 
     return AuditResult(
         url=url,
