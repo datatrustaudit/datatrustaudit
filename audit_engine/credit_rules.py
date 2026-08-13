@@ -14,6 +14,7 @@ Weekly Scan Limits (final product rules):
 - Admin:   unlimited       (internal role only)
 """
 
+import os
 from typing import Dict, Any, Optional
 
 
@@ -90,9 +91,29 @@ WEEKLY_SCAN_LIMITS: Dict[str, int] = {
 }
 
 
+def cota_desligada() -> bool:
+    """Se o limite semanal está suspenso para desenvolvimento.
+
+    Testar o produto consome cota de verdade: cada varredura conta, e os modos
+    Deep e Tempo Real também passam pelo mesmo caminho. Dez scans acabam numa
+    tarde de testes, e aí o erro de limite parece bug do produto.
+
+    Exige as DUAS condições — a variável ligada e o ambiente de
+    desenvolvimento. Só a variável seria suficiente para alguém subir com ela
+    setada por engano e dar varredura ilimitada a todo mundo; o produto é
+    vendido por cota, então isso é receita indo embora em silêncio.
+
+    A leitura é feita a cada chamada, e não no import, para o valor poder ser
+    trocado em teste sem recarregar o módulo.
+    """
+    ligada = os.getenv("DEV_UNLIMITED_SCANS", "").strip().lower() in ("1", "true", "yes")
+    desenvolvimento = os.getenv("ENVIRONMENT", "development").strip().lower() == "development"
+    return ligada and desenvolvimento
+
+
 def get_weekly_limit(plan: str, is_admin: bool = False) -> int:
     """Get the weekly scan limit for a plan. Returns ``-1`` for unlimited."""
-    if is_admin:
+    if is_admin or cota_desligada():
         return -1
     return WEEKLY_SCAN_LIMITS.get(plan, WEEKLY_SCAN_LIMITS["free"])
 
