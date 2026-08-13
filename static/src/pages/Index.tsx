@@ -1,129 +1,164 @@
+/**
+ * Home — a primeira tela de quem ainda não sabe o que o produto faz.
+ *
+ * Ela precisa responder de uma olhada: o que é, o que o cliente ganha e o que
+ * fazer agora. O "fazer agora" é um só — digitar um endereço —, então tudo que
+ * não leva até o campo de URL foi cortado.
+ *
+ * Saíram daqui os dois borrões azuis de fundo, o degradê colorido na manchete e
+ * as três "pills" com selo verde ("Sem cartão de crédito", "Relatório em 10
+ * segundos", "+50 verificações ativas"): cor saturada nesta tela é alarme sem
+ * achado, e as pills prometiam número que a tela não tem como comprovar. No
+ * lugar dos três cartões com brilho no hover ficou o que a varredura de fato
+ * observa, em texto.
+ */
 import { useState } from 'react';
 import { useI18n } from '@/context/I18nContext';
 import AppHeader from '@/components/AppHeader';
 import AuditContainer from '@/components/AuditContainer';
 import AuditErrorBoundary from '@/components/AuditErrorBoundary';
-import { Shield, Zap, Search, Activity, CheckCircle2 } from 'lucide-react';
+import MarcaDataTrust from '@/components/MarcaDataTrust';
+
+/* Escrito a partir do que o motor realmente lê durante a visita — tag e
+   contagem de disparo, CMP e o que carrega antes do aceite, cookie e chave de
+   storage gravados. Nada aqui é número ou promessa: é o escopo da varredura. */
+const O_QUE_A_VARREDURA_OBSERVA = [
+    {
+        titulo: 'Tags e disparos',
+        texto:
+            'Quais tags estão instaladas, quantas vezes cada uma dispara e quais eventos duplicam conversão.',
+    },
+    {
+        titulo: 'Consentimento',
+        texto:
+            'Se existe uma CMP, se ela chega a aparecer para o visitante e o que já carregou antes de qualquer aceite.',
+    },
+    {
+        titulo: 'Cookies e armazenamento',
+        texto:
+            'Cookies gravados e chaves de storage escritas durante a visita, sem que nada tenha sido aceito.',
+    },
+];
 
 const Index = () => {
-  const { t } = useI18n();
-  const [isAuditActive, setIsAuditActive] = useState(false);
-  
-  return (
-    <div className="min-h-screen bg-[#070b16] font-sans text-slate-200">
-      <AppHeader />
-      
-      {!isAuditActive && (
-        <section className="pt-8 pb-2 px-4 text-center max-w-5xl mx-auto relative overflow-hidden">
-          {/* Background Glows */}
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full pointer-events-none overflow-hidden">
-            <div className="absolute -top-24 left-1/4 w-96 h-96 bg-blue-600/10 blur-[120px] rounded-full" />
-            <div className="absolute top-24 right-1/4 w-96 h-96 bg-indigo-600/10 blur-[120px] rounded-full" />
-          </div>
+    const { t } = useI18n();
+    const [isAuditActive, setIsAuditActive] = useState(false);
 
-          <h1 className="text-4xl md:text-6xl lg:text-7xl font-black tracking-tight text-white mb-4 leading-[1.1]">
-            {t('home.hero_title_line1')} <br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-blue-600 to-indigo-600 drop-shadow-sm">
-              {t('home.hero_title_accent')}
-            </span>.
-          </h1>
-          
-          <p className="text-lg md:text-xl text-slate-400 mb-6 max-w-3xl mx-auto font-light leading-relaxed">
-            {t('home.hero_subtitle')}
-          </p>
-          
-          <div className="flex flex-wrap gap-3 justify-center items-center mb-2">
-            <span className="flex items-center gap-2 text-xs sm:text-sm text-slate-300 font-medium bg-white/5 px-3 py-1.5 rounded-full border border-white/5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-green-400 flex-shrink-0" /> {t('home.perk_no_card')}
-            </span>
-            <span className="flex items-center gap-2 text-xs sm:text-sm text-slate-300 font-medium bg-white/5 px-3 py-1.5 rounded-full border border-white/5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-green-400 flex-shrink-0" /> {t('home.perk_fast_report')}
-            </span>
-            <span className="flex items-center gap-2 text-xs sm:text-sm text-slate-300 font-medium bg-white/5 px-3 py-1.5 rounded-full border border-white/5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-green-400 flex-shrink-0" /> {t('home.perk_active_checks')}
-            </span>
-          </div>
-        </section>
-      )}
+    return (
+        <div
+            className="sup-0 voz-ferramenta min-h-screen"
+            style={{ color: 'var(--laudo-texto)' }}
+        >
+            <AppHeader />
 
-      {/* SCAN SECTION — immediately visible after hero */}
-      <main className="container mx-auto px-4 pb-8 relative z-10">
-        <AuditErrorBoundary>
-          <AuditContainer onStateChange={setIsAuditActive} />
-        </AuditErrorBoundary>
-      </main>
+            {!isAuditActive && (
+                <section className="container mx-auto px-4 pb-14 pt-20 md:pb-20 md:pt-28">
+                    <div className="max-w-[46rem]">
+                        {/* Sobretítulo em <p>: o único <h1> da tela é a
+                            manchete, e leitor de tela não deve encontrar um
+                            nível de cabeçalho antes dele. */}
+                        <p className="t-etiqueta">Auditoria de tags, cookies e consentimento</p>
 
-      {!isAuditActive && (
-        <section className="bg-[#070b16] py-16 border-t border-white/5">
-          <div className="container mx-auto px-4 max-w-6xl">
-            <div className="text-center mb-12">
-              <h2 className="text-2xl md:text-3xl font-bold text-white mb-3">
-                {t('home.features_title')}
-              </h2>
-              <p className="text-base text-slate-400 max-w-2xl mx-auto">
-                {t('home.features_subtitle')}
-              </p>
-            </div>
-            
-            <div className="grid md:grid-cols-3 gap-6">
-              {/* Feature 1 */}
-              <div className="bg-white/5 backdrop-blur-sm p-6 rounded-2xl border border-white/10 hover:border-blue-500/50 hover:shadow-[0_0_30px_rgba(59,130,246,0.15)] transition-all group">
-                <div className="w-12 h-12 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                  <Activity className="w-6 h-6" />
+                        <h1 className="t-titulo mt-5" style={{ color: 'var(--laudo-texto)' }}>
+                            Descubra o que seu site coleta antes de o visitante aceitar.
+                        </h1>
+
+                        <p className="t-corpo mt-6" style={{ color: 'var(--laudo-texto-suave)' }}>
+                            A varredura abre a página sem clicar em “aceitar” — o que dispara mesmo
+                            assim vira evidência no laudo.
+                        </p>
+                    </div>
+                </section>
+            )}
+
+            {/* O campo de URL. É a única ação desta tela, e nada acima dele
+                disputa atenção. */}
+            <main className="container relative z-10 mx-auto px-4 pb-24">
+                <AuditErrorBoundary>
+                    <AuditContainer onStateChange={setIsAuditActive} />
+                </AuditErrorBoundary>
+            </main>
+
+            {!isAuditActive && (
+                <section className="border-t" style={{ borderColor: 'var(--sup-borda)' }}>
+                    <div className="container mx-auto px-4 py-20 md:py-28">
+                        <h2 className="t-etiqueta">O que a varredura observa</h2>
+
+                        <div className="mt-10 grid gap-12 md:grid-cols-3 md:gap-10">
+                            {O_QUE_A_VARREDURA_OBSERVA.map((item, indice) => (
+                                <div key={item.titulo}>
+                                    <span
+                                        className="voz-evidencia text-[11px]"
+                                        style={{ color: 'var(--laudo-texto-fraco)' }}
+                                        aria-hidden="true"
+                                    >
+                                        {String(indice + 1).padStart(2, '0')}
+                                    </span>
+                                    <h3
+                                        className="t-secao mt-3"
+                                        style={{ color: 'var(--laudo-texto)' }}
+                                    >
+                                        {item.titulo}
+                                    </h3>
+                                    <p className="t-apoio mt-3">{item.texto}</p>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* A linha que assina: serifada, porque é conclusão e não
+                            dado observado. */}
+                        <p
+                            className="voz-argumento mt-16 max-w-[38rem] text-[1.0625rem] md:mt-20"
+                            style={{ color: 'var(--laudo-texto-suave)' }}
+                        >
+                            Cada achado vem com o que foi observado, quando e em qual endereço —
+                            para você conferir, não acreditar.
+                        </p>
+                    </div>
+                </section>
+            )}
+
+            <footer className="border-t" style={{ borderColor: 'var(--sup-borda)' }}>
+                <div className="container mx-auto px-4 py-12">
+                    <div className="flex flex-col gap-8 md:flex-row md:items-center md:justify-between">
+                        <span style={{ color: 'var(--laudo-texto-suave)' }}>
+                            <MarcaDataTrust tamanho={26} />
+                        </span>
+
+                        <nav className="flex flex-wrap items-center gap-x-8 gap-y-3 text-sm">
+                            <a
+                                href="/pricing"
+                                className="text-[color:var(--laudo-texto-suave)] transition-colors hover:text-[color:var(--laudo-carimbo)]"
+                            >
+                                {t('nav.pricing')}
+                            </a>
+                            <a
+                                href="/docs"
+                                className="text-[color:var(--laudo-texto-suave)] transition-colors hover:text-[color:var(--laudo-carimbo)]"
+                            >
+                                {t('nav.docs')}
+                            </a>
+                            <a
+                                href="/terms"
+                                className="text-[color:var(--laudo-texto-suave)] transition-colors hover:text-[color:var(--laudo-carimbo)]"
+                            >
+                                {t('nav.terms')}
+                            </a>
+                        </nav>
+
+                        {/* O ano sai do relógio, não do arquivo de tradução: preso no JSON
+                            ele ficou marcando 2024 nos dez idiomas. */}
+                        <p
+                            className="voz-evidencia text-[11px]"
+                            style={{ color: 'var(--laudo-texto-fraco)' }}
+                        >
+                            © {new Date().getFullYear()} {t('footer.copyright')}
+                        </p>
+                    </div>
                 </div>
-                <h3 className="text-lg font-bold text-white mb-2">{t('home.feature1_title')}</h3>
-                <p className="text-sm text-slate-400 leading-relaxed">{t('home.feature1_desc')}</p>
-              </div>
-
-              {/* Feature 2 */}
-              <div className="bg-white/5 backdrop-blur-sm p-6 rounded-2xl border border-white/10 hover:border-indigo-500/50 hover:shadow-[0_0_30px_rgba(99,102,241,0.15)] transition-all group">
-                <div className="w-12 h-12 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                  <Shield className="w-6 h-6" />
-                </div>
-                <h3 className="text-lg font-bold text-white mb-2">{t('home.feature2_title')}</h3>
-                <p className="text-sm text-slate-400 leading-relaxed">{t('home.feature2_desc')}</p>
-              </div>
-
-              {/* Feature 3 */}
-              <div className="bg-white/5 backdrop-blur-sm p-6 rounded-2xl border border-white/10 hover:border-emerald-500/50 hover:shadow-[0_0_30px_rgba(16,185,129,0.15)] transition-all group">
-                <div className="w-12 h-12 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                  <Search className="w-6 h-6" />
-                </div>
-                <h3 className="text-lg font-bold text-white mb-2">{t('home.feature3_title')}</h3>
-                <p className="text-sm text-slate-400 leading-relaxed">{t('home.feature3_desc')}</p>
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* Footer */}
-      <footer className="border-t border-white/5 bg-[#070b16]">
-        <div className="container mx-auto px-4 py-10">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
-                <Zap className="w-4 h-4 text-white" />
-              </div>
-              <p className="text-sm font-semibold text-white">
-                DataTrust Audit
-              </p>
-            </div>
-            <div className="flex items-center gap-8 text-sm font-medium text-slate-500">
-              <a href="/pricing" className="hover:text-blue-400 transition-colors">{t('nav.pricing')}</a>
-              <a href="/docs" className="hover:text-blue-400 transition-colors">{t('nav.docs')}</a>
-              <a href="/terms" className="hover:text-blue-400 transition-colors">{t('nav.terms')}</a>
-            </div>
-            {/* O ano sai do relógio, não do arquivo de tradução: preso no JSON
-                ele ficou marcando 2024 nos dez idiomas. */}
-            <p className="text-xs text-slate-600">
-              © {new Date().getFullYear()} {t('footer.copyright')}
-            </p>
-          </div>
+            </footer>
         </div>
-      </footer>
-    </div>
-  );
+    );
 };
 
 export default Index;

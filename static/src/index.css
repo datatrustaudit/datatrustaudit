@@ -210,6 +210,135 @@ All colors MUST be HSL.
   --laudo-texto-fraco: #7E8792;
 }
 
+/* ==========================================================================
+   Sistema de superfície
+   ==========================================================================
+
+   As telas usavam `bg-[#070b16]` escrito à mão em cada arquivo, e cartões com
+   `bg-white/5` — que não é uma cor, é um véu: sobre fundos diferentes ele dá
+   resultados diferentes, e por isso as telas nunca pareciam a mesma coisa.
+
+   Três níveis, e só três. Mais que isso ninguém distingue, e a hierarquia
+   deixa de significar.
+   ========================================================================== */
+:root {
+  --sup-0: #F4F2ED;   /* o chão da página */
+  --sup-1: #FFFFFF;   /* cartão sobre o chão */
+  --sup-2: #EDEAE3;   /* área embutida: campo, código, trilho */
+  --sup-borda: #D8D4C9;
+  --sup-borda-forte: #C0BAAB;
+}
+.dark {
+  --sup-0: #0B0F13;
+  --sup-1: #141A20;
+  --sup-2: #1B222A;
+  --sup-borda: #262F38;
+  --sup-borda-forte: #35404B;
+}
+
+.sup-0 { background: var(--sup-0); }
+.sup-1 { background: var(--sup-1); }
+.sup-2 { background: var(--sup-2); }
+
+/* ==========================================================================
+   A MARCA
+   --------------------------------------------------------------------------
+   As cores do logo moram aqui, e não dentro do SVG, por um motivo prático: o
+   azul-marinho do original desaparece contra o fundo #0B0F13 do tema escuro.
+   Com as cores em variáveis, o mesmo arquivo de marca serve aos dois temas —
+   no escuro elas assumem versões clareadas, preservando a relação entre as
+   partes (o lado firme continua mais fechado que o lado vivo).
+
+   `--marca-lente` é a única que inverte de propósito: a lente da lupa é opaca
+   para tapar as linhas da malha que passariam por dentro dela.
+   ========================================================================== */
+:root {
+  --marca-escuro: #12285C;   /* metade firme do escudo, aro da lupa, cabo */
+  --marca-vivo: #1A63E8;     /* metade viva do escudo */
+  --marca-check: #22B5D8;    /* a conferência */
+  --marca-check-2: #35D0EE;
+  --marca-pixel: #2C6FD6;    /* dado escapando e malha de tags */
+  --marca-lente: #FFFFFF;
+}
+.dark {
+  --marca-escuro: #8FB4EE;
+  --marca-vivo: #4D8FF5;
+  --marca-check: #35D0EE;
+  --marca-check-2: #6FE4FA;
+  --marca-pixel: #6098E4;
+  --marca-lente: #101820;
+}
+
+/* O nome e o serviço. "Audit" leva o gradiente porque nomeia o que se entrega;
+   `background-clip: text` precisa da cor transparente para deixar ver. */
+.marca-nome { color: var(--marca-escuro); }
+.marca-servico {
+  background: linear-gradient(100deg, var(--marca-vivo), var(--marca-check-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.marca-assinatura { color: var(--marca-escuro); opacity: 0.62; }
+.marca-ponto { color: var(--marca-check); opacity: 0.9; }
+
+/* Cartão padrão. Sombra fina e curta em vez de brilho — o que dá relevo é a
+   diferença de superfície e a borda, não o borrão. */
+.cartao {
+  background: var(--sup-1);
+  border: 1px solid var(--sup-borda);
+  border-radius: 14px;
+}
+
+/* Escala tipográfica. Passos largos o bastante para a hierarquia ser óbvia
+   sem precisar de negrito em tudo. */
+.t-titulo {
+  font-size: clamp(1.9rem, 4.5vw, 3rem);
+  line-height: 1.06;
+  letter-spacing: -0.03em;
+  font-weight: 600;
+  text-wrap: balance;
+}
+.t-secao {
+  font-size: clamp(1.25rem, 2.4vw, 1.6rem);
+  line-height: 1.18;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  text-wrap: balance;
+}
+.t-corpo {
+  font-size: 1rem;
+  line-height: 1.6;
+  max-width: 66ch;
+}
+.t-apoio {
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--laudo-texto-suave);
+  max-width: 62ch;
+}
+.t-etiqueta {
+  font-family: var(--laudo-voz-evidencia);
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--laudo-texto-fraco);
+}
+
+/* Foco visível em tudo que recebe teclado. Faltava, e sem isso quem navega
+   por Tab não sabe onde está. */
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--laudo-carimbo);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* Utilitários das três vozes. Usados onde a semântica importa — evidência
    observada, texto que conclui, controle de interface. */
 .voz-evidencia {

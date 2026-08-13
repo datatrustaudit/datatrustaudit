@@ -1,28 +1,9 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import {
-  Globe,
-  Search,
-  Eye,
-  Upload,
-  BarChart3,
-  Zap,
-  Shield,
-  CheckCircle,
-  AlertTriangle,
-  Clock,
-  TrendingUp,
-  FileCode,
-  Layers,
-  Sparkles,
-  MapPin
-} from 'lucide-react';
+import { Globe, Search, Eye, Upload, Layers, MapPin, Lock, type LucideIcon } from 'lucide-react';
 import AuditoriaDeTrajeto from './laudo/AuditoriaDeTrajeto';
 import FileUploadSection from './FileUploadSection';
 import SiteNavigationAnalysis from './SiteNavigationAnalysis';
@@ -30,7 +11,6 @@ import OmnibugRealTimeDisplay from './OmnibugRealTimeDisplay';
 import { useI18n } from '@/context/I18nContext';
 import { usePlan } from '@/context/PlanContext';
 import { useAuth } from '@/context/AuthContext';
-import { Lock } from 'lucide-react';
 
 interface AuditFormProps {
   url: string;
@@ -101,51 +81,28 @@ const AuditForm = ({
     }
   };
 
-  const features = [
-    { icon: Shield, label: t('home.tag_count'), desc: t('home.tag_desc') },
-    { icon: FileCode, label: t('home.lgpd_title'), desc: t('home.lgpd_desc') },
-    { icon: TrendingUp, label: t('home.fines_title'), desc: t('home.fines_desc') },
-    { icon: Sparkles, label: t('home.ai_title'), desc: t('home.ai_desc') },
+  /* A leitura do plano é a mesma de antes, só guardada numa constante: a
+     mesma pergunta aparecia quatro vezes dentro do JSX do view-source. */
+  const podeVerFonte = isFeatureAvailable('showScripts');
+
+  /* As abas escolhem um modo, não são o modo — por isso na tira só aparece o
+     título. Título e descrição empilhados nas cinco abas viravam papa em tela
+     estreita (dois blocos de 9px por aba, cinco vezes). A descrição desceu
+     para uma linha só, a do modo que está ativo. */
+  const modos: { valor: string; titulo: string; descricao: string; Icone: LucideIcon; pro?: boolean }[] = [
+    { valor: 'url', titulo: t('home.tab_url'), descricao: t('home.tab_url_desc'), Icone: Globe },
+    { valor: 'upload', titulo: t('home.tab_upload'), descricao: t('home.tab_upload_desc'), Icone: Upload },
+    { valor: 'navigation', titulo: t('home.tab_deep'), descricao: t('home.tab_deep_desc'), Icone: Layers },
+    { valor: 'omnibug', titulo: t('home.tab_realtime'), descricao: t('home.tab_realtime_desc'), Icone: Eye, pro: true },
+    /* Trajeto: o único modo que alcança a área logada, porque quem
+       navega é o auditor, não o scanner. */
+    { valor: 'trajeto', titulo: 'Trajeto', descricao: 'Checkout e área logada', Icone: MapPin },
   ];
+  const modoAtivo = modos.find(m => m.valor === activeTab);
 
   return (
-    <Card className="mb-8 shadow-2xl border-white/5 bg-slate-900/40 backdrop-blur-xl overflow-hidden rounded-[24px]">
-      {/* Header */}
-      <CardHeader className="relative pb-6 border-b border-white/5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-blue-500/20">
-              <Zap className="h-6 w-6" />
-            </div>
-            <div>
-              <CardTitle className="text-2xl font-bold text-white flex items-center gap-2">
-                DataTrust Audit
-                <Badge className="bg-white/5 text-white/40 text-[10px] font-bold border-white/10 tracking-widest uppercase">v2.0</Badge>
-              </CardTitle>
-              <CardDescription className="text-white/40 mt-1 text-sm font-medium">
-                {t('home.audit_description')}
-              </CardDescription>
-            </div>
-          </div>
-        </div>
-
-        {/* Feature Pills */}
-        <div className="flex flex-wrap gap-2 mt-6">
-          {features.map((f, i) => (
-            <div
-              key={i}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 border border-white/5 text-xs text-white/60 shadow-sm hover:bg-white/10 transition-all cursor-default"
-            >
-              <f.icon className="h-3.5 w-3.5 text-blue-400" />
-              <span className="font-bold">{f.label}</span>
-              <span className="text-white/10">•</span>
-              <span className="text-white/40">{f.desc}</span>
-            </div>
-          ))}
-        </div>
-      </CardHeader>
-
-      <CardContent className="pt-8 px-8 pb-8">
+    <section className="cartao mb-8 overflow-hidden">
+      <div className="p-5 sm:p-8">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           {/* Barra de endereço acima das abas.
               Ela morava dentro da aba "Análise Rápida": quem entrava direto no
@@ -153,51 +110,70 @@ const AuditForm = ({
               recebem `url` por prop e ficavam presos numa string vazia. Aqui em
               cima ela vale para os três modos que usam URL. */}
           {modoUsaUrl && (
-            <div className="relative group mb-8">
-              <div className="flex flex-col md:flex-row gap-4">
-                <div className="relative flex-1">
-                  <Globe className="absolute left-5 top-1/2 -translate-y-1/2 h-5 w-5 text-white/20 group-focus-within:text-blue-400 transition-colors" />
+            <div className="mb-8 sm:mb-10">
+              <label htmlFor="endereco-auditado" className="t-etiqueta mb-3 block">
+                Endereço a auditar
+              </label>
+
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <div className="relative flex-1 rounded-xl border bg-[var(--sup-2)] border-[var(--sup-borda)] transition-colors focus-within:border-[var(--laudo-carimbo)] focus-within:shadow-[0_0_0_3px_var(--laudo-carimbo-wash)]">
+                  <Globe
+                    aria-hidden="true"
+                    className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--laudo-texto-fraco)] sm:left-5 sm:h-[1.15rem] sm:w-[1.15rem]"
+                  />
                   <Input
+                    id="endereco-auditado"
                     type="text"
+                    inputMode="url"
                     placeholder={t('home.url_placeholder')}
                     value={url}
                     onChange={(e) => setUrl(e.target.value)}
-                    aria-label={t('home.url_placeholder')}
-                    className="pl-14 h-16 text-lg bg-white/5 border-white/5 focus:bg-white/10 focus:border-blue-500/50 focus:ring-blue-500/10 rounded-2xl transition-all placeholder:text-white/20 text-white shadow-inner"
+                    className="voz-evidencia h-14 w-full border-0 bg-transparent pl-11 pr-4 text-base text-[var(--laudo-texto)] placeholder:text-[var(--laudo-texto-fraco)] focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 sm:h-16 sm:pl-14 sm:text-[1.0625rem] md:text-[1.0625rem]"
                     onKeyDown={(e) => e.key === 'Enter' && dispararModoAtivo()}
                   />
                 </div>
                 <Button
                   onClick={dispararModoAtivo}
                   disabled={loading || !url}
-                  size="lg"
-                  className="h-16 px-10 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-xl shadow-blue-500/10 transition-all hover:scale-[1.02] active:scale-[0.98] border-0"
+                  className="h-14 w-full shrink-0 rounded-xl px-7 text-[0.9375rem] font-semibold tracking-tight transition hover:brightness-110 sm:h-16 sm:w-auto sm:px-9"
+                  style={{ background: 'var(--laudo-carimbo)', color: 'var(--sup-0)' }}
                 >
                   {loading ? (
-                    <div className="flex items-center gap-3">
-                      <div className="animate-spin rounded-full h-5 w-5 border-2 border-white/20 border-t-white" />
-                      <span className="font-bold uppercase tracking-widest text-xs">{t('home.analyzing')}</span>
-                    </div>
+                    <span className="flex items-center gap-3">
+                      <span
+                        aria-hidden="true"
+                        className="h-4 w-4 animate-spin rounded-full border-2"
+                        style={{
+                          borderColor: 'color-mix(in srgb, currentColor 25%, transparent)',
+                          borderTopColor: 'currentColor',
+                        }}
+                      />
+                      {t('home.analyzing')}
+                    </span>
                   ) : (
-                    <div className="flex items-center gap-3 font-bold uppercase tracking-widest text-xs">
-                      <Search className="h-5 w-5" />
-                      <span>{rotuloDoBotao()}</span>
-                    </div>
+                    <span className="flex items-center gap-2.5">
+                      <Search className="h-4 w-4" aria-hidden="true" />
+                      {rotuloDoBotao()}
+                    </span>
                   )}
                 </Button>
               </div>
 
-              {/* Recent URLs */}
+              {/* Endereços já digitados nesta sessão. */}
               {recentUrls.length > 0 && (
-                <div className="mt-5 flex items-center gap-3 flex-wrap">
-                  <span className="text-[10px] text-white/20 uppercase tracking-widest flex items-center gap-1.5 font-bold">
-                    <Clock className="h-3 w-3" /> {t('nav.history')}:
-                  </span>
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <span className="t-etiqueta">{t('nav.history')}</span>
                   {recentUrls.map((u, i) => (
                     <button
                       key={i}
+                      type="button"
                       onClick={() => setUrl(u)}
-                      className="text-[10px] px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-white/40 hover:text-white border border-white/5 transition-all font-medium"
+                      className="voz-evidencia max-w-full truncate rounded-md border px-2.5 py-1 text-[11px] transition-colors"
+                      style={{
+                        borderColor: 'var(--sup-borda)',
+                        background: 'var(--sup-2)',
+                        color: 'var(--laudo-texto-suave)',
+                      }}
                     >
                       {u}
                     </button>
@@ -207,151 +183,130 @@ const AuditForm = ({
             </div>
           )}
 
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 p-1.5 bg-white/5 rounded-2xl h-auto border border-white/5 mb-8">
-            <TabsTrigger
-              value="url"
-              className="flex flex-col sm:flex-row items-center gap-2 py-4 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-xl rounded-xl transition-all text-white/50"
-            >
-              <Globe className="h-4 w-4" />
-              <div className="text-left">
-                <div className="font-bold text-[10px] uppercase tracking-wider">{t('home.tab_url')}</div>
-                <div className="text-[9px] opacity-40 font-medium hidden sm:block">{t('home.tab_url_desc')}</div>
-              </div>
-            </TabsTrigger>
-            <TabsTrigger
-              value="upload"
-              className="flex flex-col sm:flex-row items-center gap-2 py-4 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-xl rounded-xl transition-all text-white/50"
-            >
-              <Upload className="h-4 w-4" />
-              <div className="text-left">
-                <div className="font-bold text-[10px] uppercase tracking-wider">{t('home.tab_upload')}</div>
-                <div className="text-[9px] opacity-40 font-medium hidden sm:block">{t('home.tab_upload_desc')}</div>
-              </div>
-            </TabsTrigger>
-            <TabsTrigger
-              value="navigation"
-              className="flex flex-col sm:flex-row items-center gap-2 py-4 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-xl rounded-xl transition-all text-white/50"
-            >
-              <Layers className="h-4 w-4" />
-              <div className="text-left">
-                <div className="font-bold text-[10px] uppercase tracking-wider">{t('home.tab_deep')}</div>
-                <div className="text-[9px] opacity-40 font-medium hidden sm:block">{t('home.tab_deep_desc')}</div>
-              </div>
-            </TabsTrigger>
-            <TabsTrigger
-              value="omnibug"
-              className="flex flex-col sm:flex-row items-center gap-2 py-4 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-xl rounded-xl transition-all relative text-white/50"
-            >
-              <Eye className="h-4 w-4" />
-              <div className="text-left">
-                <div className="font-bold text-[10px] uppercase tracking-wider">{t('home.tab_realtime')}</div>
-                <div className="text-[9px] opacity-40 font-medium hidden sm:block">{t('home.tab_realtime_desc')}</div>
-              </div>
-              <Badge className="absolute -top-1.5 -right-1.5 text-[8px] px-1.5 py-0.5 bg-blue-600 border-0 font-black shadow-lg">PRO</Badge>
-            </TabsTrigger>
-
-            {/* Trajeto: o único modo que alcança a área logada, porque quem
-                navega é o auditor, não o scanner. */}
-            <TabsTrigger
-              value="trajeto"
-              className="flex flex-col sm:flex-row items-center gap-2 py-4 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-xl rounded-xl transition-all text-white/50"
-            >
-              <MapPin className="h-4 w-4" />
-              <div className="text-left">
-                <div className="font-bold text-[10px] uppercase tracking-wider">Trajeto</div>
-                <div className="text-[9px] opacity-40 font-medium hidden sm:block">Checkout e área logada</div>
-              </div>
-            </TabsTrigger>
+          <TabsList
+            aria-label="Modo de auditoria"
+            className="flex h-auto w-full flex-wrap justify-start gap-1 rounded-none bg-transparent p-0"
+          >
+            {modos.map(({ valor, titulo, Icone, pro }) => {
+              const ativa = activeTab === valor;
+              return (
+                <TabsTrigger
+                  key={valor}
+                  value={valor}
+                  className="rounded-md px-2.5 py-2 text-[0.8125rem] font-medium tracking-tight transition-colors sm:px-3"
+                  style={{
+                    background: ativa ? 'var(--laudo-carimbo-wash)' : 'transparent',
+                    color: ativa ? 'var(--laudo-texto)' : 'var(--laudo-texto-fraco)',
+                    boxShadow: ativa
+                      ? 'inset 0 0 0 1px color-mix(in srgb, var(--laudo-carimbo) 55%, transparent)'
+                      : 'none',
+                  }}
+                >
+                  <Icone className="mr-2 hidden h-3.5 w-3.5 opacity-70 sm:block" aria-hidden="true" />
+                  {titulo}
+                  {/* O selo PRO era um badge azul cheio, flutuando fora da aba.
+                      A informação continua; o tratamento virou uma marca de
+                      arquivo, que não disputa atenção com achado. */}
+                  {pro && (
+                    <span
+                      className="voz-evidencia ml-2 rounded-sm border px-1 py-px text-[9px] leading-none tracking-[0.14em]"
+                      style={{ borderColor: 'var(--sup-borda-forte)', color: 'var(--laudo-texto-fraco)' }}
+                    >
+                      PRO
+                    </span>
+                  )}
+                </TabsTrigger>
+              );
+            })}
           </TabsList>
 
+          {/* A descrição do modo escolhido, uma linha, embaixo da tira. */}
+          {modoAtivo && (
+            <p className="mt-3 text-[0.8125rem]" style={{ color: 'var(--laudo-texto-fraco)' }}>
+              {modoAtivo.descricao}
+            </p>
+          )}
+
           {/* URL Analysis Tab — a barra de endereço subiu para cima das abas */}
-          <TabsContent value="url" className="space-y-6 focus-visible:outline-none">
+          <TabsContent value="url" className="mt-7 space-y-5 focus-visible:outline-none">
             {/* View Source Option (Premium Box) */}
-            <div 
-              className={`flex items-center gap-5 p-6 rounded-2xl border transition-all ${
-                isFeatureAvailable('showScripts') 
-                  ? 'bg-white/5 border-white/5 shadow-inner' 
-                  : 'bg-white/[0.02] border-white/[0.02] opacity-40'
-              }`}
+            <div
+              className="flex items-start gap-3 rounded-xl border p-4 sm:gap-4 sm:p-5"
+              style={{
+                borderColor: 'var(--sup-borda)',
+                background: 'var(--sup-2)',
+                opacity: podeVerFonte ? 1 : 0.65,
+              }}
             >
-              <div className="relative">
-                <Checkbox
-                  id="view-source"
-                  checked={isFeatureAvailable('showScripts') ? useViewSource : false}
-                  onCheckedChange={(checked) => {
-                    if (!isFeatureAvailable('showScripts')) {
-                      setBlockedFeature('showScripts');
-                      setShowUpgradeModal(true);
-                      return;
-                    }
-                    setUseViewSource(checked as boolean)
-                  }}
-                  className="w-6 h-6 rounded-lg border-white/10 bg-white/5 data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600 transition-all shadow-lg"
-                />
-              </div>
-              <div 
-                className="flex-1 cursor-pointer"
+              <Checkbox
+                id="view-source"
+                checked={podeVerFonte ? useViewSource : false}
+                onCheckedChange={(checked) => {
+                  if (!podeVerFonte) {
+                    setBlockedFeature('showScripts');
+                    setShowUpgradeModal(true);
+                    return;
+                  }
+                  setUseViewSource(checked as boolean)
+                }}
+                className="mt-0.5 h-5 w-5 rounded-[5px] shrink-0"
+                style={{
+                  borderColor: 'var(--sup-borda-forte)',
+                  background: podeVerFonte && useViewSource ? 'var(--laudo-carimbo)' : 'var(--sup-1)',
+                  color: 'var(--sup-0)',
+                }}
+              />
+              <div
+                className="min-w-0 flex-1 cursor-pointer"
                 onClick={() => {
-                  if (!isFeatureAvailable('showScripts')) {
+                  if (!podeVerFonte) {
                     setBlockedFeature('showScripts');
                     setShowUpgradeModal(true);
                   }
                 }}
               >
-                <label
-                  htmlFor="view-source"
-                  className="font-bold text-white flex items-center gap-2 cursor-pointer text-sm tracking-tight"
-                >
-                  <Eye className="h-4 w-4 text-blue-400" />
-                  {t('home.view_source')}
-                  {!isFeatureAvailable('showScripts') && <Lock className="h-3.5 w-3.5 text-white/20 ml-1" />}
-                </label>
-                <p className="text-xs text-white/40 mt-1 font-medium">
+                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                  <label
+                    htmlFor="view-source"
+                    className="cursor-pointer text-sm font-semibold tracking-tight"
+                    style={{ color: 'var(--laudo-texto)' }}
+                  >
+                    {t('home.view_source')}
+                  </label>
+                  {!podeVerFonte && (
+                    <Lock className="h-3.5 w-3.5" aria-hidden="true" style={{ color: 'var(--laudo-texto-fraco)' }} />
+                  )}
+                  <span className="t-etiqueta">Premium</span>
+                </div>
+                <p className="t-apoio mt-1 text-[0.8125rem]">
                   {t('home.view_source_desc')}
                 </p>
               </div>
-              <Badge className="bg-blue-500/10 text-blue-400 border-blue-500/20 text-[10px] font-black tracking-widest uppercase py-1 px-3">
-                PREMIUM
-              </Badge>
             </div>
 
-            {/* Info Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4">
-              <div className="p-5 rounded-2xl bg-white/5 border border-white/5 group hover:bg-white/10 transition-all cursor-default text-center sm:text-left">
-                <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform mx-auto sm:mx-0">
-                  <Zap className="h-5 w-5" />
-                </div>
-                <h4 className="font-bold text-white text-sm mb-1 uppercase tracking-wider">{t('home.fast')}</h4>
-                <p className="text-xs text-white/30 font-medium">{t('home.fast_desc')}</p>
-              </div>
-              <div className="p-5 rounded-2xl bg-white/5 border border-white/5 group hover:bg-white/10 transition-all cursor-default text-center sm:text-left">
-                <div className="w-10 h-10 rounded-xl bg-green-500/10 text-green-400 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform mx-auto sm:mx-0">
-                  <Shield className="h-5 w-5" />
-                </div>
-                <h4 className="font-bold text-white text-sm mb-1 uppercase tracking-wider">{t('home.secure')}</h4>
-                <p className="text-xs text-white/30 font-medium">{t('home.secure_desc')}</p>
-              </div>
-              <div className="p-5 rounded-2xl bg-white/5 border border-white/5 group hover:bg-white/10 transition-all cursor-default text-center sm:text-left">
-                <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform mx-auto sm:mx-0">
-                  <Sparkles className="h-5 w-5" />
-                </div>
-                <h4 className="font-bold text-white text-sm mb-1 uppercase tracking-wider">{t('home.ai_title')}</h4>
-                <p className="text-xs text-white/30 font-medium">{t('home.ai_desc')}</p>
-              </div>
-            </div>
+            {/* Os três cartões com ícone colorido saíram. A cor ali não marcava
+                gravidade nenhuma — era decoração, e cor decorativa ao lado do
+                botão de varredura compete com a cor que significa achado. O
+                cartão de "IA" saiu inteiro: dizia "IA — Auditoria com IA", que
+                não informa nada. O que restou são os dois fatos que valem no
+                momento de clicar: quanto tempo leva e o que é guardado. */}
+            <p className="text-[0.8125rem]" style={{ color: 'var(--laudo-texto-fraco)' }}>
+              <span className="voz-evidencia">{t('home.fast_desc')}</span>
+              <span className="mx-2" aria-hidden="true">·</span>
+              {t('home.secure_desc')}
+            </p>
           </TabsContent>
 
-          {/* Other Tabs remain same but inside dark theme */}
-          <TabsContent value="upload" className="mt-6 focus-visible:outline-none">
+          <TabsContent value="upload" className="mt-7 focus-visible:outline-none">
             <FileUploadSection onFilesProcessed={handleFileUpload} disabled={loading} />
           </TabsContent>
-          <TabsContent value="navigation" className="mt-6 focus-visible:outline-none">
+          <TabsContent value="navigation" className="mt-7 focus-visible:outline-none">
             <SiteNavigationAnalysis url={url} gatilho={gatilhoDeep} onComplete={onNavigationComplete} />
           </TabsContent>
-          <TabsContent value="trajeto" className="mt-6 focus-visible:outline-none">
+          <TabsContent value="trajeto" className="mt-7 focus-visible:outline-none">
             <AuditoriaDeTrajeto />
           </TabsContent>
-          <TabsContent value="omnibug" className="mt-6 focus-visible:outline-none">
+          <TabsContent value="omnibug" className="mt-7 focus-visible:outline-none">
             <OmnibugRealTimeDisplay url={url} gatilho={gatilhoTempoReal} onComplete={(results) => {
               if (onFileAnalysis) {
                 onFileAnalysis([{
@@ -364,8 +319,8 @@ const AuditForm = ({
             }} />
           </TabsContent>
         </Tabs>
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 };
 

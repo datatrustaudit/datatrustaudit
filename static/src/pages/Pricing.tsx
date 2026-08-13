@@ -1,59 +1,103 @@
-import { useState, useEffect } from 'react';
-import { useNavigate, Link, useSearchParams } from 'react-router-dom';
-import { useLocaleContext } from '@/context/LocaleContext';
-import { useI18n } from '@/context/I18nContext';
+/**
+ * Planos — a tela onde se compra o laudo completo.
+ *
+ * Ela ainda vendia um produto que não existe mais:
+ *
+ *   · três planos lado a lado. O Pro saiu de venda — continua no código porque
+ *     quem assinou antes mantém o acesso, mas não pode aparecer como opção de
+ *     compra, senão alguém compra um plano que ninguém mais entrega;
+ *   · "Assinar", "/mês" e "cancele quando quiser" descreviam mensalidade. A
+ *     cobrança é avulsa, e isso era justamente o argumento que o concorrente
+ *     não tem — estava escondido numa nota de 12px no rodapé do cabeçalho;
+ *   · a comparação listava recurso de plano descontinuado em três colunas.
+ *
+ * Preço tem uma fonte só: GET /api/payments/plans, via `usePricing`. A
+ * formatação é a mesma do checkout (Intl pt-BR/BRL, dois dígitos) porque um
+ * centavo de diferença entre o que a página anuncia e o que a cobrança debita
+ * vira contestação. O `formatPrice` do LocaleContext não serve aqui: ele trata
+ * o número como dólar e converte pela taxa — os R$ 247 que o servidor devolve
+ * viravam "R$ 1.445" na tela enquanto o checkout cobrava 247. É o mesmo defeito
+ * que já fez a tela mostrar R$ 49,90 e o checkout cobrar R$ 97.
+ */
+import { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { usePlan, PlanType } from '@/context/PlanContext';
-import { useSubscription, BillingCycle } from '@/context/SubscriptionContext';
-import { PRICING_CONFIG } from '@/config/pricing.config';
+import { usePlan, PlanType, PLAN_CONFIGS } from '@/context/PlanContext';
 import { usePricing, type FormaDePagamento } from '@/hooks/usePricing';
+import AppHeader from '@/components/AppHeader';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import LocaleSelector from '@/components/LocaleSelector';
-import MarcaDataTrust from '@/components/MarcaDataTrust';
-import {
-    Check, X, Tag, Zap, Star, Crown, ArrowRight, Shield,
-    HelpCircle, Lock, TrendingUp, Clock, FileText, Calendar, Sparkles
-} from 'lucide-react';
+import { ArrowRight, Check, Minus } from 'lucide-react';
 
-const PLAN_ICONS: Record<PlanType, JSX.Element> = {
-    free: <Tag className="w-5 h-5" />,
-    pro: <Star className="w-5 h-5" />,
-    premium: <Crown className="w-5 h-5" />,
-};
+/* Os limites saem de onde o app decide o corte de verdade (PLAN_CONFIGS, que
+   espelha WEEKLY_SCAN_LIMITS do backend). Número escrito à mão aqui é número
+   que envelhece sem ninguém perceber. */
+const LIMITE_GRATUITO = PLAN_CONFIGS.free.limits;
+const LIMITE_PREMIUM = PLAN_CONFIGS.premium.limits;
 
-const PLAN_COLORS: Record<PlanType, string> = {
-    free: 'from-slate-500 to-slate-600',
-    pro: 'from-blue-500 to-indigo-600',
-    premium: 'from-amber-500 to-orange-600',
-};
-
-const COMPARE_ROWS = [
-    { key: 'audits_per_week', free: '10/sem', pro: '50/sem', full: '200/sem' },
-    { key: 'basic_dashboard', free: true, pro: true, full: true },
-    { key: 'detailed_dashboard', free: false, pro: true, full: true },
-    { key: 'json_export', free: false, pro: true, full: true },
-    { key: 'pdf_export', free: false, pro: true, full: true },
-    { key: 'excel_export', free: false, pro: false, full: true },
-    { key: 'complete_history', free: false, pro: false, full: true },
-    { key: 'realtime_monitoring', free: false, pro: false, full: true },
-    { key: 'advanced_view_source', free: false, pro: false, full: true },
-    { key: 'exact_tag_localization', free: false, pro: false, full: true },
-    { key: 'ai_chat', free: 'Limited', pro: 'Expanded', full: 'Unlimited' },
-    { key: 'priority_support', free: false, pro: false, full: true }
+/* O que cada plano entrega, na ordem em que interessa a quem lê. As mesmas
+   frases aparecem no corte do laudo (`components/laudo/Veredito.tsx`): a
+   promessa da página de preço e a do produto precisam ser a mesma. */
+const ENTREGA_GRATUITA = [
+    'O veredito do site em uma frase',
+    'Quantas não conformidades existem, e a gravidade de cada uma',
+    'O artigo da LGPD que o site contraria',
+    `${LIMITE_GRATUITO.scansPerWeek} varreduras por semana`,
+    `Chat com a IA, ${LIMITE_GRATUITO.aiChatMessagesPerDay} perguntas por dia`,
 ];
 
-const PLAN_RANK: Record<string, number> = { free: 0, pro: 1, premium: 2 };
+const ENTREGA_PREMIUM = [
+    'Cada achado com a tag responsável e a linha no código',
+    'Os cookies e as chaves de storage gravados antes do aceite, um a um',
+    'O passo a passo da correção, com o código pronto',
+    'A versão para o jurídico, com base legal e cadeia de evidência',
+    'Exportação em PDF, Excel e JSON',
+    'Histórico e comparação entre varreduras',
+    `${LIMITE_PREMIUM.scansPerWeek} varreduras por semana`,
+];
+
+/* Duas colunas, e só o que o produto entrega hoje. Saíram as linhas do modelo
+   antigo: a coluna do Pro, "dashboard básico/detalhado" (que não descrevia
+   nada que o usuário reconheça na tela) e "suporte prioritário", que não tem
+   contrapartida implementada — prometer atendimento diferente sem fila
+   diferente é o mesmo alarme falso que a identidade proíbe nos achados. */
+const COMPARE_ROWS: { recurso: string; gratuito: boolean | string; premium: boolean | string }[] = [
+    {
+        recurso: 'Varreduras por semana',
+        gratuito: String(LIMITE_GRATUITO.scansPerWeek),
+        premium: String(LIMITE_PREMIUM.scansPerWeek),
+    },
+    { recurso: 'Veredito e contagem de não conformidades', gratuito: true, premium: true },
+    { recurso: 'Gravidade de cada achado', gratuito: true, premium: true },
+    { recurso: 'Artigo da LGPD contrariado', gratuito: true, premium: true },
+    { recurso: 'Tag responsável por cada achado', gratuito: false, premium: true },
+    { recurso: 'Linha exata no código-fonte', gratuito: false, premium: true },
+    { recurso: 'Cookies e storage gravados antes do aceite', gratuito: false, premium: true },
+    { recurso: 'Passo a passo da correção', gratuito: false, premium: true },
+    { recurso: 'Versão para o jurídico', gratuito: false, premium: true },
+    { recurso: 'Exportação em PDF, Excel e JSON', gratuito: false, premium: true },
+    { recurso: 'Histórico e comparação entre varreduras', gratuito: false, premium: true },
+    { recurso: 'Leitura em tempo real', gratuito: false, premium: true },
+    { recurso: 'Varredura profunda, várias páginas', gratuito: false, premium: true },
+    {
+        recurso: 'Chat com a IA',
+        gratuito: `${LIMITE_GRATUITO.aiChatMessagesPerDay} por dia`,
+        premium: 'Sem limite',
+    },
+];
+
+/* O mesmo formatador do checkout. Ver o cabeçalho do arquivo: converter aqui
+   com outra régua foi o que fez a página anunciar um valor e a cobrança
+   debitar outro. */
+const formatarBRL = (valor: number) =>
+    new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
 
 const PricingPage = () => {
-    const { formatPrice, currency, locale } = useLocaleContext();
-    const { language, t } = useI18n();
     const { isAuthenticated } = useAuth();
-    const { plan: currentPlan, selectPlan, selectedPlan } = usePlan();
+    const { plan: currentPlan, selectPlan } = usePlan();
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
     const [showCompare, setShowCompare] = useState(false);
-    const [hoveredPlan, setHoveredPlan] = useState<string | null>(null);
+    const [planoDestacado, setPlanoDestacado] = useState<string | null>(null);
     const [clickedPlan, setClickedPlan] = useState<string | null>(null);
 
     /* Forma de pagamento no lugar do ciclo de cobrança: a compra é avulsa, e o
@@ -66,7 +110,7 @@ const PricingPage = () => {
     useEffect(() => {
         const planParam = searchParams.get('plan');
         if (planParam && ['free', 'pro', 'premium'].includes(planParam)) {
-            setHoveredPlan(planParam);
+            setPlanoDestacado(planParam);
         }
     }, [searchParams]);
 
@@ -88,314 +132,422 @@ const PricingPage = () => {
         navigate(dest);
     };
 
-    return (
-        <div className="min-h-screen bg-[#070b16]">
-            {/* Nav */}
-            <nav className="sticky top-0 z-30 border-b border-white/10 bg-slate-950/80 backdrop-blur-xl">
-                <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-                    <Link to="/" className="flex items-center gap-2.5 group">
-                        <MarcaDataTrust tamanho={28} className="text-white" />
-                    </Link>
-                    <div className="flex items-center gap-4">
-                        <a href="mailto:suporte@datatrustauditpro.com" className="text-white/40 hover:text-white/70 text-sm transition-colors hidden sm:block">
-                            {t('nav.support')}
-                        </a>
-                        <LocaleSelector compact />
-                        <Link to="/" className="text-white/60 hover:text-white text-sm transition-colors">
-                            {t('nav.back')}
-                        </Link>
-                    </div>
-                </div>
-            </nav>
+    /* O preço vem do backend, que é quem monta a cobrança. Enquanto a resposta
+       não chega, o lugar do valor fica com um travessão: exibir a tabela local
+       de reserva mostraria R$ 149,90 por um laudo de R$ 247 — divergência é o
+       defeito que essa tela já teve, e meio segundo dele basta para o cliente
+       fotografar a tela. */
+    const premium = precos?.plans?.premium ?? null;
+    const valorPremium = premium ? premium[formaDePagamento] : null;
+    const economiaNoPix = premium?.pixSavings ?? 0;
+    const janelaDeAcesso = diasDeAcesso >= 360
+        ? '1 ano'
+        : `${Math.round(diasDeAcesso / 30)} meses`;
 
-            <div className="max-w-6xl mx-auto px-6 py-16">
-                {/* Header */}
-                <div className="text-center mb-10">
-                    <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-sm font-medium mb-6">
-                        <Zap className="w-4 h-4" />
-                        {t('pricing.simple_pricing')}
-                    </div>
-                    <h1 className="text-4xl md:text-5xl font-bold text-white mb-4 tracking-tight">
-                        {t('pricing.title')}
+    const jaTemPremium = currentPlan?.type === 'premium';
+    const jaTemPro = currentPlan?.type === 'pro';
+    const estaNoGratuito = currentPlan?.type === 'free';
+
+    const anelDeDestaque = (planId: string) =>
+        planoDestacado === planId
+            ? { boxShadow: '0 0 0 2px color-mix(in srgb, var(--laudo-carimbo) 55%, transparent)' }
+            : undefined;
+
+    return (
+        <div className="sup-0 voz-ferramenta min-h-screen" style={{ color: 'var(--laudo-texto)' }}>
+            <AppHeader />
+
+            <main className="container mx-auto max-w-5xl px-4 pb-24 pt-14 md:pt-20">
+                {/* ─── Manchete ─────────────────────────────────────────────── */}
+                <header className="max-w-[46rem]">
+                    <h2 className="t-etiqueta">Planos</h2>
+
+                    <h1 className="t-titulo voz-argumento mt-5" style={{ color: 'var(--laudo-texto)' }}>
+                        Pague uma vez. O laudo é seu.
                     </h1>
-                    <p className="text-white/50 text-lg max-w-xl mx-auto mb-8">
-                        {t('pricing.subtitle')}
+
+                    <p className="t-corpo mt-6" style={{ color: 'var(--laudo-texto-suave)' }}>
+                        A varredura gratuita diz se o seu site está irregular e por qual artigo
+                        da LGPD. O laudo completo diz onde: a tag responsável, a linha no código
+                        e o que fazer para corrigir.
                     </p>
 
-                    {/* ─── Forma de pagamento ────────────────────────────────────────────
-                        Substituiu o seletor mensal/anual: a cobrança virou compra
-                        avulsa, sem renovação automática. O que muda o valor agora é
-                        o método — o PIX não tem taxa de parcelamento nem risco de
-                        chargeback, e parte disso volta para quem paga à vista. */}
-                    <div className="inline-flex items-center bg-white/5 border border-white/10 rounded-full p-1 gap-1">
+                    <p className="t-apoio mt-4">
+                        Pagamento único, sem mensalidade e sem renovação automática. O acesso
+                        vale por {janelaDeAcesso} a partir da confirmação.
+                    </p>
+                </header>
+
+                {/* Quem já assinou o Pro não pode abrir esta tela e não achar o
+                    próprio plano em lugar nenhum. */}
+                {jaTemPro && (
+                    <p
+                        className="t-apoio mt-8 border-l-2 pl-4"
+                        style={{ borderColor: 'var(--sup-borda-forte)' }}
+                    >
+                        Você assinou o Pro, que saiu de venda. Seu acesso continua como está.
+                    </p>
+                )}
+
+                {/* ─── Forma de pagamento ───────────────────────────────────────
+                    Substituiu o seletor mensal/anual: a cobrança virou compra
+                    avulsa, sem renovação automática. O que muda o valor agora é
+                    o método — o PIX não tem taxa de parcelamento nem risco de
+                    chargeback, e parte disso volta para quem paga à vista. */}
+                <section className="mt-14" aria-labelledby="forma-de-pagamento">
+                    <h2 id="forma-de-pagamento" className="t-etiqueta">
+                        Forma de pagamento
+                    </h2>
+
+                    <div
+                        role="group"
+                        aria-labelledby="forma-de-pagamento"
+                        className="mt-4 inline-flex gap-1 rounded-full border p-1"
+                        style={{ background: 'var(--sup-1)', borderColor: 'var(--sup-borda)' }}
+                    >
                         <button
+                            type="button"
+                            aria-pressed={formaDePagamento === 'pix'}
                             onClick={() => setFormaDePagamento('pix')}
-                            className={`px-5 py-2 rounded-full text-sm font-semibold transition-all flex items-center gap-2 ${
-                                formaDePagamento === 'pix'
-                                    ? 'bg-white text-slate-900 shadow-md'
-                                    : 'text-white/60 hover:text-white'
-                            }`}
+                            className="flex items-center gap-2 rounded-full px-5 py-2 text-sm transition-colors"
+                            style={formaDePagamento === 'pix'
+                                ? { background: 'var(--laudo-texto)', color: 'var(--sup-0)', fontWeight: 600 }
+                                : { color: 'var(--laudo-texto-suave)' }}
                         >
                             PIX
-                            <span className="bg-green-500 text-white text-xs px-2 py-0.5 rounded-full font-bold">
-                                -{descontoPix}%
+                            <span className="voz-evidencia text-[11px] opacity-70">
+                                −{descontoPix}%
                             </span>
                         </button>
                         <button
+                            type="button"
+                            aria-pressed={formaDePagamento === 'card'}
                             onClick={() => setFormaDePagamento('card')}
-                            className={`px-5 py-2 rounded-full text-sm font-semibold transition-all ${
-                                formaDePagamento === 'card'
-                                    ? 'bg-white text-slate-900 shadow-md'
-                                    : 'text-white/60 hover:text-white'
-                            }`}
+                            className="rounded-full px-5 py-2 text-sm transition-colors"
+                            style={formaDePagamento === 'card'
+                                ? { background: 'var(--laudo-texto)', color: 'var(--sup-0)', fontWeight: 600 }
+                                : { color: 'var(--laudo-texto-suave)' }}
                         >
                             Cartão
                         </button>
                     </div>
-                    <p className="text-white/40 text-xs mt-3 flex items-center justify-center gap-1.5">
-                        <Sparkles className="w-3.5 h-3.5" />
-                        Pagamento único, sem mensalidade. O acesso vale por {diasDeAcesso >= 360
-                            ? '1 ano'
-                            : `${Math.round(diasDeAcesso / 30)} meses`}.
-                    </p>
 
-                    {/* Locale selector — language + currency */}
-                    <div className="mt-12 flex flex-col items-center gap-4">
-                        <div className="bg-slate-900/50 border border-white/5 rounded-3xl p-8 backdrop-blur-sm shadow-2xl w-full max-w-3xl">
-                           <LocaleSelector compact={false} />
-                        </div>
-                    </div>
-                </div>
+                    {/* Quanto o PIX economiza, nos dois estados do seletor: quem
+                        está no cartão precisa ver o que deixa na mesa, e quem
+                        está no PIX precisa ver o que já economizou. Sem os dois
+                        valores lado a lado, "234,65" é só um número. */}
+                    {premium && economiaNoPix > 0 && (
+                        <p className="t-apoio mt-4">
+                            {formaDePagamento === 'pix' ? (
+                                <>
+                                    No PIX você paga{' '}
+                                    <span className="voz-evidencia" style={{ color: 'var(--laudo-texto)' }}>
+                                        {formatarBRL(economiaNoPix)}
+                                    </span>{' '}
+                                    a menos:{' '}
+                                    <span className="voz-evidencia" style={{ color: 'var(--laudo-texto)' }}>
+                                        {formatarBRL(premium.pix)}
+                                    </span>{' '}
+                                    em vez de{' '}
+                                    <span className="voz-evidencia">{formatarBRL(premium.card)}</span>.
+                                </>
+                            ) : (
+                                <>
+                                    No cartão o valor é{' '}
+                                    <span className="voz-evidencia" style={{ color: 'var(--laudo-texto)' }}>
+                                        {formatarBRL(premium.card)}
+                                    </span>
+                                    . Pagando por PIX são{' '}
+                                    <span className="voz-evidencia" style={{ color: 'var(--laudo-texto)' }}>
+                                        {formatarBRL(premium.pix)}
+                                    </span>
+                                    , ou {formatarBRL(economiaNoPix)} a menos.
+                                </>
+                            )}
+                        </p>
+                    )}
+                </section>
 
-                {/* Plan cards */}
-                <div className="grid md:grid-cols-3 gap-5 mb-12 items-start mt-12">
-                    {(['free', 'pro', 'premium'] as PlanType[]).map((planId) => {
-                        const config = PRICING_CONFIG[planId];
-                        /* O preço vem do backend, que é quem monta a cobrança.
-                           `PRICING_CONFIG` só sobrevive como fallback da primeira
-                           renderização: ela e o servidor já divergiram, e a tela
-                           mostrava R$ 49,90 enquanto o checkout cobrava R$ 97. */
-                        const doServidor = precos?.plans?.[planId];
-                        const valor = doServidor
-                            ? doServidor[formaDePagamento]
-                            : config.pricing.monthly;
-
-                        const displayPrice = planId === 'free' ? t('pricing.free_label') : formatPrice(valor);
-                        const isCurrentPlan = currentPlan?.type === planId;
-                        const isHovered = hoveredPlan === planId;
-                        const isSelected = selectedPlan === planId || clickedPlan === planId;
-                        const currentRank = PLAN_RANK[currentPlan?.type ?? 'free'];
-                        const planRank = PLAN_RANK[planId];
-                        const isUpgrade = planRank > currentRank;
-                        const isDowngrade = planRank < currentRank;
-
-                        return (
-                            <div
-                                key={planId}
-                                onMouseEnter={() => setHoveredPlan(planId)}
-                                onMouseLeave={() => setHoveredPlan(null)}
-                                className={`relative rounded-2xl border overflow-hidden bg-white/5 backdrop-blur-sm transition-all duration-300 ${
-                                    planId === 'pro' ? 'border-blue-500/50 scale-[1.02] shadow-2xl shadow-blue-500/10' : 'border-white/10'
-                                } ${
-                                    isHovered ? 'shadow-xl' : ''
-                                } ${
-                                    isCurrentPlan ? 'ring-2 ring-white/30' : ''
-                                } ${
-                                    isSelected && !isCurrentPlan ? 'ring-2 ring-blue-400/60' : ''
-                                }`}
-                            >
-                                {/* Badge / Current plan indicator */}
-                                {isCurrentPlan ? (
-                                    <div className="bg-white/20 text-white text-xs font-bold text-center py-2 tracking-widest uppercase flex items-center justify-center gap-1.5">
-                                        <Check className="w-3 h-3" />
-                                        {t('pricing.current_plan')}
-                                    </div>
-                                ) : (
-                                    <div className={`bg-gradient-to-r ${PLAN_COLORS[planId]} text-white text-xs font-bold text-center py-2 tracking-widest uppercase`}>
-                                        {t(config.badgeKey)}
-                                    </div>
-                                )}
-
-                                <div className="p-7">
-                                    {/* Icon + label */}
-                                    <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${PLAN_COLORS[planId]} flex items-center justify-center text-white mb-4 shadow-lg`}>
-                                        {PLAN_ICONS[planId]}
-                                    </div>
-                                    <h2 className="text-xl font-bold text-white">{t(config.labelKey)}</h2>
-
-                                    {/* Usage cap */}
-                                    <div className="flex items-center gap-1.5 mt-2 mb-4">
-                                        <Clock className="w-3.5 h-3.5 text-white/30" />
-                                        <span className="text-white/40 text-xs">
-                                            {t(`plans.${planId}.usage_cap`)}
-                                        </span>
-                                    </div>
-
-                                    {/* Preço */}
-                                    <div className="flex items-baseline gap-1.5 mb-1">
-                                        <span className="text-4xl font-extrabold text-white">{displayPrice}</span>
-                                        {planId !== 'free' && (
-                                            <span className="text-white/40 text-sm">uma vez</span>
-                                        )}
-                                    </div>
-
-                                    {/* Quanto o PIX economiza, e de quanto era antes.
-                                        Sem o preço riscado ao lado, "234,65" é só um
-                                        número — o desconto precisa ser visível para
-                                        pesar na decisão. */}
-                                    {formaDePagamento === 'pix' && planId !== 'free' && doServidor && doServidor.pixSavings > 0 && (
-                                        <div className="mb-3">
-                                            <span className="text-green-400/80 text-xs flex items-center gap-1.5">
-                                                <Calendar className="w-3 h-3" />
-                                                <span className="line-through text-white/30">{formatPrice(doServidor.card)}</span>
-                                                no cartão
-                                                <Badge className="bg-green-500/20 text-green-400 text-[10px] border-0 h-4 px-1.5 ml-1">
-                                                    -{descontoPix}%
-                                                </Badge>
-                                            </span>
-                                        </div>
-                                    )}
-
-                                    {/* Data visibility bar */}
-                                    <div className="mb-6 mt-4">
-                                        <div className="flex justify-between text-xs text-white/40 mb-1.5">
-                                            <span>{t('pricing.data_visibility')}</span>
-                                            <span className={`font-bold ${config.visibility === 100 ? 'text-green-400' : config.visibility >= 70 ? 'text-blue-400' : 'text-white/50'}`}>
-                                                {config.visibility}%
-                                            </span>
-                                        </div>
-                                        <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-                                            <div
-                                                className={`h-full bg-gradient-to-r ${PLAN_COLORS[planId]} rounded-full transition-all duration-700`}
-                                                style={{ width: `${config.visibility}%` }}
-                                            />
-                                        </div>
-                                    </div>
-
-                                    {/* CTA */}
-                                    <Button
-                                        onClick={() => handleSelect(planId)}
-                                        disabled={isCurrentPlan}
-                                        className={`w-full py-5 font-semibold transition-all ${isCurrentPlan ? 'opacity-60 cursor-not-allowed' : 
-                                            planId === 'free' ? 'bg-white/10 text-white/80 hover:bg-white/20' : 
-                                            `bg-gradient-to-r ${PLAN_COLORS[planId]} text-white shadow-lg`}`}
-                                    >
-                                        {isCurrentPlan ? (
-                                            <><Check className="w-4 h-4 mr-2 inline" />{t('pricing.current_plan')}</>
-                                        ) : isUpgrade ? (
-                                            <>{t('pricing.subscribe')} {t(config.labelKey)}<ArrowRight className="w-4 h-4 ml-2 inline" /></>
-                                        ) : isDowngrade ? (
-                                            <>{t('pricing.switch')} {t(config.labelKey)}</>
-                                        ) : planId === 'free' ? (
-                                            t('pricing.start_free')
-                                        ) : (
-                                            <>{t('pricing.subscribe')} {t(config.labelKey)}<ArrowRight className="w-4 h-4 ml-2 inline" /></>
-                                        )}
-                                    </Button>
-
-                                    <div className="mt-6 space-y-2.5">
-                                        {config.featuresKeys.map((key, i) => (
-                                            <div key={`f${i}`} className="flex items-start gap-2.5">
-                                                <Check className="w-4 h-4 text-green-400 mt-0.5 flex-shrink-0" />
-                                                <span className="text-white/70 text-sm">{t(key)}</span>
-                                            </div>
-                                        ))}
-                                        {config.lockedKeys.map((key, i) => (
-                                            <div key={`l${i}`} className="flex items-start gap-2.5">
-                                                <Lock className="w-3.5 h-3.5 text-white/15 mt-0.5 flex-shrink-0" />
-                                                <span className="text-white/20 text-sm line-through">{t(key)}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-
-                {/* Feature comparison toggle */}
-                <div className="text-center mb-10">
-                    <button
-                        onClick={() => setShowCompare(!showCompare)}
-                        className="text-blue-400 hover:text-blue-300 text-sm font-medium inline-flex items-center gap-2 transition-colors"
+                {/* ─── Os dois planos ───────────────────────────────────────── */}
+                <section className="mt-10 grid items-start gap-5 md:grid-cols-2">
+                    {/* Gratuito */}
+                    <article
+                        className="cartao flex h-full flex-col p-7 sm:p-8"
+                        style={anelDeDestaque('free')}
                     >
-                        <TrendingUp className="w-4 h-4" />
-                        {showCompare ? t('pricing.hide_comparison') : t('pricing.view_comparison')}
-                    </button>
-                </div>
-
-                {showCompare && (
-                    <div className="mb-12 overflow-x-auto rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm">
-                        <table className="w-full text-sm">
-                            <thead>
-                                <tr className="border-b border-white/10">
-                                    <th className="text-left text-white/50 font-medium py-4 px-6">{t('pricing.feature')}</th>
-                                    {(['free', 'pro', 'premium'] as PlanType[]).map(id => (
-                                        <th key={id} className="text-center text-white font-semibold py-4 px-4 w-32 uppercase tracking-widest text-[10px]">{t(`plans.${id}.label`)}</th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {COMPARE_ROWS.map((row, i) => (
-                                    <tr key={i} className={`border-b border-white/5 ${i % 2 === 0 ? 'bg-white/[0.02]' : ''}`}>
-                                        <td className="py-3.5 px-6 text-white/60">{t(`pricing.compare.${row.key}`)}</td>
-                                        {(['free', 'pro', 'premium'] as const).map((col) => {
-                                            const val = (row as Record<string, any>)[col === 'premium' ? 'full' : col];
-                                            const isLocked = val === false;
-                                            const displayValue = val === 'premium_domain_limit'
-                                                ? t('plans.premium.features.audits')
-                                                : String(val);
-                                            return (
-                                                <td key={col} className={`py-3.5 px-4 text-center ${isLocked ? 'opacity-30' : ''}`}>
-                                                    {val === true ? (
-                                                        <Check className="w-4 h-4 text-green-400 mx-auto" />
-                                                    ) : isLocked ? (
-                                                        <X className="w-4 h-4 text-white/50 mx-auto" />
-                                                    ) : (
-                                                        <span className="text-white/80 font-medium text-xs">{displayValue}</span>
-                                                    )}
-                                                </td>
-                                            );
-                                        })}
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-
-                {/* Guarantee + trust block */}
-                <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-12">
-                    {[
-                        { icon: <Shield className="w-6 h-6 text-green-400" />, key: 'guarantee' },
-                        { icon: <Lock className="w-6 h-6 text-blue-400" />, key: 'secure_checkout' },
-                        { icon: <FileText className="w-6 h-6 text-amber-400" />, key: 'cancel_anytime' },
-                        { icon: <Check className="w-6 h-6 text-slate-400" />, key: 'no_card_storage' },
-                    ].map((item, i) => (
-                        <div key={i} className="bg-white/5 border border-white/10 rounded-xl p-5 flex flex-col items-center text-center gap-3">
-                            <div className="bg-white/5 p-3 rounded-full">{item.icon}</div>
-                            <div>
-                                <div className="font-semibold text-white text-sm mb-1">{t(`pricing.trust.${item.key}.title`)}</div>
-                                <div className="text-white/40 text-xs leading-relaxed">{t(`pricing.trust.${item.key}.desc`)}</div>
-                            </div>
+                        <div className="flex items-baseline justify-between gap-3">
+                            <h3 className="t-secao" style={{ color: 'var(--laudo-texto)' }}>
+                                Gratuito
+                            </h3>
+                            {estaNoGratuito && (
+                                <span className="t-etiqueta">Seu plano</span>
+                            )}
                         </div>
-                    ))}
-                </div>
 
-                {/* Footer */}
-                <div className="text-center space-y-4">
-                    <div className="flex items-center justify-center gap-2 text-white/30 text-xs">
-                        <HelpCircle className="w-3.5 h-3.5" />
-                        {t('pricing.questions')}
-                        <a href="mailto:suporte@datatrustauditpro.com" className="text-blue-400 hover:text-blue-300">
+                        <p className="t-apoio mt-2">Para saber se existe problema.</p>
+
+                        <p
+                            className="mt-8 text-4xl font-semibold leading-none"
+                            style={{ color: 'var(--laudo-texto)' }}
+                        >
+                            Grátis
+                        </p>
+                        <p className="t-apoio mt-2">Sem prazo e sem cartão.</p>
+
+                        <ul className="mt-8 list-none space-y-3 p-0">
+                            {ENTREGA_GRATUITA.map((item) => (
+                                <li key={item} className="flex gap-3">
+                                    <Check
+                                        className="mt-[3px] h-4 w-4 shrink-0"
+                                        style={{ color: 'var(--laudo-texto-fraco)' }}
+                                        aria-hidden="true"
+                                    />
+                                    <span className="text-sm" style={{ color: 'var(--laudo-texto-suave)' }}>
+                                        {item}
+                                    </span>
+                                </li>
+                            ))}
+                        </ul>
+
+                        <p
+                            className="voz-argumento mt-8 border-t pt-6 text-sm"
+                            style={{ borderColor: 'var(--sup-borda)', color: 'var(--laudo-texto-suave)' }}
+                        >
+                            O gratuito responde se há irregularidade. Não responde onde ela está.
+                        </p>
+
+                        <div className="mt-auto pt-8">
+                            <Button
+                                onClick={() => handleSelect('free')}
+                                aria-busy={clickedPlan === 'free'}
+                                className="h-11 w-full border bg-transparent text-sm font-semibold hover:bg-[color:var(--sup-2)]"
+                                style={{
+                                    borderColor: 'var(--sup-borda-forte)',
+                                    color: 'var(--laudo-texto)',
+                                }}
+                            >
+                                Fazer uma varredura grátis
+                            </Button>
+                        </div>
+                    </article>
+
+                    {/* Premium */}
+                    <article
+                        className="cartao flex h-full flex-col p-7 sm:p-8"
+                        style={{
+                            borderColor: 'color-mix(in srgb, var(--laudo-carimbo) 45%, var(--sup-borda))',
+                            ...anelDeDestaque('premium'),
+                        }}
+                    >
+                        <div className="flex items-baseline justify-between gap-3">
+                            <h3 className="t-secao" style={{ color: 'var(--laudo-texto)' }}>
+                                Laudo completo
+                            </h3>
+                            <span className="t-etiqueta" style={{ color: 'var(--laudo-carimbo)' }}>
+                                {jaTemPremium ? 'Seu plano' : 'Recomendado'}
+                            </span>
+                        </div>
+
+                        <p className="t-apoio mt-2">Para resolver, e para provar que resolveu.</p>
+
+                        <p
+                            className="voz-evidencia mt-8 text-4xl font-semibold leading-none"
+                            style={{ color: 'var(--laudo-texto)' }}
+                        >
+                            {valorPremium !== null ? formatarBRL(valorPremium) : '—'}
+                        </p>
+
+                        <p className="t-apoio mt-2">
+                            Pagamento único, {formaDePagamento === 'pix' ? 'no PIX' : 'no cartão'}.
+                            {' '}Acesso por {janelaDeAcesso}.
+                        </p>
+
+                        {formaDePagamento === 'pix' && premium && economiaNoPix > 0 && (
+                            <p className="t-apoio mt-1">
+                                <span className="line-through" style={{ color: 'var(--laudo-texto-fraco)' }}>
+                                    {formatarBRL(premium.card)}
+                                </span>{' '}
+                                no cartão — {descontoPix}% a menos à vista.
+                            </p>
+                        )}
+
+                        <ul className="mt-8 list-none space-y-3 p-0">
+                            <li className="text-sm" style={{ color: 'var(--laudo-texto-suave)' }}>
+                                Tudo do gratuito, e mais:
+                            </li>
+                            {ENTREGA_PREMIUM.map((item) => (
+                                <li key={item} className="flex gap-3">
+                                    <Check
+                                        className="mt-[3px] h-4 w-4 shrink-0"
+                                        style={{ color: 'var(--laudo-carimbo)' }}
+                                        aria-hidden="true"
+                                    />
+                                    <span className="text-sm" style={{ color: 'var(--laudo-texto)' }}>
+                                        {item}
+                                    </span>
+                                </li>
+                            ))}
+                        </ul>
+
+                        <div className="mt-auto pt-8">
+                            <Button
+                                onClick={() => handleSelect('premium')}
+                                disabled={jaTemPremium}
+                                aria-busy={clickedPlan === 'premium'}
+                                className="h-11 w-full text-sm font-semibold hover:opacity-90"
+                                style={{ background: 'var(--laudo-carimbo)', color: 'var(--sup-0)' }}
+                            >
+                                {jaTemPremium ? (
+                                    'Você já tem o laudo completo'
+                                ) : (
+                                    <>
+                                        Comprar o laudo completo
+                                        <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+                                    </>
+                                )}
+                            </Button>
+                        </div>
+                    </article>
+                </section>
+
+                {/* ─── Comparação ───────────────────────────────────────────── */}
+                <section className="mt-16">
+                    <button
+                        type="button"
+                        onClick={() => setShowCompare(!showCompare)}
+                        aria-expanded={showCompare}
+                        aria-controls="tabela-de-comparacao"
+                        className="text-sm text-[color:var(--laudo-carimbo)] transition-opacity hover:opacity-80"
+                    >
+                        {showCompare ? 'Ocultar a comparação' : 'Comparar item a item'}
+                    </button>
+
+                    {showCompare && (
+                        <div id="tabela-de-comparacao" className="mt-6 overflow-x-auto">
+                            <table className="w-full min-w-[34rem] border-collapse text-left">
+                                <caption className="sr-only">
+                                    O que cada plano entrega, item a item.
+                                </caption>
+                                <thead>
+                                    <tr style={{ borderBottom: '1px solid var(--sup-borda-forte)' }}>
+                                        <th scope="col" className="t-etiqueta py-3 pr-4 font-normal">
+                                            Recurso
+                                        </th>
+                                        <th scope="col" className="t-etiqueta w-28 py-3 text-center font-normal">
+                                            Gratuito
+                                        </th>
+                                        <th
+                                            scope="col"
+                                            className="t-etiqueta w-28 py-3 text-center font-normal"
+                                            style={{ color: 'var(--laudo-carimbo)' }}
+                                        >
+                                            Completo
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {COMPARE_ROWS.map((linha) => (
+                                        <tr
+                                            key={linha.recurso}
+                                            style={{ borderBottom: '1px solid var(--sup-borda)' }}
+                                        >
+                                            <th
+                                                scope="row"
+                                                className="py-3 pr-4 text-sm font-normal"
+                                                style={{ color: 'var(--laudo-texto-suave)' }}
+                                            >
+                                                {linha.recurso}
+                                            </th>
+                                            {(['gratuito', 'premium'] as const).map((coluna) => {
+                                                const valor = linha[coluna];
+                                                return (
+                                                    <td key={coluna} className="py-3 text-center">
+                                                        {valor === true ? (
+                                                            <>
+                                                                <Check
+                                                                    className="mx-auto h-4 w-4"
+                                                                    style={{ color: 'var(--laudo-texto)' }}
+                                                                    aria-hidden="true"
+                                                                />
+                                                                <span className="sr-only">incluído</span>
+                                                            </>
+                                                        ) : valor === false ? (
+                                                            <>
+                                                                <Minus
+                                                                    className="mx-auto h-4 w-4"
+                                                                    style={{ color: 'var(--laudo-texto-fraco)' }}
+                                                                    aria-hidden="true"
+                                                                />
+                                                                <span className="sr-only">não incluído</span>
+                                                            </>
+                                                        ) : (
+                                                            <span
+                                                                className="voz-evidencia text-sm"
+                                                                style={{ color: 'var(--laudo-texto)' }}
+                                                            >
+                                                                {valor}
+                                                            </span>
+                                                        )}
+                                                    </td>
+                                                );
+                                            })}
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </section>
+
+                {/* ─── O que está combinado ─────────────────────────────────── */}
+                <section
+                    className="mt-16 grid gap-10 border-t pt-10 sm:grid-cols-3"
+                    style={{ borderColor: 'var(--sup-borda)' }}
+                >
+                    <div>
+                        <h2 className="t-etiqueta">Pagamento único</h2>
+                        <p className="t-apoio mt-3">
+                            Sem assinatura e sem renovação automática. O acesso vale por{' '}
+                            {janelaDeAcesso} depois da confirmação.
+                        </p>
+                    </div>
+                    <div>
+                        <h2 className="t-etiqueta">PIX ou cartão</h2>
+                        <p className="t-apoio mt-3">
+                            O pagamento é processado pelo Mercado Pago. Os dados do cartão não
+                            passam por aqui.
+                        </p>
+                    </div>
+                    <div>
+                        <h2 className="t-etiqueta">Garantia de 7 dias</h2>
+                        <p className="t-apoio mt-3">
+                            Não serviu para o seu caso? Devolvemos o valor integral.
+                        </p>
+                    </div>
+                </section>
+
+                {/* ─── Rodapé ───────────────────────────────────────────────── */}
+                <footer
+                    className="mt-16 border-t pt-10"
+                    style={{ borderColor: 'var(--sup-borda)' }}
+                >
+                    <p className="t-apoio">
+                        Dúvida antes de comprar?{' '}
+                        <a
+                            href="mailto:suporte@datatrustauditpro.com"
+                            className="text-[color:var(--laudo-carimbo)] transition-opacity hover:opacity-80"
+                        >
                             suporte@datatrustauditpro.com
                         </a>
-                    </div>
-                    <p className="text-white/15 text-[10px] max-w-xl mx-auto leading-relaxed">
-                        {t('pricing.legal_disclaimer')}
                     </p>
-                </div>
-            </div>
+                    <p
+                        className="mt-4 max-w-[52ch] text-xs"
+                        style={{ color: 'var(--laudo-texto-fraco)' }}
+                    >
+                        Avaliação técnica indicativa de risco. Não substitui assessoria jurídica.
+                    </p>
+                </footer>
+            </main>
         </div>
     );
 };

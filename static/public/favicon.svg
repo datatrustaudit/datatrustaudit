@@ -1,20 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <!-- Shield body -->
-  <path d="M16 2L4 7v8c0 7.5 5.1 14.5 12 16 6.9-1.5 12-8.5 12-16V7L16 2z" fill="url(#shield-gradient)" stroke="#1e3a5f" stroke-width="1"/>
-  <!-- Magnifying glass circle -->
-  <circle cx="14" cy="14" r="5" fill="none" stroke="#2dd4bf" stroke-width="2"/>
-  <!-- Magnifying glass handle -->
-  <line x1="18" y1="18" x2="22" y2="22" stroke="#1e3a5f" stroke-width="2.5" stroke-linecap="round"/>
-  <!-- Checkmark inside glass -->
-  <path d="M11.5 14 L13.5 16 L17 12" fill="none" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <!-- Data nodes -->
-  <circle cx="20" cy="8" r="1.5" fill="#3b82f6"/>
-  <circle cx="24" cy="11" r="1" fill="#60a5fa"/>
-  <circle cx="22" cy="6" r="1" fill="#93c5fd"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- O favicon é a marca reduzida ao que sobrevive a 16 px.
+       Os pixels que se desprendem e a malha de tags saem: nesse tamanho viram
+       sujeira em vez de significado. Ficam o escudo e a conferência.
+       O escudo é preenchido, não vazado como no logo grande — em aba clara ou
+       escura, um contorno fino de 16 px some; a mancha sólida não. -->
   <defs>
-    <linearGradient id="shield-gradient" x1="4" y1="2" x2="28" y2="28">
-      <stop offset="0%" stop-color="#1e3a5f"/>
-      <stop offset="100%" stop-color="#0f172a"/>
+    <linearGradient id="escudo" x1="10" y1="6" x2="55" y2="58">
+      <stop offset="0%" stop-color="#12285C"/>
+      <stop offset="100%" stop-color="#1A63E8"/>
+    </linearGradient>
+    <linearGradient id="conferido" x1="24" y1="27" x2="37" y2="37">
+      <stop offset="0%" stop-color="#22B5D8"/>
+      <stop offset="100%" stop-color="#35D0EE"/>
     </linearGradient>
   </defs>
+
+  <path d="M32 4 L56 12.5 V33 C56 46.8 46 56.8 32 60.5 C18 56.8 8 46.8 8 33 V12.5 L32 4Z"
+        fill="url(#escudo)"/>
+
+  <!-- Lupa: lente clara sobre o escudo, com o cabo saindo em 45°. -->
+  <path d="M39.5 40.5 L48 49" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="31" cy="32" r="13" fill="#FFFFFF"/>
+  <path d="M24.5 32.4 L29.2 37 L37 27.4"
+        stroke="url(#conferido)" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
 </svg>

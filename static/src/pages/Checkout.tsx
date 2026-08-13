@@ -1,35 +1,29 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { useLocale, localizePrice } from '@/hooks/useLocale';
 import { useI18n } from '@/context/I18nContext';
-import { useSubscription, PLAN_PRICING, BillingCycle, SubscriptionPlan } from '@/context/SubscriptionContext';
+import { useSubscription, SubscriptionPlan } from '@/context/SubscriptionContext';
 import { apiRequest } from '@/lib/apiClient';
 import { usePricing, type FormaDePagamento } from '@/hooks/usePricing';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { useToast } from '@/components/ui/use-toast';
 import LocaleSelector from '@/components/LocaleSelector';
+import MarcaDataTrust from '@/components/MarcaDataTrust';
 import {
-    Tag, Shield, CreditCard, Smartphone, ArrowRight,
-    Check, Lock, AlertCircle, ExternalLink, Calendar,
-    RefreshCw, Star, Crown, Sparkles
+    Check, Lock, AlertCircle, ArrowRight, Loader2,
+    CreditCard, QrCode, ExternalLink,
 } from 'lucide-react';
 
-// ─── Plan display metadata ─────────────────────────────────────────────────────
+/* ─── O que o plano entrega ────────────────────────────────────────────────────
+   Só texto. O gradiente por plano, a coroa e a estrela que moravam aqui saíram:
+   nesta identidade cor saturada é reservada à gravidade de um achado, e selo
+   colorido na tela onde o dinheiro entra é decoração, não informação. */
 const PLAN_META: Record<SubscriptionPlan, {
     label: { en: string; pt: string };
-    gradient: string;
-    shadowColor: string;
-    icon: React.ReactNode;
     audits: { en: string; pt: string };
     highlights: { en: string[]; pt: string[] };
 }> = {
     free: {
         label: { en: 'Free', pt: 'Grátis' },
-        gradient: 'from-slate-500 to-slate-600',
-        shadowColor: 'shadow-slate-500/20',
-        icon: <Tag className="w-5 h-5" />,
         audits: { en: '10 scans per week', pt: '10 escaneamentos por semana' },
         highlights: {
             en: ['Basic dashboard', 'Risk summary', 'AI chat (5 msg/day)'],
@@ -38,9 +32,6 @@ const PLAN_META: Record<SubscriptionPlan, {
     },
     pro: {
         label: { en: 'Pro', pt: 'Pro' },
-        gradient: 'from-blue-500 to-indigo-600',
-        shadowColor: 'shadow-blue-500/25',
-        icon: <Star className="w-5 h-5" />,
         audits: { en: '50 scans per week', pt: '50 escaneamentos por semana' },
         highlights: {
             en: ['Full audit (GA4, GTM, pixels, cookies)', 'Pre-consent risk detection', 'PDF report', 'All violations (70% visibility)'],
@@ -49,9 +40,6 @@ const PLAN_META: Record<SubscriptionPlan, {
     },
     premium: {
         label: { en: 'Premium', pt: 'Premium' },
-        gradient: 'from-amber-500 to-orange-600',
-        shadowColor: 'shadow-amber-500/25',
-        icon: <Crown className="w-5 h-5" />,
         audits: { en: '200 scans per week', pt: '200 escaneamentos por semana' },
         highlights: {
             en: ['Everything in Pro', 'Full evidence export (JSON)', 'Network, cookies & dataLayer tabs', 'Consent timeline', 'LGPD/GDPR exposure estimate', 'Priority support'],
@@ -61,13 +49,11 @@ const PLAN_META: Record<SubscriptionPlan, {
 };
 
 const CheckoutPage = () => {
-    const { toast } = useToast();
     const [params] = useSearchParams();
     const navigate = useNavigate();
     const { isAuthenticated, user, token } = useAuth();
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const locale = useLocale();
     const { language } = useI18n();
     const { markPending } = useSubscription();
 
@@ -76,47 +62,29 @@ const CheckoutPage = () => {
        muda o valor. `cycle` ainda pode chegar em link antigo — é ignorado. */
     const metodo: FormaDePagamento = params.get('method') === 'card' ? 'card' : 'pix';
 
-    /* O ciclo de cobrança acabou junto com a assinatura. Estas duas constantes
-       mantêm os blocos de "cobrado anualmente" fora da tela sem exigir reescrever
-       as 400 linhas do checkout agora — os ramos ficam mortos e o TypeScript os
-       elimina. Débito registrado: a tela ainda tem estrutura de assinatura por
-       baixo, e vale limpar quando ela for repaginada. */
-    const isAnnual = false;
-    const cycleParam: BillingCycle = 'monthly';
     const plan = PLAN_META[planId] ?? PLAN_META.pro;
-    const pricing = PLAN_PRICING[planId]?.monthly ?? PLAN_PRICING.pro.monthly;
     const isEn = language !== 'pt-BR';
     const localeKey: 'en' | 'pt' = isEn ? 'en' : 'pt';
     const L = (obj: { en: string; pt: string }) => obj[localeKey] ?? obj.en;
 
-    // Preço do servidor: é ele que o Mercado Pago vai cobrar (sempre em BRL).
-    // A tabela local (PLAN_PRICING) serve de fallback até a resposta chegar,
-    // mas exibir um número diferente do que será cobrado é o bug que existia
-    // aqui — a tela mostrava R$ 49,90 e o checkout cobrava R$ 97.
-    const { pricing: serverPricing } = usePricing();
+    /* Preço: o servidor é a única fonte. É ele que monta a preferência do
+       Mercado Pago, e exibir aqui um número diferente do que será cobrado é o
+       bug que já existiu nesta tela — mostrava R$ 49,90 e o checkout cobrava
+       R$ 97. Por isso a tabela local (PLAN_PRICING) não aparece mais como
+       valor: enquanto a resposta não chega, o lugar do preço fica em branco
+       (esqueleto), e se ela falhar a tela diz que o valor será confirmado na
+       próxima etapa em vez de arriscar um palpite convertido de dólar. */
+    const { pricing: serverPricing, isLoading: carregandoPrecos } = usePricing();
     const serverPlan = serverPricing?.plans?.[planId as 'pro' | 'premium'];
     const serverTotalBrl = serverPlan ? serverPlan[metodo] : null;
     const economiaDoPix = serverPlan && metodo === 'pix' ? serverPlan.pixSavings : 0;
     const diasDeAcesso = serverPricing?.accessDays ?? 365;
-    // Não há mais equivalência mensal: o valor é único.
-    const serverMonthlyBrl = serverTotalBrl;
 
     const formatBrl = (valor: number) =>
         new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
 
-    // Monthly equivalent for display
-    const monthlyEquivUsd = isAnnual ? Math.round((pricing.usd / 12) * 100) / 100 : pricing.usd;
-    const monthlyEquivPrice = serverMonthlyBrl !== null
-        ? formatBrl(serverMonthlyBrl)
-        : localizePrice(monthlyEquivUsd, locale.currencyCode, locale.locale);
-    const totalDuePrice = serverTotalBrl !== null
-        ? formatBrl(serverTotalBrl)
-        : localizePrice(pricing.usd, locale.currencyCode, locale.locale);
-
-    // Next renewal date
-    const renewalDate = new Date();
-    renewalDate.setMonth(renewalDate.getMonth() + (isAnnual ? 12 : 1));
-    const renewalDateStr = renewalDate.toLocaleDateString(locale.locale, { day: 'numeric', month: 'long', year: 'numeric' });
+    const temPreco = serverTotalBrl !== null;
+    const totalDuePrice = serverTotalBrl !== null ? formatBrl(serverTotalBrl) : null;
 
     const planLabel = L(plan.label);
     const highlights = plan.highlights[localeKey] ?? plan.highlights.en;
@@ -124,7 +92,9 @@ const CheckoutPage = () => {
 
     useEffect(() => {
         if (!isAuthenticated) {
-            const dest = `/checkout?plan=${planId}&cycle=${cycleParam}`;
+            // A forma de pagamento viaja junto: sem ela, quem escolheu PIX
+            // voltava do login para o preço do cartão.
+            const dest = `/checkout?plan=${planId}&method=${metodo}`;
             localStorage.setItem('gtm-redirect-after-auth', dest);
             navigate('/auth');
             return;
@@ -139,23 +109,19 @@ const CheckoutPage = () => {
     const handlePay = async () => {
         setIsLoading(true);
         setError(null);
-        
+
         try {
-            // Store checkout state for tracking
+            // Rastro do que o usuário viu antes de sair para o provedor.
             const checkoutState = {
                 planId,
-                billingCycle: cycleParam,
+                metodo,
                 userId: user?.email,
-                currency: locale.currencyCode,
-                usdPrice: pricing.usd,
-                monthlyEquivUsd,
                 localPrice: totalDuePrice,
                 initiatedAt: new Date().toISOString(),
                 status: 'pending',
             };
             localStorage.setItem('gtm-checkout-state', JSON.stringify(checkoutState));
             localStorage.setItem('gtm-selected-plan', planId);
-            localStorage.setItem('gtm-billing-cycle', cycleParam);
 
             // O pagamento passa pelo backend: /api/payments/create-preference cria
             // a preferência no Mercado Pago com o preço vindo do .env e amarra o
@@ -190,7 +156,7 @@ const CheckoutPage = () => {
                     : 'O provedor de pagamento não devolveu o link de checkout. Tente novamente.');
             }
 
-            markPending(planId, cycleParam);
+            markPending(planId);
 
             // Redirect to Mercado Pago secure checkout
             window.location.href = preference.init_point;
@@ -205,212 +171,240 @@ const CheckoutPage = () => {
         }
     };
 
+    const rotuloDoMetodo = metodo === 'pix'
+        ? (isEn ? 'via PIX' : 'à vista no PIX')
+        : (isEn ? 'by credit or debit card' : 'no cartão de crédito ou débito');
+
+    const rotuloDoBotao = (() => {
+        if (isLoading) return isEn ? 'Opening secure checkout…' : 'Abrindo o checkout seguro…';
+        const forma = metodo === 'pix' ? 'PIX' : (isEn ? 'card' : 'cartão');
+        if (!totalDuePrice) return isEn ? `Pay with ${forma}` : `Pagar no ${forma}`;
+        return isEn
+            ? `Pay ${totalDuePrice} with ${forma}`
+            : `Pagar ${totalDuePrice} no ${forma}`;
+    })();
+
+    const IconeDoMetodo = metodo === 'pix' ? QrCode : CreditCard;
+
     return (
-        <div className="min-h-screen bg-[#070b16] flex flex-col">
-            {/* Secure nav */}
-            <nav className="border-b border-white/10 bg-white/5 backdrop-blur-sm">
-                <div className="max-w-xl mx-auto px-6 py-4 flex items-center justify-between">
-                    <Link to="/" className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
-                            <Tag className="w-3.5 h-3.5 text-white" />
-                        </div>
-                        <span className="font-bold text-white text-sm">DataTrust Audit</span>
+        <div className="min-h-screen sup-0 flex flex-col" style={{ color: 'var(--laudo-texto)' }}>
+            {/* ─── Cabeçalho ─────────────────────────────────────────────────── */}
+            <header className="border-b" style={{ borderColor: 'var(--sup-borda)' }}>
+                <div className="mx-auto w-full max-w-2xl px-5 sm:px-6 py-4 flex items-center justify-between gap-4">
+                    <Link to="/" className="shrink-0">
+                        <MarcaDataTrust tamanho={26} />
                     </Link>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 sm:gap-4">
                         <LocaleSelector compact />
-                        <button
-                            onClick={() => navigate(`/pricing`)}
-                            className="text-white/40 hover:text-white/70 text-xs transition-colors"
+                        <span
+                            className="hidden sm:inline-flex items-center gap-1.5 text-xs"
+                            style={{ color: 'var(--laudo-texto-fraco)' }}
                         >
-                            {isEn ? '← Change plan' : '← Mudar plano'}
-                        </button>
-                        <div className="flex items-center gap-1.5 text-green-400 text-xs font-medium">
-                            <Lock className="w-3.5 h-3.5" />
-                            {isEn ? 'Secure checkout' : 'Checkout seguro'}
-                        </div>
+                            <Lock className="w-3.5 h-3.5" aria-hidden />
+                            {isEn ? 'Secure payment' : 'Pagamento seguro'}
+                        </span>
                     </div>
                 </div>
-            </nav>
+            </header>
 
-            <div className="flex-1 flex items-center justify-center px-4 py-12">
-                <div className="w-full max-w-md space-y-4">
+            <main className="flex-1">
+                <div className="mx-auto w-full max-w-2xl px-5 sm:px-6 py-12 sm:py-16">
 
-                    {/* Plan + cycle badge */}
-                    <div className="text-center mb-2">
-                        <div className="flex items-center justify-center gap-2 mb-3">
-                            <div className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r ${plan.gradient} text-white text-sm font-bold shadow-lg`}>
-                                {plan.icon}
-                                {isEn ? `${planLabel} Plan` : `Plano ${planLabel}`}
-                            </div>
-                            <Badge className={`${isAnnual ? 'bg-green-500/20 border-green-500/30 text-green-400' : 'bg-white/10 border-white/20 text-white/60'} text-xs px-3 py-1`}>
-                                {isAnnual ? (isEn ? 'Annual -20%' : 'Anual -20%') : (isEn ? 'Monthly' : 'Mensal')}
-                            </Badge>
-                        </div>
-                        <h1 className="text-2xl font-bold text-white mt-2">
-                            {isEn ? 'Complete your subscription' : 'Finalizar assinatura'}
-                        </h1>
-                        <p className="text-white/40 text-sm mt-1">{audits}</p>
-                    </div>
+                    {/* ─── Manchete: o que está sendo comprado ───────────────── */}
+                    <p className="t-etiqueta">{isEn ? 'Order confirmation' : 'Confirmação de compra'}</p>
+                    <h1 className="t-titulo mt-3">DataTrust Audit — {planLabel}</h1>
+                    <p className="t-apoio mt-4">
+                        {isEn
+                            ? `${audits}. ${diasDeAcesso} days of access.`
+                            : `${audits}. Acesso por ${diasDeAcesso} dias.`}
+                    </p>
 
-                    {/* Order summary */}
-                    <div className="bg-white/5 border border-white/10 rounded-2xl p-6 backdrop-blur-sm">
-                        <div className="text-white/40 text-xs uppercase tracking-widest font-medium mb-4">
-                            {isEn ? 'Order Summary' : 'Resumo do pedido'}
-                        </div>
+                    {/* ─── O valor ───────────────────────────────────────────────
+                        Destaque absoluto da tela: quanto, e por qual forma. */}
+                    <section className="cartao mt-10 overflow-hidden">
+                        <div className="p-6 sm:p-8">
+                            <p className="t-etiqueta">{isEn ? 'Amount due' : 'Valor a pagar'}</p>
 
-                        {/* Main price row */}
-                        <div className="flex items-start justify-between mb-4">
-                            <div>
-                                <div className="font-bold text-white">{`DataTrust Audit — ${planLabel}`}</div>
-                                <div className="text-white/40 text-sm mt-0.5">
-                                    {isAnnual
-                                        ? (isEn ? 'Annual subscription' : 'Assinatura anual')
-                                        : (isEn ? 'Monthly subscription' : 'Assinatura mensal')}
-                                </div>
-                            </div>
-                            <div className="text-right">
-                                <div className="text-2xl font-extrabold text-white">{monthlyEquivPrice}</div>
-                                <div className="text-white/30 text-xs">{isEn ? '/month' : '/mês'}</div>
-                            </div>
-                        </div>
+                            {temPreco ? (
+                                <p
+                                    className="voz-evidencia mt-4 font-semibold leading-none"
+                                    style={{ fontSize: 'clamp(2.25rem, 9vw, 4rem)', letterSpacing: '-0.02em' }}
+                                >
+                                    {totalDuePrice}
+                                </p>
+                            ) : carregandoPrecos ? (
+                                <>
+                                    <div
+                                        className="mt-4 h-12 sm:h-14 w-48 max-w-full rounded animate-pulse"
+                                        style={{ background: 'var(--sup-2)' }}
+                                        aria-hidden
+                                    />
+                                    <span className="sr-only">
+                                        {isEn ? 'Loading the amount' : 'Carregando o valor'}
+                                    </span>
+                                </>
+                            ) : (
+                                <p className="t-corpo mt-4" style={{ color: 'var(--laudo-texto-suave)' }}>
+                                    {isEn
+                                        ? 'We could not load the amount right now. It is shown for your confirmation on the next screen, before any payment.'
+                                        : 'Não conseguimos carregar o valor agora. Ele aparece para você conferir na próxima tela, antes de qualquer pagamento.'}
+                                </p>
+                            )}
 
-                        {/* Annual breakdown */}
-                        {isAnnual && (
-                            <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-3 mb-4">
-                                <div className="flex items-center justify-between text-sm">
-                                    <div className="flex items-center gap-2 text-green-300">
-                                        <Sparkles className="w-4 h-4" />
-                                        {isEn ? '20% annual discount applied' : 'Desconto anual de 20% aplicado'}
-                                    </div>
-                                    <div className="text-green-400 font-bold">{isEn ? 'SAVE 20%' : 'POUPE 20%'}</div>
-                                </div>
-                            </div>
-                        )}
+                            <p
+                                className="mt-3 flex items-center gap-2 text-sm"
+                                style={{ color: 'var(--laudo-texto-suave)' }}
+                            >
+                                <IconeDoMetodo className="w-4 h-4 shrink-0" aria-hidden />
+                                {rotuloDoMetodo}
+                            </p>
 
-                        {/* Included features */}
-                        <div className="border-t border-white/10 pt-4 space-y-2 mb-4">
-                            {highlights.map((h, i) => (
-                                <div key={i} className="flex items-start gap-2.5">
-                                    <Check className="w-3.5 h-3.5 text-green-400 mt-0.5 flex-shrink-0" />
-                                    <span className="text-white/55 text-sm">{h}</span>
-                                </div>
-                            ))}
-                        </div>
+                            {/* Quanto o PIX economiza. Sem o valor do cartão ao lado,
+                                o desconto é só um número solto. */}
+                            {metodo === 'pix' && economiaDoPix > 0 && serverPlan && (
+                                <p className="mt-2 text-sm" style={{ color: 'var(--laudo-texto-suave)' }}>
+                                    {isEn ? 'You save ' : 'Você economiza '}
+                                    <span className="voz-evidencia" style={{ color: 'var(--laudo-texto)' }}>
+                                        {formatBrl(economiaDoPix)}
+                                    </span>
+                                    {isEn ? ' — by card it would be ' : ' — no cartão seriam '}
+                                    <span className="voz-evidencia line-through">{formatBrl(serverPlan.card)}</span>.
+                                </p>
+                            )}
 
-                        {/* Billing details */}
-                        <div className="border-t border-white/10 pt-4 space-y-2">
-                            <div className="flex items-center justify-between text-sm">
-                                <span className="text-white/50 flex items-center gap-1.5">
-                                    <CreditCard className="w-3.5 h-3.5" />
-                                    {isEn ? 'Total due today' : 'Total a pagar hoje'}
-                                </span>
-                                <span className="text-white font-bold text-base">{totalDuePrice}</span>
-                            </div>
-                            <div className="flex items-center justify-between text-sm">
-                                <span className="text-white/50 flex items-center gap-1.5">
-                                    <RefreshCw className="w-3.5 h-3.5" />
-                                    {isEn ? 'Renews on' : 'Renova em'}
-                                </span>
-                                <span className="text-white/70">{renewalDateStr}</span>
-                            </div>
-                            <div className="flex items-center justify-between text-sm">
-                                <span className="text-white/50 flex items-center gap-1.5">
-                                    <Calendar className="w-3.5 h-3.5" />
-                                    {isEn ? 'Billing frequency' : 'Frequência de cobrança'}
-                                </span>
-                                <span className="text-white/70">
-                                    {isAnnual
-                                        ? (isEn ? 'Every 12 months' : 'A cada 12 meses')
-                                        : (isEn ? 'Every month' : 'Mensal')}
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Account */}
-                    {user && (
-                        <div className="bg-white/5 border border-white/10 rounded-xl px-5 py-3.5 flex items-center justify-between">
-                            <span className="text-white/40 text-xs">{isEn ? 'Account' : 'Conta'}</span>
-                            <span className="text-white text-sm font-medium">{user.email}</span>
-                        </div>
-                    )}
-
-                    {/* Mercado Pago payment info */}
-                    <div className="bg-white/5 border border-white/10 rounded-2xl p-6 backdrop-blur-sm">
-                        <div className="text-white/40 text-xs uppercase tracking-widest font-medium mb-4">
-                            {isEn ? 'Payment' : 'Pagamento'}
-                        </div>
-                        <div className="grid grid-cols-2 gap-3 mb-4">
-                            <div className="flex items-center gap-3 p-3.5 rounded-xl bg-white/5 border border-white/10">
-                                <Shield className="w-5 h-5 text-blue-400 flex-shrink-0" />
-                                <div>
-                                    <div className="text-white text-xs font-semibold">{isEn ? 'Cards' : 'Cartões'}</div>
-                                    <div className="text-white/30 text-xs">{isEn ? 'Credit & Debit' : 'Crédito e Débito'}</div>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-3 p-3.5 rounded-xl bg-white/5 border border-white/10">
-                                <Smartphone className="w-5 h-5 text-green-400 flex-shrink-0" />
-                                <div>
-                                    <div className="text-white text-xs font-semibold">PIX</div>
-                                    <div className="text-white/30 text-xs">{isEn ? 'Instant' : 'Imediato'}</div>
-                                </div>
-                            </div>
+                            <Link
+                                to="/pricing"
+                                className="inline-block mt-4 text-sm underline underline-offset-4"
+                                style={{ color: 'var(--laudo-carimbo)' }}
+                            >
+                                {isEn ? 'Change plan or payment method' : 'Mudar de plano ou de forma de pagamento'}
+                            </Link>
                         </div>
 
-                        <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3.5 flex gap-2.5">
-                            <AlertCircle className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
-                            <p className="text-blue-300/80 text-xs">
+                        {/* A dúvida número um de quem compra, respondida antes do botão. */}
+                        <div
+                            className="border-t px-6 sm:px-8 py-5"
+                            style={{ background: 'var(--sup-2)', borderColor: 'var(--sup-borda)' }}
+                        >
+                            <p className="font-medium">
                                 {isEn
-                                    ? 'You will be redirected to the secure Mercado Pago checkout. Your plan is released automatically as soon as the payment is confirmed.'
-                                    : 'Você será redirecionado ao checkout seguro do Mercado Pago. Seu plano é liberado automaticamente assim que o pagamento for confirmado.'}
+                                    ? 'One-time payment — no auto-renewal.'
+                                    : 'Pagamento único — sem renovação automática.'}
+                            </p>
+                            <p className="t-apoio mt-1">
+                                {isEn
+                                    ? `Nothing is charged again. Access lasts ${diasDeAcesso} days from the moment the payment is confirmed.`
+                                    : `Nada é cobrado de novo. O acesso vale por ${diasDeAcesso} dias a partir da confirmação do pagamento.`}
                             </p>
                         </div>
-                    </div>
-                    
-                    {error && (
-                        <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-3 rounded-xl text-sm text-center">
-                            {error}
+                    </section>
+
+                    {/* ─── O que o cliente recebe ────────────────────────────── */}
+                    <section className="cartao mt-4 p-6 sm:p-8">
+                        <p className="t-etiqueta">{isEn ? 'What you get' : 'O que você recebe'}</p>
+                        <ul className="mt-4 space-y-3">
+                            {highlights.map((h, i) => (
+                                <li key={i} className="flex items-start gap-3">
+                                    <Check
+                                        className="w-4 h-4 mt-1 shrink-0"
+                                        style={{ color: 'var(--laudo-carimbo)' }}
+                                        aria-hidden
+                                    />
+                                    <span className="text-sm leading-relaxed">{h}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </section>
+
+                    {/* ─── Em nome de quem ───────────────────────────────────── */}
+                    {user && (
+                        <div
+                            className="cartao mt-4 px-6 sm:px-8 py-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1"
+                        >
+                            <span className="t-etiqueta">{isEn ? 'Buying as' : 'Comprando como'}</span>
+                            <span className="voz-evidencia text-sm break-all">{user.email}</span>
                         </div>
                     )}
 
-                    {/* CTA */}
+                    {/* ─── Como o pagamento acontece ─────────────────────────── */}
+                    <p className="t-apoio mt-6">
+                        {isEn
+                            ? 'You will be redirected to the secure Mercado Pago checkout. Your plan is released automatically as soon as the payment is confirmed.'
+                            : 'Você será levado ao checkout seguro do Mercado Pago. Seu plano é liberado automaticamente assim que o pagamento for confirmado.'}
+                    </p>
+
+                    {/* ─── Falha ao iniciar o pagamento ──────────────────────────
+                        A mensagem vem do servidor e explica o motivo (ex.: meio de
+                        pagamento indisponível). Não trocar por texto genérico. */}
+                    {error && (
+                        <div
+                            role="alert"
+                            className="mt-6 rounded-xl border p-4 flex gap-3"
+                            style={{
+                                borderColor: 'var(--laudo-critico)',
+                                background: 'var(--sup-1)',
+                            }}
+                        >
+                            <AlertCircle
+                                className="w-4 h-4 mt-0.5 shrink-0"
+                                style={{ color: 'var(--laudo-critico)' }}
+                                aria-hidden
+                            />
+                            <div className="min-w-0">
+                                <p className="text-sm font-medium" style={{ color: 'var(--laudo-critico)' }}>
+                                    {isEn ? 'Payment was not started' : 'O pagamento não foi iniciado'}
+                                </p>
+                                <p className="t-apoio mt-1 break-words">{error}</p>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ─── Pagar ───────────────────────────────────────────────
+                        O contraste do botão vira nos dois temas: no escuro o
+                        carimbo é claro e o texto fica quase preto; no claro, o
+                        inverso. */}
                     <Button
                         onClick={handlePay}
                         disabled={isLoading}
-                        size="lg"
-                        className={`w-full py-7 text-base font-bold bg-gradient-to-r ${plan.gradient} hover:opacity-90 text-white shadow-2xl ${plan.shadowColor} transition-all hover:scale-[1.01] active:scale-[0.99]`}
+                        aria-busy={isLoading}
+                        className="mt-6 w-full h-auto py-5 text-base font-semibold rounded-xl transition-opacity hover:opacity-90"
+                        style={{ background: 'var(--laudo-carimbo)', color: 'var(--sup-0)' }}
                     >
-                        {isLoading ? (
-                            <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
-                        ) : (
-                            <Lock className="w-4 h-4 mr-2" />
-                        )}
-                        {isLoading ? (isEn ? 'Redirecting...' : 'Redirecionando...') : (isEn
-                            ? `Subscribe — ${totalDuePrice}`
-                            : `Assinar — ${totalDuePrice}`)}
-                        {!isLoading && <ArrowRight className="w-4 h-4 ml-2" />}
+                        {isLoading
+                            ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
+                            : <Lock className="w-4 h-4" aria-hidden />}
+                        {rotuloDoBotao}
+                        {!isLoading && <ArrowRight className="w-4 h-4" aria-hidden />}
                     </Button>
 
-                    {/* Trust signals */}
-                    <div className="mt-4 flex items-center justify-center gap-4 text-white/25 text-xs pt-1">
-                        <span className="flex items-center gap-1"><Shield className="w-3.5 h-3.5" /> SSL</span>
-                        <span>•</span>
-                        <span>{isEn ? '30-day guarantee' : 'Garantia 30 dias'}</span>
-                        <span>•</span>
-                        <span className="flex items-center gap-1"><ExternalLink className="w-3 h-3" /> Mercado Pago</span>
-                    </div>
-
-                    <p className="text-center text-white/15 text-xs mt-4">
-                        {isEn
-                            ? `By clicking subscribe, you agree to a ${isAnnual ? 'yearly' : 'monthly'} recurring subscription. Cancel anytime from your account.`
-                            : `Ao clicar em assinar, você concorda com uma assinatura recorrente ${isAnnual ? 'anual' : 'mensal'}. Cancele quando quiser na sua conta.`}
-                    </p>
-                    <div className="border-t border-white/5 pt-4 text-center text-white/20 text-xs space-y-1">
+                    {/* ─── Rodapé ────────────────────────────────────────────── */}
+                    <div
+                        className="mt-8 pt-6 border-t space-y-2 text-xs"
+                        style={{ borderColor: 'var(--sup-borda)', color: 'var(--laudo-texto-fraco)' }}
+                    >
+                        <p className="flex items-center gap-1.5">
+                            <ExternalLink className="w-3 h-3 shrink-0" aria-hidden />
+                            {isEn
+                                ? 'Payment processed by Mercado Pago. We never see or store your card data.'
+                                : 'Pagamento processado pelo Mercado Pago. Não vemos nem guardamos os dados do seu cartão.'}
+                        </p>
                         <p>
                             {isEn ? 'By proceeding, you agree to our ' : 'Ao prosseguir, você concorda com nossos '}
-                            <Link to="/terms" className="underline hover:text-white/40">{isEn ? 'Terms' : 'Termos'}</Link>
-                            {' & '}
-                            <Link to="/privacy" className="underline hover:text-white/40">{isEn ? 'Privacy Policy' : 'Privacidade'}</Link>.
+                            <Link
+                                to="/terms"
+                                className="underline underline-offset-2"
+                                style={{ color: 'var(--laudo-texto-suave)' }}
+                            >
+                                {isEn ? 'Terms' : 'Termos'}
+                            </Link>
+                            {isEn ? ' & ' : ' e a '}
+                            <Link
+                                to="/privacy"
+                                className="underline underline-offset-2"
+                                style={{ color: 'var(--laudo-texto-suave)' }}
+                            >
+                                {isEn ? 'Privacy Policy' : 'Política de Privacidade'}
+                            </Link>.
                         </p>
                         <p>
                             {isEn
@@ -419,7 +413,7 @@ const CheckoutPage = () => {
                         </p>
                     </div>
                 </div>
-            </div>
+            </main>
         </div>
     );
 };
