@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm --prefix static ci && npm --prefix static run build",
+  "outputDirectory": "static/dist",
+  "installCommand": "echo 'dependencias instaladas no buildCommand'",
+  "framework": null,
+  "rewrites": [
+    {
+      "source": "/((?!api/|analyze|chat|assets/|favicon|robots).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
