@@ -36,8 +36,8 @@ VENDOR_CATALOG = {
         "privacy_risk": "medium",
         "data_collected": ["Custom events", "User interactions", "E-commerce data"],
         "url_patterns": [r"googletagmanager\.com/gtm\.js"],
-        "source_patterns": [r"GTM-[A-Z0-9]{6,8}", r"google_tag_manager"],
-        "id_pattern": r"GTM-[A-Z0-9]{6,8}",
+        "source_patterns": [r"(?<![A-Za-z0-9-])GTM-[A-Z0-9]{6,8}", r"google_tag_manager"],
+        "id_pattern": r"(?<![A-Za-z0-9-])GTM-[A-Z0-9]{6,8}",
     },
     "ga4": {
         "name": "Google Analytics 4",
@@ -46,8 +46,8 @@ VENDOR_CATALOG = {
         "privacy_risk": "high",
         "data_collected": ["IP address", "Browsing behaviour", "Geographic location", "Demographics"],
         "url_patterns": [r"googletagmanager\.com/gtag/js", r"google-analytics\.com/g/collect"],
-        "source_patterns": [r"G-[A-Z0-9]{10,12}", r"gtag\s*\(\s*['\"]config['\"]"],
-        "id_pattern": r"G-[A-Z0-9]{10,12}",
+        "source_patterns": [r"(?<![A-Za-z0-9-])G-[A-Z0-9]{10,12}", r"gtag\s*\(\s*['\"]config['\"]"],
+        "id_pattern": r"(?<![A-Za-z0-9-])G-[A-Z0-9]{10,12}",
     },
     "ua": {
         "name": "Universal Analytics (Deprecated)",
@@ -56,8 +56,8 @@ VENDOR_CATALOG = {
         "privacy_risk": "critical",
         "data_collected": ["IP address", "Browsing behaviour", "Persistent cookies"],
         "url_patterns": [r"google-analytics\.com/analytics\.js"],
-        "source_patterns": [r"UA-\d{6,10}-\d{1,3}", r"ga\s*\(\s*['\"]create['\"]"],
-        "id_pattern": r"UA-\d{6,10}-\d{1,3}",
+        "source_patterns": [r"(?<![A-Za-z0-9-])UA-\d{6,10}-\d{1,3}", r"ga\s*\(\s*['\"]create['\"]"],
+        "id_pattern": r"(?<![A-Za-z0-9-])UA-\d{6,10}-\d{1,3}",
     },
     "meta_pixel": {
         "name": "Meta Pixel (Facebook)",
@@ -76,8 +76,8 @@ VENDOR_CATALOG = {
         "privacy_risk": "high",
         "data_collected": ["Conversions", "Remarketing data", "Custom audiences"],
         "url_patterns": [r"googleads\.g\.doubleclick\.net", r"googleadservices\.com", r"google\.com/pagead"],
-        "source_patterns": [r"AW-\d{9,11}", r"gtag\s*\(\s*['\"]event['\"][\s\S]*?['\"]conversion['\"]"],
-        "id_pattern": r"AW-\d{9,11}",
+        "source_patterns": [r"(?<![A-Za-z0-9-])AW-\d{9,11}", r"gtag\s*\(\s*['\"]event['\"][\s\S]*?['\"]conversion['\"]"],
+        "id_pattern": r"(?<![A-Za-z0-9-])AW-\d{9,11}",
     },
     "floodlight": {
         "name": "Google Floodlight",
@@ -86,8 +86,8 @@ VENDOR_CATALOG = {
         "privacy_risk": "high",
         "data_collected": ["Conversions", "Remarketing"],
         "url_patterns": [r"fls\.doubleclick\.net", r"ad\.doubleclick\.net/ddm"],
-        "source_patterns": [r"DC-\d{7,12}", r"doubleclick\.net/pagead/conversion"],
-        "id_pattern": r"DC-\d{7,12}",
+        "source_patterns": [r"(?<![A-Za-z0-9-])DC-\d{7,12}", r"doubleclick\.net/pagead/conversion"],
+        "id_pattern": r"(?<![A-Za-z0-9-])DC-\d{7,12}",
     },
     "hotjar": {
         "name": "Hotjar",
@@ -392,11 +392,37 @@ VENDOR_CATALOG = {
 }
 
 
+#: Padrões que casam um IDENTIFICADOR de tag — `G-XXXXXXXXXX`, `GTM-XXXXXXX`,
+#: `UA-123456-1`, `AW-123456789`, `DC-1234567`. Todos são case-sensitive na
+#: origem: o Google emite sempre em maiúsculas.
+_PREFIXO_DE_IDENTIFICADOR = re.compile(r"^\(\?[^)]*\)?\s*(?:G|GTM|UA|AW|DC)-")
+
+
+def _flags_do_padrao(pattern: str) -> int:
+    """Decide se um padrão pode rodar sem diferenciar maiúsculas.
+
+    Rodar TUDO com `re.IGNORECASE` produzia um falso positivo grosseiro:
+    `G-[A-Z0-9]{10,12}` casava com **`bg-transparent`** — a classe do Tailwind,
+    onde "g-" + "transparent" dá exatamente 11 caracteres. Qualquer site feito
+    com Tailwind era acusado de ter o Google Analytics 4 instalado, com um
+    "Measurement ID" que é código CSS. `rounded-lg`, `bg-gradient-to-r` e
+    `shadow-lg` caem na mesma armadilha.
+
+    Isso é o pior tipo de erro que este produto pode cometer: o laudo acusa uma
+    coleta que não existe, o cliente conferre, não acha, e passa a duvidar dos
+    achados verdadeiros — inclusive dos que estão certos.
+
+    Identificador de tag é case-sensitive; nome de função e domínio não
+    (`gtag(`, `fbq(`, `hotjar.com` aparecem em qualquer capitalização).
+    """
+    return 0 if _PREFIXO_DE_IDENTIFICADOR.match(pattern) else re.IGNORECASE
+
+
 def _extract_id(html: str, pattern: Optional[str]) -> Optional[str]:
     """Extract a vendor tracking ID from HTML using the vendor's ID pattern."""
     if not pattern:
         return None
-    m = re.search(pattern, html, re.IGNORECASE | re.DOTALL)
+    m = re.search(pattern, html, _flags_do_padrao(pattern) | re.DOTALL)
     if m:
         try:
             return m.group(1)
@@ -614,7 +640,7 @@ def detect_tags(html: str, scan=None) -> List[TagFinding]:
 
         # ── 2. Source pattern detection (MEDIUM confidence) ───────────────────
         for src_pat in vendor.get("source_patterns", []):
-            matches = list(re.finditer(src_pat, html, re.IGNORECASE))
+            matches = list(re.finditer(src_pat, html, _flags_do_padrao(src_pat)))
             if matches:
                 for m in matches:
                     pos = m.start()

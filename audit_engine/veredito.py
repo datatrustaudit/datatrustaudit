@@ -36,9 +36,29 @@ def _classificar(
     tem_cmp: bool,
     tags_antes: int,
     pii: int,
+    coleta_observada: int = 0,
 ) -> str:
+    """Qual das frases o site recebe.
+
+    `coleta_observada` é o total de sinais de coleta encontrados — rastreadores,
+    cookies gravados, chaves de storage. Sem nenhum deles, **nenhum veredito de
+    coleta pode ser emitido**, por mais que falte uma CMP.
+
+    Sem essa condição, um site que não rastreia nada recebia "Coleta sem pedir
+    consentimento" e a frase saía dizendo "por meio de **0** ferramenta(s) de
+    rastreamento". O motivo era o `or violacoes` abaixo: o achado
+    "sem controle de consentimento" existe sozinho, e bastava ele para o site
+    ser acusado de coletar.
+
+    Não ter CMP num site que não rastreia não é irregularidade — é uma página
+    que não precisa de consentimento para nada. Acusá-la é o mesmo falso
+    positivo que fazia o produto detectar GA4 dentro de `bg-transparent`, e o
+    custo é o mesmo: quem confere e não acha passa a duvidar do resto.
+    """
     if pii > 0:
         return "pii"
+    if coleta_observada <= 0:
+        return "outro"
     if not tem_cmp and (tags_antes > 0 or violacoes):
         return "cmp_ausente"
     if tem_cmp and tags_antes > 0:
@@ -86,7 +106,13 @@ def gerar_veredito(
             "motivo": "conforme",
         }
 
-    motivo = _classificar(violacoes, tem_cmp, tags_antes_do_consentimento, pii_exposta)
+    # Sinais de coleta REALMENTE observados. Um site sem nenhum deles não pode
+    # receber veredito de "coleta sem consentimento" — ver `_classificar`.
+    coleta_observada = int(total_de_tags) + int(cookies_sem_consentimento) + int(tags_antes_do_consentimento)
+
+    motivo = _classificar(
+        violacoes, tem_cmp, tags_antes_do_consentimento, pii_exposta, coleta_observada
+    )
 
     # Cada frase afirma só o que a varredura observou. "Coletou" é diferente de
     # "pode coletar", e é essa diferença que sustenta o laudo.
