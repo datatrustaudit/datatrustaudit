@@ -150,5 +150,53 @@ class Payment(Base):
     status = Column(String, default="pending") # pending, approved, failed
     plan_purchased = Column(String, nullable=False)
     created_at = Column(DateTime, default=utcnow)
-    
+
     user = relationship("User", back_populates="payments")
+
+
+class PedidoPix(Base):
+    """Uma cobrança por PIX direto na chave, confirmada à mão.
+
+    O PIX não passa por intermediário: o cliente paga na chave e alguém
+    confirma que o dinheiro entrou. Isso troca a taxa do gateway por um passo
+    manual — e é esse passo que este registro precisa deixar auditável, porque
+    é ele que libera acesso pago.
+
+    Três decisões que não são óbvias lendo os campos:
+
+    - **O token é guardado como hash.** `token_hash` recebe o SHA-256; o token
+      em claro só existe no e-mail. Vazamento do banco não vira liberação de
+      plano de graça.
+    - **`valor` é gravado na criação, não recalculado na confirmação.** É o
+      valor que o cliente viu e pagou. Recalcular depois faria uma mudança de
+      preço reescrever o passado.
+    - **`expira_em` vale para o pagamento, não para a confirmação.** O PIX
+      expira em 30 minutos porque o cliente precisa de um prazo; a confirmação
+      do dono continua possível depois disso, senão um pagamento legítimo feito
+      no minuto 29 ficaria impossível de liberar.
+    """
+    __tablename__ = "pedidos_pix"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+
+    plano = Column(String, nullable=False)
+    valor = Column(Float, nullable=False)
+    #: Curto e único — vai no BR Code e é o que casa o dinheiro recebido com
+    #: este pedido quando duas pessoas pagam o mesmo valor no mesmo minuto.
+    txid = Column(String, unique=True, index=True, nullable=False)
+
+    #: aguardando → avisado → confirmado. Também: expirado, cancelado.
+    status = Column(String, default="aguardando", nullable=False, index=True)
+
+    criado_em = Column(DateTime, default=utcnow, nullable=False)
+    expira_em = Column(DateTime, nullable=False)
+    #: Quando o cliente declarou ter pago. É o que dispara o e-mail.
+    avisado_em = Column(DateTime, nullable=True)
+    confirmado_em = Column(DateTime, nullable=True)
+    #: Quem liberou: "link" (botão do e-mail) ou "admin:<id>" (painel).
+    confirmado_por = Column(String, nullable=True)
+
+    token_hash = Column(String, nullable=True, index=True)
+
+    user = relationship("User")
