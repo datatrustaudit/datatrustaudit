@@ -169,7 +169,6 @@ def create_preference(
             "failure": frontend + "/payment/failed",
             "pending": frontend + "/payment/pending",
         },
-        "auto_return": "approved",
         # separador "|": o plano é lido de volta no webhook por split, e e-mail
         # ou id com "_" embaralhava os campos.
         # O método viaja junto porque o valor difere entre PIX e cartão — sem
@@ -201,9 +200,37 @@ def create_preference(
             "excluded_payment_types": [{"id": "ticket"}, {"id": "atm"}],
         }
 
+    # `auto_return` faz o Mercado Pago voltar sozinho para o site após o
+    # pagamento — mas ele EXIGE que a URL de sucesso seja https, e recusa a
+    # preferência inteira com 400 quando não é:
+    #
+    #     {"error": "invalid_auto_return",
+    #      "message": "auto_return invalid. back_url.success must be defined"}
+    #
+    # Em desenvolvimento, `FRONTEND_URL` é http://localhost, então o checkout
+    # falhava SEMPRE — e a mensagem do MP nem menciona o https, fala de um
+    # campo que estava lá. Sem `auto_return` o pagamento funciona igual; o
+    # cliente só precisa clicar em "voltar ao site" no fim.
+    if preference_data["back_urls"]["success"].startswith("https://"):
+        preference_data["auto_return"] = "approved"
+
     try:
         preference_response = sdk.preference().create(preference_data)
-        preference = preference_response["response"]
+        preference = preference_response["response"] or {}
+        # Erro do Mercado Pago não levanta exceção: ele devolve status 4xx com
+        # um corpo sem `id`, e o `preference["id"]` estourava um KeyError seco.
+        # O log then dizia só `'id'` — o nome da chave — e escondia a causa
+        # real, que vinha escrita no corpo.
+        if "id" not in preference:
+            print(
+                f"[payments] Mercado Pago recusou a preferência do user "
+                f"{current_user.id}: HTTP {preference_response.get('status')} — "
+                f"{preference.get('error')}: {preference.get('message')}"
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="Não foi possível iniciar o pagamento. Tente novamente.",
+            )
         return {
             "id": preference["id"],
             "init_point": preference["init_point"],
@@ -214,8 +241,14 @@ def create_preference(
             "method": metodo,
             "listPrice": PRICES[plan],
         }
+    except HTTPException:
+        # A recusa do Mercado Pago já foi diagnosticada e registrada acima. Sem
+        # este re-raise, o `except Exception` abaixo a capturaria e a
+        # substituiria por um log genérico — apagando a causa que acabou de ser
+        # descoberta.
+        raise
     except Exception as e:
-        print(f"[payments] erro ao criar preferência para user {current_user.id}: {e}")
+        print(f"[payments] erro ao criar preferência para user {current_user.id}: {e!r}")
         raise HTTPException(status_code=502, detail="Não foi possível iniciar o pagamento. Tente novamente.")
 
 

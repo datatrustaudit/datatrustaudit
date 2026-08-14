@@ -18,6 +18,64 @@ import os
 
 import pytest
 
+
+class _PreferenciaFalsa:
+    """Dublê do `sdk.preference()` do Mercado Pago.
+
+    Guarda o payload enviado — é lá que o valor é cobrado de fato, então é lá
+    que a asserção precisa olhar. Conferir só a resposta deixaria passar um
+    `unit_price` errado no que foi enviado.
+    """
+
+    def __init__(self, dono):
+        self._dono = dono
+
+    def create(self, preferencia):
+        self._dono.ultima_preferencia = preferencia
+        return {"status": self._dono._status, "response": self._dono._corpo}
+
+
+class MercadoPagoFalso:
+    def __init__(self):
+        self.ultima_preferencia = None
+        self._status = 201
+        self._corpo = {
+            "id": "pref-de-teste-123",
+            "init_point": "https://www.mercadopago.com.br/checkout/v1/redirect?pref_id=pref-de-teste-123",
+        }
+
+    def responder(self, status, corpo):
+        """Faz a próxima chamada devolver uma recusa."""
+        self._status = status
+        self._corpo = corpo
+
+    def preference(self):
+        return _PreferenciaFalsa(self)
+
+
+@pytest.fixture()
+def mercado_pago_falso(monkeypatch):
+    """Instala o dublê no lugar do SDK real.
+
+    Sem isto, `pytest` criava preferências de verdade na conta de produção do
+    Mercado Pago: `db.database` chama `load_dotenv()` no import, e o token do
+    `.env` entrava no ambiente dos testes. Passava despercebido porque toda
+    preferência era recusada antes de chegar ao fim.
+
+    `FRONTEND_URL` é restaurada no teardown porque dois testes daqui a
+    sobrescrevem para exercitar o http e o https.
+    """
+    import api.payments as p
+
+    falso = MercadoPagoFalso()
+    frontend_original = os.environ.get("FRONTEND_URL")
+    monkeypatch.setattr(p, "sdk", falso)
+    yield falso
+    if frontend_original is None:
+        os.environ.pop("FRONTEND_URL", None)
+    else:
+        os.environ["FRONTEND_URL"] = frontend_original
+
 os.environ.setdefault("SECRET_KEY", "x" * 40)
 
 from api.payments import (
@@ -111,20 +169,64 @@ class TestCheckout:
         r = self._pedir(client, headers, {"plan": "free", "method": "pix"})
         assert r.status_code == 400
 
-    def test_valor_do_cliente_e_ignorado(self, client, usuario_logado):
+    def test_sem_credencial_o_checkout_recusa_em_vez_de_fingir(self, client, usuario_logado):
+        """Já devolveu um link de fallback que não levava a lugar nenhum, e o
+        cliente achava que tinha assinado."""
+        headers, _ = usuario_logado
+        r = self._pedir(client, headers, {"plan": "premium", "method": "pix"})
+        assert r.status_code == 503, r.text
+
+    def test_valor_do_cliente_e_ignorado(self, client, usuario_logado, mercado_pago_falso):
         """Mandar {"amount": 1} não pode comprar o premium por um real.
 
-        Sem credencial do Mercado Pago a rota devolve 503 — e é isso que se
-        espera no ambiente de teste. O que não pode acontecer é 200 com o valor
-        do cliente aceito.
+        O que vai para o Mercado Pago é conferido no payload, não na resposta:
+        é lá que o valor é cobrado de fato.
         """
         headers, _ = usuario_logado
         r = self._pedir(client, headers, {
             "plan": "premium", "method": "pix", "amount": 1, "unit_price": 1,
         })
-        assert r.status_code in (503, 502), r.text
-        if r.status_code == 200:
-            assert r.json()["amount"] == 234.65
+        assert r.status_code == 200, r.text
+
+        enviado = mercado_pago_falso.ultima_preferencia
+        assert enviado["items"][0]["unit_price"] == 234.65, (
+            f"o valor enviado ao Mercado Pago foi {enviado['items'][0]['unit_price']}"
+        )
+        assert r.json()["amount"] == 234.65
+
+    def test_url_http_nao_manda_auto_return(self, client, usuario_logado, mercado_pago_falso):
+        """`auto_return` exige `back_urls.success` em https. Com http o Mercado
+        Pago recusa a preferência INTEIRA com 400 e uma mensagem que nem cita o
+        https — diz que `back_url.success must be defined`, sobre um campo que
+        estava lá. Em desenvolvimento o checkout falhava sempre.
+        """
+        headers, _ = usuario_logado
+        os.environ["FRONTEND_URL"] = "http://localhost:8080"
+        r = self._pedir(client, headers, {"plan": "premium", "method": "pix"})
+        assert r.status_code == 200, r.text
+        assert "auto_return" not in mercado_pago_falso.ultima_preferencia
+
+    def test_url_https_manda_auto_return(self, client, usuario_logado, mercado_pago_falso):
+        """Em produção o retorno automático é o comportamento desejado — não
+        pode ter sido perdido junto com a correção."""
+        headers, _ = usuario_logado
+        os.environ["FRONTEND_URL"] = "https://datatrustaudit.com"
+        r = self._pedir(client, headers, {"plan": "premium", "method": "pix"})
+        assert r.status_code == 200, r.text
+        assert mercado_pago_falso.ultima_preferencia["auto_return"] == "approved"
+
+    def test_recusa_do_mercado_pago_nao_vira_keyerror(self, client, usuario_logado, mercado_pago_falso):
+        """Erro do MP não levanta exceção: devolve 4xx com um corpo sem `id`, e
+        `preference["id"]` estourava um KeyError seco. O log dizia só `'id'` — o
+        nome da chave — enquanto a causa estava escrita no corpo."""
+        headers, _ = usuario_logado
+        mercado_pago_falso.responder(
+            status=400,
+            corpo={"error": "invalid_auto_return", "message": "auto_return invalid."},
+        )
+        r = self._pedir(client, headers, {"plan": "premium", "method": "pix"})
+        assert r.status_code == 502, r.text
+        assert "iniciar o pagamento" in r.json()["detail"]
 
 
 class TestValidadeDoAcesso:

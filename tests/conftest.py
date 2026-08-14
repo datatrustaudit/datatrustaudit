@@ -17,6 +17,21 @@ os.environ.setdefault("RATE_LIMIT_LOGIN", "3/minute")
 # teste de força bruta exercita.
 os.environ.setdefault("RATE_LIMIT_REGISTER", "1000/minute")
 
+# Nenhum teste fala com o Mercado Pago de verdade.
+#
+# `db.database` chama `load_dotenv()` no import, então o `.env` do
+# desenvolvedor — com o token de PRODUÇÃO — entrava no ambiente dos testes.
+# `pytest` passou a criar preferências reais na conta do Mercado Pago; só não
+# se percebia porque toda preferência era recusada antes, por causa do
+# `auto_return` com URL http. Corrigido o `auto_return`, a suíte começou a
+# criar preferências de verdade a cada execução.
+#
+# Vazio e não `setdefault`: aqui a intenção é sobrescrever o que veio do .env.
+# Sem token, `api.payments.sdk` é None e a rota devolve 503 — que é o
+# comportamento correto sem credencial. Quem precisa exercitar o caminho feliz
+# instala um dublê no lugar do `sdk` (ver `tests/test_pagamento_unico.py`).
+os.environ["MP_ACCESS_TOKEN"] = ""
+
 # Banco em arquivo, não :memory: — com o pool padrão do SQLAlchemy cada conexão
 # a um :memory: abre um banco novo e vazio, e as tabelas somem entre requisições.
 _DB_FILE = os.path.join(tempfile.gettempdir(), "datatrust_test.db")
