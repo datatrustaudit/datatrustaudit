@@ -3,20 +3,40 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useI18n } from '@/context/I18nContext';
 import { useSubscription, SubscriptionPlan } from '@/context/SubscriptionContext';
+import { PLAN_CONFIGS } from '@/context/PlanContext';
 import { apiRequest } from '@/lib/apiClient';
 import { usePricing, type FormaDePagamento } from '@/hooks/usePricing';
 import { Button } from '@/components/ui/button';
 import LocaleSelector from '@/components/LocaleSelector';
 import MarcaDataTrust from '@/components/MarcaDataTrust';
+import PagamentoPix from '@/components/PagamentoPix';
 import {
     Check, Lock, AlertCircle, ArrowRight, Loader2,
     CreditCard, QrCode, ExternalLink,
 } from 'lucide-react';
 
+/* A cota sai de onde o app corta de verdade (`PLAN_CONFIGS`, espelho de
+   `WEEKLY_SCAN_LIMITS` no backend). Escrita à mão aqui, ela envelhece sem
+   ninguém perceber — e esta é a tela onde o número vira promessa paga. Mesma
+   regra que a página de preço já segue. */
+const COTA = {
+    free: PLAN_CONFIGS.free.limits,
+    pro: PLAN_CONFIGS.pro.limits,
+    premium: PLAN_CONFIGS.premium.limits,
+};
+
 /* ─── O que o plano entrega ────────────────────────────────────────────────────
    Só texto. O gradiente por plano, a coroa e a estrela que moravam aqui saíram:
    nesta identidade cor saturada é reservada à gravidade de um achado, e selo
-   colorido na tela onde o dinheiro entra é decoração, não informação. */
+   colorido na tela onde o dinheiro entra é decoração, não informação.
+
+   Cada linha aqui é promessa de contrato, então precisa corresponder ao que o
+   produto entrega. Duas não correspondiam e saíram: "70% de visibilidade" no
+   Pro (o backend dá 100% — `VISIBILIDADE_POR_PLANO` em
+   `audit_engine/guia_de_correcao.py` mapeia `pro: 1.00`, e o número nunca
+   existiu em lugar nenhum) e "suporte prioritário" no Premium, que não tem
+   fila diferente por trás — a página de preço já o havia removido pelo mesmo
+   motivo. */
 const PLAN_META: Record<SubscriptionPlan, {
     label: { en: string; pt: string };
     audits: { en: string; pt: string };
@@ -24,40 +44,72 @@ const PLAN_META: Record<SubscriptionPlan, {
 }> = {
     free: {
         label: { en: 'Free', pt: 'Grátis' },
-        audits: { en: '10 scans per week', pt: '10 escaneamentos por semana' },
+        audits: {
+            en: `${COTA.free.scansPerWeek} scans per week`,
+            pt: `${COTA.free.scansPerWeek} escaneamentos por semana`,
+        },
         highlights: {
-            en: ['Basic dashboard', 'Risk summary', 'AI chat (5 msg/day)'],
-            pt: ['Dashboard básico', 'Resumo de riscos', 'Chat IA (5 msg/dia)'],
+            en: [
+                'Verdict and violation count',
+                'Severity of each finding',
+                `AI chat (${COTA.free.aiChatMessagesPerDay} msg/day)`,
+            ],
+            pt: [
+                'Veredito e contagem de não conformidades',
+                'Gravidade de cada achado',
+                `Chat IA (${COTA.free.aiChatMessagesPerDay} msg/dia)`,
+            ],
         },
     },
     pro: {
         label: { en: 'Pro', pt: 'Pro' },
-        audits: { en: '50 scans per week', pt: '50 escaneamentos por semana' },
+        audits: {
+            en: `${COTA.pro.scansPerWeek} scans per week`,
+            pt: `${COTA.pro.scansPerWeek} escaneamentos por semana`,
+        },
         highlights: {
-            en: ['Full audit (GA4, GTM, pixels, cookies)', 'Pre-consent risk detection', 'PDF report', 'All violations (70% visibility)'],
-            pt: ['Auditoria completa (GA4, GTM, pixels, cookies)', 'Riscos antes do consentimento', 'Relatório em PDF', 'Todas violações (70% visibilidade)'],
+            en: ['Full audit (GA4, GTM, pixels, cookies)', 'Pre-consent risk detection', 'PDF report', 'Every violation, finding by finding'],
+            pt: ['Auditoria completa (GA4, GTM, pixels, cookies)', 'Riscos antes do consentimento', 'Relatório em PDF', 'Todas as violações, achado a achado'],
         },
     },
     premium: {
         label: { en: 'Premium', pt: 'Premium' },
-        audits: { en: '200 scans per week', pt: '200 escaneamentos por semana' },
+        audits: {
+            en: `${COTA.premium.scansPerWeek} scans per week`,
+            pt: `${COTA.premium.scansPerWeek} escaneamentos por semana`,
+        },
         highlights: {
-            en: ['Everything in Pro', 'Full evidence export (JSON)', 'Network, cookies & dataLayer tabs', 'Consent timeline', 'LGPD/GDPR exposure estimate', 'Priority support'],
-            pt: ['Tudo do Pro', 'Evidências completas (JSON)', 'Network, cookies e dataLayer', 'Timeline de consentimento', 'Estimativa de exposição LGPD/GDPR', 'Suporte prioritário'],
+            en: ['Everything in Pro', 'Full evidence export (JSON)', 'Network, cookies & dataLayer tabs', 'Consent timeline', 'LGPD/GDPR exposure estimate', 'Scan history and comparison'],
+            pt: ['Tudo do Pro', 'Evidências completas (JSON)', 'Network, cookies e dataLayer', 'Timeline de consentimento', 'Estimativa de exposição LGPD/GDPR', 'Histórico e comparação entre varreduras'],
         },
     },
 };
 
+/**
+ * Um número só vira preço na tela se for número de verdade. Chave que falta na
+ * resposta chega como `undefined`, e `undefined !== null` é verdadeiro: a
+ * checagem por `!== null` dava o valor por carregado e `Intl.format(undefined)`
+ * escrevia "R$ NaN" no lugar mais caro possível — o valor a pagar, que também
+ * vai para o rótulo do botão ("Pagar R$ NaN no PIX"). A checagem é por tipo.
+ */
+const ehValorExibivel = (v: unknown): v is number =>
+    typeof v === 'number' && Number.isFinite(v);
+
 const CheckoutPage = () => {
     const [params] = useSearchParams();
     const navigate = useNavigate();
-    const { isAuthenticated, user, token } = useAuth();
+    const { isAuthenticated, user, token, isLoading: sessaoCarregando } = useAuth();
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const { language } = useI18n();
     const { markPending } = useSubscription();
 
-    const planId = (params.get('plan') ?? localStorage.getItem('gtm-selected-plan') ?? 'pro') as SubscriptionPlan;
+    /* Sem plano na URL e sem escolha guardada, a tela caía no `pro` — que é
+       plano descontinuado (`PLANOS_ATIVOS = ("free", "premium")` no backend) e
+       não é oferecido em lugar nenhum. Abrir `/checkout` direto montava uma
+       compra que ninguém pediu. Sem plano, a decisão volta para a página de
+       preço: o efeito abaixo redireciona, porque `PLAN_META['']` não existe. */
+    const planId = (params.get('plan') ?? localStorage.getItem('gtm-selected-plan') ?? '') as SubscriptionPlan;
     /* Forma de pagamento no lugar do ciclo: a compra é avulsa, e é o método que
        muda o valor. `cycle` ainda pode chegar em link antigo — é ignorado. */
     const metodo: FormaDePagamento = params.get('method') === 'card' ? 'card' : 'pix';
@@ -76,9 +128,21 @@ const CheckoutPage = () => {
        próxima etapa em vez de arriscar um palpite convertido de dólar. */
     const { pricing: serverPricing, isLoading: carregandoPrecos } = usePricing();
     const serverPlan = serverPricing?.plans?.[planId as 'pro' | 'premium'];
-    const serverTotalBrl = serverPlan ? serverPlan[metodo] : null;
-    const economiaDoPix = serverPlan && metodo === 'pix' ? serverPlan.pixSavings : 0;
-    const diasDeAcesso = serverPricing?.accessDays ?? 365;
+    /* Sem número de verdade o lugar do preço fica vazio e a tela diz o que
+       houve — nunca um valor de reserva. Ver `ehValorExibivel` acima. */
+    const brutoDoMetodo = serverPlan?.[metodo];
+    const brutoDoCartao = serverPlan?.card;
+    const brutoDaEconomia = serverPlan?.pixSavings;
+
+    const serverTotalBrl = ehValorExibivel(brutoDoMetodo) ? brutoDoMetodo : null;
+    const valorNoCartao = ehValorExibivel(brutoDoCartao) ? brutoDoCartao : null;
+    const economiaDoPix = metodo === 'pix' && ehValorExibivel(brutoDaEconomia) ? brutoDaEconomia : 0;
+    /* Sem fallback numérico de propósito. `ACCESS_PERIOD_DAYS` é configurável
+       por variável de ambiente no backend, então "365" escrito aqui é a mesma
+       divergência que já fez a tela dizer R$ 49,90 e o checkout cobrar R$ 97 —
+       só que num prazo de acesso, que é promessa de contrato. Quando o servidor
+       não responde, a duração some da tela em vez de virar palpite. */
+    const diasDeAcesso = serverPricing?.accessDays ?? null;
 
     const formatBrl = (valor: number) =>
         new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
@@ -91,6 +155,12 @@ const CheckoutPage = () => {
     const audits = L(plan.audits);
 
     useEffect(() => {
+        /* Esperar a sessão resolver antes de julgar. `isAuthenticated` nasce
+           `false` enquanto o Supabase ainda lê a sessão do storage, e o efeito
+           roda no primeiro render: quem já estava logado era chutado para
+           `/auth` só por dar F5 nesta página — que é exatamente o que faz quem
+           sai para o app do banco no meio do PIX e volta. */
+        if (sessaoCarregando) return;
         if (!isAuthenticated) {
             // A forma de pagamento viaja junto: sem ela, quem escolheu PIX
             // voltava do login para o preço do cartão.
@@ -102,7 +172,22 @@ const CheckoutPage = () => {
         if (!PLAN_META[planId] || planId === 'free') {
             navigate('/pricing');
         }
-    }, [isAuthenticated, planId]);
+    }, [sessaoCarregando, isAuthenticated, planId, metodo]);
+
+    /* Enquanto a sessão carrega a tela não pode nem mostrar a compra nem
+       declarar o visitante anônimo. Dito, e não em branco. */
+    if (sessaoCarregando) {
+        return (
+            <div
+                className="min-h-screen sup-0 flex items-center justify-center gap-3 t-apoio"
+                style={{ color: 'var(--laudo-texto)' }}
+                aria-busy="true"
+            >
+                <Loader2 className="w-4 h-4 animate-spin shrink-0" aria-hidden />
+                {isEn ? 'Loading your session…' : 'Carregando sua sessão…'}
+            </div>
+        );
+    }
 
     if (!isAuthenticated || !PLAN_META[planId] || planId === 'free') return null;
 
@@ -130,8 +215,17 @@ const CheckoutPage = () => {
             // Antes o botão redirecionava direto para um link fixo da Kiwify, e
             // como não existe webhook da Kiwify no backend, quem pagava ficava
             // esperando ativação manual.
+            /* Sessão sem token: acontece quando o JWT some ou vence com a aba
+               aberta. O destino vai pelo `localStorage`, que é o único canal que
+               `/auth` lê. A URL usada antes — `/auth?redirect=/checkout?plan=…&
+               method=…` — se perdia duas vezes: ninguém lê `redirect`, e o `?`
+               aninhado sem escape fazia `method` virar parâmetro do próprio
+               `/auth`. Quem escolheu PIX voltava do login para o preço do cartão,
+               que é justamente o bug que o efeito acima já tinha corrigido. */
             if (!isAuthenticated || !token) {
-                navigate(`/auth?redirect=/checkout?plan=${planId}&method=${metodo}`);
+                localStorage.setItem('gtm-redirect-after-auth', `/checkout?plan=${planId}&method=${metodo}`);
+                setIsLoading(false);
+                navigate('/auth');
                 return;
             }
 
@@ -214,9 +308,11 @@ const CheckoutPage = () => {
                     <p className="t-etiqueta">{isEn ? 'Order confirmation' : 'Confirmação de compra'}</p>
                     <h1 className="t-titulo mt-3">DataTrust Audit — {planLabel}</h1>
                     <p className="t-apoio mt-4">
-                        {isEn
-                            ? `${audits}. ${diasDeAcesso} days of access.`
-                            : `${audits}. Acesso por ${diasDeAcesso} dias.`}
+                        {diasDeAcesso
+                            ? (isEn
+                                ? `${audits}. ${diasDeAcesso} days of access.`
+                                : `${audits}. Acesso por ${diasDeAcesso} dias.`)
+                            : `${audits}.`}
                     </p>
 
                     {/* ─── O valor ───────────────────────────────────────────────
@@ -260,15 +356,16 @@ const CheckoutPage = () => {
                             </p>
 
                             {/* Quanto o PIX economiza. Sem o valor do cartão ao lado,
-                                o desconto é só um número solto. */}
-                            {metodo === 'pix' && economiaDoPix > 0 && serverPlan && (
+                                o desconto é só um número solto — por isso a linha
+                                inteira só aparece quando os dois vieram. */}
+                            {metodo === 'pix' && economiaDoPix > 0 && valorNoCartao !== null && (
                                 <p className="mt-2 text-sm" style={{ color: 'var(--laudo-texto-suave)' }}>
                                     {isEn ? 'You save ' : 'Você economiza '}
                                     <span className="voz-evidencia" style={{ color: 'var(--laudo-texto)' }}>
                                         {formatBrl(economiaDoPix)}
                                     </span>
                                     {isEn ? ' — by card it would be ' : ' — no cartão seriam '}
-                                    <span className="voz-evidencia line-through">{formatBrl(serverPlan.card)}</span>.
+                                    <span className="voz-evidencia line-through">{formatBrl(valorNoCartao)}</span>.
                                 </p>
                             )}
 
@@ -292,9 +389,13 @@ const CheckoutPage = () => {
                                     : 'Pagamento único — sem renovação automática.'}
                             </p>
                             <p className="t-apoio mt-1">
-                                {isEn
-                                    ? `Nothing is charged again. Access lasts ${diasDeAcesso} days from the moment the payment is confirmed.`
-                                    : `Nada é cobrado de novo. O acesso vale por ${diasDeAcesso} dias a partir da confirmação do pagamento.`}
+                                {diasDeAcesso
+                                    ? (isEn
+                                        ? `Nothing is charged again. Access lasts ${diasDeAcesso} days from the moment the payment is confirmed.`
+                                        : `Nada é cobrado de novo. O acesso vale por ${diasDeAcesso} dias a partir da confirmação do pagamento.`)
+                                    : (isEn
+                                        ? 'Nothing is charged again. Access starts as soon as the payment is confirmed.'
+                                        : 'Nada é cobrado de novo. O acesso começa assim que o pagamento é confirmado.')}
                             </p>
                         </div>
                     </section>
@@ -326,68 +427,87 @@ const CheckoutPage = () => {
                         </div>
                     )}
 
-                    {/* ─── Como o pagamento acontece ─────────────────────────── */}
-                    <p className="t-apoio mt-6">
-                        {isEn
-                            ? 'You will be redirected to the secure Mercado Pago checkout. Your plan is released automatically as soon as the payment is confirmed.'
-                            : 'Você será levado ao checkout seguro do Mercado Pago. Seu plano é liberado automaticamente assim que o pagamento for confirmado.'}
-                    </p>
-
-                    {/* ─── Falha ao iniciar o pagamento ──────────────────────────
-                        A mensagem vem do servidor e explica o motivo (ex.: meio de
-                        pagamento indisponível). Não trocar por texto genérico. */}
-                    {error && (
-                        <div
-                            role="alert"
-                            className="mt-6 rounded-xl border p-4 flex gap-3"
-                            style={{
-                                borderColor: 'var(--laudo-critico)',
-                                background: 'var(--sup-1)',
-                            }}
-                        >
-                            <AlertCircle
-                                className="w-4 h-4 mt-0.5 shrink-0"
-                                style={{ color: 'var(--laudo-critico)' }}
-                                aria-hidden
-                            />
-                            <div className="min-w-0">
-                                <p className="text-sm font-medium" style={{ color: 'var(--laudo-critico)' }}>
-                                    {isEn ? 'Payment was not started' : 'O pagamento não foi iniciado'}
-                                </p>
-                                <p className="t-apoio mt-1 break-words">{error}</p>
-                            </div>
-                        </div>
-                    )}
-
                     {/* ─── Pagar ───────────────────────────────────────────────
-                        O contraste do botão vira nos dois temas: no escuro o
-                        carimbo é claro e o texto fica quase preto; no claro, o
-                        inverso. */}
-                    <Button
-                        onClick={handlePay}
-                        disabled={isLoading}
-                        aria-busy={isLoading}
-                        className="mt-6 w-full h-auto py-5 text-base font-semibold rounded-xl transition-opacity hover:opacity-90"
-                        style={{ background: 'var(--laudo-carimbo)', color: 'var(--sup-0)' }}
-                    >
-                        {isLoading
-                            ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
-                            : <Lock className="w-4 h-4" aria-hidden />}
-                        {rotuloDoBotao}
-                        {!isLoading && <ArrowRight className="w-4 h-4" aria-hidden />}
-                    </Button>
+                        O PIX não passa pelo Mercado Pago: a cobrança é emitida
+                        direto na chave do recebedor e conferida à mão (ver
+                        `api/pix.py`). Mandar quem escolheu PIX para o checkout
+                        do provedor cobraria a taxa que o desconto do PIX
+                        justamente devolve ao cliente. O caminho do cartão
+                        continua sendo o redirecionamento. */}
+                    {metodo === 'pix' ? (
+                        <div className="mt-6">
+                            <PagamentoPix plano={planId} />
+                        </div>
+                    ) : (
+                        <>
+                            <p className="t-apoio mt-6">
+                                {isEn
+                                    ? 'You will be redirected to the secure Mercado Pago checkout. Your plan is released automatically as soon as the payment is confirmed.'
+                                    : 'Você será levado ao checkout seguro do Mercado Pago. Seu plano é liberado automaticamente assim que o pagamento for confirmado.'}
+                            </p>
+
+                            {/* ─── Falha ao iniciar o pagamento ──────────────────
+                                A mensagem vem do servidor e explica o motivo (ex.:
+                                meio de pagamento indisponível). Não trocar por
+                                texto genérico. */}
+                            {error && (
+                                <div
+                                    role="alert"
+                                    className="mt-6 rounded-xl border p-4 flex gap-3"
+                                    style={{
+                                        borderColor: 'var(--laudo-critico)',
+                                        background: 'var(--sup-1)',
+                                    }}
+                                >
+                                    <AlertCircle
+                                        className="w-4 h-4 mt-0.5 shrink-0"
+                                        style={{ color: 'var(--laudo-critico)' }}
+                                        aria-hidden
+                                    />
+                                    <div className="min-w-0">
+                                        <p className="text-sm font-medium" style={{ color: 'var(--laudo-critico)' }}>
+                                            {isEn ? 'Payment was not started' : 'O pagamento não foi iniciado'}
+                                        </p>
+                                        <p className="t-apoio mt-1 break-words">{error}</p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* O contraste do botão vira nos dois temas: no escuro
+                                o carimbo é claro e o texto fica quase preto; no
+                                claro, o inverso. */}
+                            <Button
+                                onClick={handlePay}
+                                disabled={isLoading}
+                                aria-busy={isLoading}
+                                className="mt-6 w-full h-auto py-5 text-base font-semibold rounded-xl transition-opacity hover:opacity-90"
+                                style={{ background: 'var(--laudo-carimbo)', color: 'var(--sup-0)' }}
+                            >
+                                {isLoading
+                                    ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
+                                    : <Lock className="w-4 h-4" aria-hidden />}
+                                {rotuloDoBotao}
+                                {!isLoading && <ArrowRight className="w-4 h-4" aria-hidden />}
+                            </Button>
+                        </>
+                    )}
 
                     {/* ─── Rodapé ────────────────────────────────────────────── */}
                     <div
                         className="mt-8 pt-6 border-t space-y-2 text-xs"
                         style={{ borderColor: 'var(--sup-borda)', color: 'var(--laudo-texto-fraco)' }}
                     >
-                        <p className="flex items-center gap-1.5">
-                            <ExternalLink className="w-3 h-3 shrink-0" aria-hidden />
-                            {isEn
-                                ? 'Payment processed by Mercado Pago. We never see or store your card data.'
-                                : 'Pagamento processado pelo Mercado Pago. Não vemos nem guardamos os dados do seu cartão.'}
-                        </p>
+                        {/* Só vale para o cartão: no PIX o Mercado Pago não entra
+                            no caminho, e afirmar que ele processa seria descrever
+                            um fluxo que não existe. */}
+                        {metodo === 'card' && (
+                            <p className="flex items-center gap-1.5">
+                                <ExternalLink className="w-3 h-3 shrink-0" aria-hidden />
+                                {isEn
+                                    ? 'Payment processed by Mercado Pago. We never see or store your card data.'
+                                    : 'Pagamento processado pelo Mercado Pago. Não vemos nem guardamos os dados do seu cartão.'}
+                            </p>
+                        )}
                         <p>
                             {isEn ? 'By proceeding, you agree to our ' : 'Ao prosseguir, você concorda com nossos '}
                             <Link

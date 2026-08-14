@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { AuthRequestError, useAuth } from '@/context/AuthContext';
+import { authDisponivel, motivoDaFaltaDeAuth } from '@/lib/supabase';
 import { useI18n } from '@/context/I18nContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -245,6 +246,45 @@ const AuthPage = () => {
     // id que não está na página não descreve nada.
     const descricaoDaSenha = [erroSenha ? 'erro-senha' : '', mode === 'signup' ? 'dica-senha' : '']
         .filter(Boolean).join(' ');
+
+    /* Sem configuração de autenticação, os campos abaixo só produziriam um erro
+       incompreensível ao serem enviados. Dizer isso aqui é o oposto de esconder:
+       o problema é de instalação, e esta é a única tela onde ele importa — o
+       resto do site continua navegável. */
+    if (!authDisponivel) {
+        return (
+            <div className="min-h-screen px-5 pb-16 pt-28" style={{ background: 'var(--sup-0)' }}>
+                <MinimalTopMenu />
+                <div className="mx-auto w-full max-w-[26rem]">
+                    <div
+                        className="rounded-xl border-l-[3px] border-y border-r p-5"
+                        style={{
+                            borderLeftColor: 'var(--laudo-alto)',
+                            borderTopColor: 'var(--sup-borda)',
+                            borderRightColor: 'var(--sup-borda)',
+                            borderBottomColor: 'var(--sup-borda)',
+                            background: 'var(--sup-1)',
+                        }}
+                    >
+                        <h1 className="t-secao mb-2">Entrar está indisponível</h1>
+                        <p className="t-corpo mb-4" style={{ color: 'var(--laudo-texto-suave)' }}>
+                            Esta instalação foi publicada sem a configuração de autenticação, então
+                            não há como criar conta nem entrar. O restante do site funciona.
+                        </p>
+                        <p
+                            className="voz-evidencia rounded-lg p-3 text-xs"
+                            style={{ background: 'var(--sup-2)', color: 'var(--laudo-texto-suave)' }}
+                        >
+                            {motivoDaFaltaDeAuth}
+                        </p>
+                        <Link to="/" className="t-apoio mt-4 inline-block underline underline-offset-2">
+                            Voltar ao início
+                        </Link>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen px-5 pb-16 pt-28" style={{ background: 'var(--sup-0)' }}>

@@ -38,6 +38,29 @@ const ConferenciaDoLaudo = import.meta.env.DEV
   ? lazy(() => import("./pages/dev/ConferenciaDoLaudo"))
   : null;
 
+/* Telas de administração, em chunk separado: elas existem para duas pessoas e
+   não têm por que pesar no primeiro carregamento de todo visitante.
+
+   `/admin/confirmar-pix` NÃO é um caminho escolhido aqui — é o que
+   `api/pix.py` escreve no botão do e-mail de cobrança
+   (`f"{frontend}/admin/confirmar-pix?t={token}"`). Enquanto as duas rotas
+   ficaram fora do `Routes`, o dono clicava no e-mail e caía no NotFound, e o
+   painel simplesmente não tinha endereço. Mudar este caminho quebra o link de
+   todo e-mail já enviado. */
+const PainelAdmin = lazy(() => import("./pages/admin/Painel"));
+const ConfirmarPix = lazy(() => import("./pages/admin/ConfirmarPix"));
+
+/* Fallback do chunk: um buraco visível e dito, nunca uma tela em branco que o
+   admin lê como "quebrou". */
+const CarregandoTela = () => (
+  <div
+    className="min-h-screen flex items-center justify-center t-apoio"
+    style={{ background: "var(--sup-0)" }}
+  >
+    Carregando a tela…
+  </div>
+);
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <I18nProvider>
@@ -82,6 +105,26 @@ const App = () => (
 
                     {/* Account Settings */}
                     <Route path="/settings" element={<SettingsPage />} />
+
+                    {/* Administração. A guarda de verdade é `somente_admin` no
+                        backend, que responde 404 para quem não é admin; estas
+                        telas só evitam montar uma página inteira de erro. */}
+                    <Route
+                      path="/admin"
+                      element={
+                        <Suspense fallback={<CarregandoTela />}>
+                          <PainelAdmin />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="/admin/confirmar-pix"
+                      element={
+                        <Suspense fallback={<CarregandoTela />}>
+                          <ConfirmarPix />
+                        </Suspense>
+                      }
+                    />
 
                     {/* Conferir o laudo sem sessão, sem cota e sem esperar o
                         Chromium. Em produção esta rota simplesmente não

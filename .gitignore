@@ -89,3 +89,6 @@ desktop.ini
 
 # CLI da Vercel: guarda o id do projeto e da organizacao
 .vercel/
+
+.vercel
+.env*

@@ -1,47 +1,84 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+/**
+ * Cliente do Supabase — a autenticação do produto.
+ *
+ * **Este módulo não pode lançar durante o import.** Ele lançava, e o efeito era
+ * desproporcional: sem `VITE_SUPABASE_URL`, a aplicação inteira morria em tela
+ * branca. Home, preços, o laudo de exemplo — nada aparecia, porque `main.tsx`
+ * importa o `App`, que importa o `AuthContext`, que importa este arquivo. Uma
+ * variável de configuração de LOGIN derrubava até as páginas que não têm login.
+ *
+ * Isso é fácil de acontecer em produção: `VITE_*` são embutidas em tempo de
+ * build, então basta publicar sem as variáveis do ambiente e o site sobe em
+ * branco, sem nada na tela que explique o que houve.
+ *
+ * O comportamento agora é degradar, não morrer: quem não depende de conta
+ * continua funcionando, e quem depende recebe uma mensagem que diz o que
+ * fazer. Isso não é abrandar o erro — é colocá-lo onde ele é acionável. O
+ * diagnóstico continua no console, e `motivoDaFaltaDeAuth` leva o texto à tela
+ * de login em vez de escondê-lo.
+ */
 
-// ── Validate environment variables ──
-const PLACEHOLDER_PATTERNS = ['COLE_', 'YOUR_', 'CHANGE_', 'REPLACE_', 'AQUI', 'TODO'];
+const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL || '').trim();
+const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
 
-function isPlaceholder(value: string): boolean {
-  const upper = value.toUpperCase();
-  return PLACEHOLDER_PATTERNS.some(p => upper.includes(p));
+/** Valores de exemplo que alguém esqueceu de substituir. */
+const MARCAS_DE_PLACEHOLDER = ['COLE_', 'YOUR_', 'CHANGE_', 'REPLACE_', 'AQUI', 'TODO'];
+
+function ehPlaceholder(valor: string): boolean {
+    const maiusculo = valor.toUpperCase();
+    return MARCAS_DE_PLACEHOLDER.some((marca) => maiusculo.includes(marca));
 }
 
-if (!supabaseUrl) {
-  const msg =
-    '[DataTrust] VITE_SUPABASE_URL não está definido.\n' +
-    'Adicione ao seu arquivo .env na raiz do projeto:\n' +
-    'VITE_SUPABASE_URL=https://ytxihfhzawnetenbfkzz.supabase.co\n\n' +
-    'Se você está usando Vite, verifique se vite.config.ts contém envDir: ".."';
-  console.error(msg);
-  throw new Error(msg);
+function diagnosticar(): string | null {
+    if (!supabaseUrl) {
+        return (
+            'VITE_SUPABASE_URL não foi definida no build. ' +
+            'Em desenvolvimento ela vem do .env da raiz (o Vite usa envDir: ".."); ' +
+            'na Vercel, de Settings → Environment Variables — e é preciso republicar ' +
+            'depois de adicionar, porque variáveis VITE_ entram no bundle durante o build.'
+        );
+    }
+    if (!supabaseAnonKey || ehPlaceholder(supabaseAnonKey)) {
+        return (
+            'VITE_SUPABASE_ANON_KEY está ausente ou ainda é um valor de exemplo. ' +
+            'Ela fica no painel do Supabase, em Settings → API, como "anon public".'
+        );
+    }
+    // `/rest/v1` é o endereço da API de dados, não o do projeto. Com ele, toda
+    // chamada de autenticação vira 404 — e o erro aponta para a rota, não para
+    // a configuração, o que manda quem for investigar para o lado errado.
+    if (supabaseUrl.endsWith('/rest/v1') || supabaseUrl.endsWith('/rest/v1/')) {
+        return (
+            'VITE_SUPABASE_URL termina em "/rest/v1" — esse é o endereço da API de ' +
+            'dados, não o do projeto. Use a URL sem esse sufixo.'
+        );
+    }
+    return null;
 }
 
-if (!supabaseAnonKey || isPlaceholder(supabaseAnonKey)) {
-  const msg =
-    '[DataTrust] VITE_SUPABASE_ANON_KEY está ausente ou é um placeholder.\n' +
-    'Valor atual: "' + supabaseAnonKey + '"\n\n' +
-    'Para obter a anon key:\n' +
-    '1. Abra o Supabase Dashboard: https://supabase.com/dashboard/project/ytxihfhzawnetenbfkzz/settings/api\n' +
-    '2. Copie a "anon public" key\n' +
-    '3. Cole no .env: VITE_SUPABASE_ANON_KEY=eyJhbGci...\n\n' +
-    'A anon key é segura para o frontend — ela NÃO é o service_role secret.';
-  console.error(msg);
-  throw new Error(msg);
+/** `null` quando a autenticação está configurada; a explicação, quando não. */
+export const motivoDaFaltaDeAuth: string | null = diagnosticar();
+
+export const authDisponivel: boolean = motivoDaFaltaDeAuth === null;
+
+if (motivoDaFaltaDeAuth) {
+    // Continua no console: quem abre o DevTools por causa de um login que não
+    // funciona precisa achar a causa sem ter que ler o código.
+    console.error(`[DataTrust] Autenticação indisponível. ${motivoDaFaltaDeAuth}`);
 }
 
-// ── Validate URL format ──
-if (supabaseUrl.endsWith('/rest/v1') || supabaseUrl.endsWith('/rest/v1/')) {
-  const msg =
-    '[DataTrust] VITE_SUPABASE_URL contém "/rest/v1/" — isto está ERRADO.\n' +
-    'Use a URL do projeto sem /rest/v1/:\n' +
-    'VITE_SUPABASE_URL=https://ytxihfhzawnetenbfkzz.supabase.co';
-  console.error(msg);
-  throw new Error(msg);
-}
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+/**
+ * O cliente. É `null` quando falta configuração — `createClient` com URL vazia
+ * levanta "Invalid URL" no próprio import, que é justamente o que se quer
+ * evitar aqui.
+ *
+ * O tipo mente um pouco de propósito: declarar `SupabaseClient | null` obrigaria
+ * uma guarda em cada uma das dezenas de chamadas, e o `AuthContext` já barra
+ * tudo por `authDisponivel`. Quem for chamar isto de um caminho novo precisa
+ * checar essa flag antes.
+ */
+export const supabase: SupabaseClient = (
+    authDisponivel ? createClient(supabaseUrl, supabaseAnonKey) : null
+) as SupabaseClient;

@@ -12,6 +12,12 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "uvicorn", "main:app", "--port", "8000"],
       "port": 8000
+    },
+    {
+      "name": "producao",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "preview", "--prefix", "static", "--", "--port", "4173"],
+      "port": 4173
     }
   ]
 }

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { supabase } from '@/lib/supabase';
+import { supabase, authDisponivel, motivoDaFaltaDeAuth } from '@/lib/supabase';
 import type { Session, User as SupabaseUser, AuthError } from '@supabase/supabase-js';
 
 // ── Public User interface (consumed by PlanContext, AdminPlanTesting, etc.) ──
@@ -218,6 +218,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     // ── Initialize: check existing session + listen for auth changes ──
     useEffect(() => {
+        /* Sem configuração de autenticação não há sessão a buscar, e chamar
+           `supabase.auth` aqui estouraria — o cliente é null nesse caso.
+           `isLoading` precisa ir a false mesmo assim: quem espera por ele
+           mostra "carregando" para sempre, e o resultado é a mesma tela branca
+           que se está tentando evitar. */
+        if (!authDisponivel) {
+            setIsLoading(false);
+            return;
+        }
+
         // Get initial session
         supabase.auth.getSession().then(({ data: { session } }) => {
             handleSession(session);
@@ -233,8 +243,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         return () => subscription.unsubscribe();
     }, [handleSession]);
 
+    /* As ações de conta precisam recusar com a explicação, e não estourar
+       "Cannot read properties of null" — que manda quem for investigar
+       procurar um bug de código onde existe uma variável de ambiente
+       faltando. */
+    const exigirAuthConfigurada = () => {
+        if (!authDisponivel) {
+            throw new Error(
+                `Entrar não está disponível nesta instalação. ${motivoDaFaltaDeAuth}`
+            );
+        }
+    };
+
     // ── Login with email/password ──
     const login = async (email: string, password: string) => {
+        exigirAuthConfigurada();
         setIsLoading(true);
         try {
             const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -250,6 +273,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     // ── Signup with email/password ──
     const signup = async (email: string, password: string, name: string) => {
+        exigirAuthConfigurada();
         setIsLoading(true);
         try {
             const { data, error } = await supabase.auth.signUp({
@@ -275,6 +299,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     // ── Login with Google OAuth ──
     const loginWithGoogle = async () => {
+        exigirAuthConfigurada();
         const { error } = await supabase.auth.signInWithOAuth({
             provider: 'google',
             options: {
@@ -288,6 +313,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     // ── Logout ──
     const logout = async () => {
+        // Tolerante, nao lanca: logout tambem roda em limpeza de estado, e
+        // uma excecao ai vira erro nao tratado sem nada para o usuario fazer.
+        if (!authDisponivel) { setUser(null); setToken(null); return; }
         await supabase.auth.signOut();
         setUser(null);
         setToken(null);
@@ -298,6 +326,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     // ── Refresh profile (called by AdminPlanTesting after plan changes) ──
     const refreshProfile = async () => {
+        if (!authDisponivel) return;
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
             await handleSession(session);
