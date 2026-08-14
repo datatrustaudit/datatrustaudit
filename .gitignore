@@ -86,3 +86,6 @@ desktop.ini
 
 # Config local do Claude Code (permissoes da maquina) — o launch.json e compartilhado
 .claude/settings.local.json
+
+# CLI da Vercel: guarda o id do projeto e da organizacao
+.vercel/
