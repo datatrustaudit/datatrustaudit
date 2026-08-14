@@ -200,7 +200,16 @@ def resumo(db: Session = Depends(get_db)) -> Dict[str, Any]:
     )
     return {
         "usuarios": db.query(User).count(),
-        "pagantes": db.query(Subscription).filter(Subscription.status == "active").count(),
+        # `status == "active"` sozinho contaria TODO MUNDO como pagante: o
+        # construtor do User define `plan="free"`, e o setter cria uma
+        # Subscription — cujo status tem "active" como padrão da coluna. Toda
+        # conta nova nasce com uma assinatura ativa de plano gratuito.
+        #
+        # Pagante é quem tem plano pago E assinatura em vigor.
+        "pagantes": db.query(Subscription).filter(
+            Subscription.status == "active",
+            Subscription.plan_name.in_(tuple(VALID_PAID_PLANS)),
+        ).count(),
         "pedidosAguardando": db.query(PedidoPix).filter(PedidoPix.status == "avisado").count(),
         "pixConfirmados": len(confirmados),
         "totalRecebidoPix": round(sum(p.valor for p in confirmados), 2),

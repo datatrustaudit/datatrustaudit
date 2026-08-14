@@ -52,6 +52,43 @@ _DUMMY_HASH = pwd_context.hash("timing-attack-placeholder")
 VALID_PLANS = {"free", "pro", "premium"}
 
 
+def emails_administradores() -> set:
+    """Contas que entram como administradoras, por e-mail.
+
+    Vem de `ADMIN_EMAILS` (separados por vírgula) e não de uma constante no
+    código: a lista decide quem tem acesso irrestrito ao produto e ao painel,
+    e o repositório é público. Sem a variável, ninguém é promovido — falha
+    fechada, que é recuperável (define-se a variável e segue); o contrário não
+    volta.
+
+    Lida a cada chamada, não no import: em produção a variável costuma chegar
+    depois que o módulo já foi carregado.
+    """
+    bruto = os.getenv("ADMIN_EMAILS") or ""
+    return {e.strip().lower() for e in bruto.split(",") if e.strip()}
+
+
+def promover_se_for_administrador(user: User) -> bool:
+    """Marca a conta como admin se o e-mail estiver na lista.
+
+    `User.plan` já devolve "premium" para admin, e `get_weekly_limit` já
+    devolve -1 — então marcar `is_admin` basta: não é preciso (nem correto)
+    criar uma assinatura falsa, que apareceria no painel como venda.
+
+    Devolve True quando mudou algo, para quem chama saber se precisa
+    commitar.
+    """
+    if not user or not user.email:
+        return False
+    if user.email.strip().lower() not in emails_administradores():
+        return False
+    if bool(user.is_admin):
+        return False
+    user.is_admin = True
+    print(f"[auth] {user.email} promovido a administrador por ADMIN_EMAILS")
+    return True
+
+
 def resolve_effective_plan(current_user: Optional[User]) -> str:
     """Plano válido para esta requisição — decidido só pelo banco.
 
@@ -253,6 +290,19 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
 
     if user is None:
         raise credentials_exception
+
+    # Aqui, e não só no cadastro: as contas da lista podem já existir de antes
+    # de a variável ser definida, e a promoção precisa alcançá-las. Roda em
+    # toda requisição autenticada, mas só escreve quando muda algo.
+    if promover_se_for_administrador(user):
+        try:
+            db.commit()
+        except SQLAlchemyError:
+            # Um commit falho aqui não pode derrubar a requisição do usuário:
+            # ele continua autenticado, só sem a promoção, e a próxima
+            # requisição tenta de novo.
+            db.rollback()
+
     return user
 
 
@@ -332,6 +382,7 @@ def register_user(request: Request, user: UserCreate, db: Session = Depends(get_
             name=user.name.strip(),
             plan="free"
         )
+        promover_se_for_administrador(new_user)
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
