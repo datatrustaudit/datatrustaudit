@@ -1,0 +1,18 @@
+# Cloudflare Pages — todas as rotas do SPA caem no index.html.
+#
+# Sem isto, abrir /pricing direto (ou dar F5 nela) devolve 404: quem resolve
+# essas rotas é o React Router, dentro do navegador. O servidor só conhece
+# arquivos, e /pricing não é um arquivo.
+#
+# O 200 no fim é o que diferencia de um redirecionamento: a URL continua
+# /pricing na barra de endereços e o React Router a lê. Com 301 ou 302 o
+# navegador iria para "/" e o usuário perderia a página que pediu.
+#
+# Regras mais específicas vêm ANTES — o Cloudflare aplica a primeira que casa.
+# Quando o backend existir, a linha da API entra aqui em cima:
+#
+#   /api/*  https://SEU-BACKEND.exemplo.com/api/:splat  200
+#
+# (proxy, não redirect: mantém a origem única e evita CORS)
+
+/*    /index.html   200
