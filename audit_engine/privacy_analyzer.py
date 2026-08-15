@@ -115,8 +115,6 @@ _RISK_TABLE = {
         ),
         "article": "LGPD art. 7º, I e art. 16",
         "description": "Cookie de rastreamento gravado antes de qualquer consentimento",
-        "min_fine": 8_000,
-        "max_fine": 60_000,
     },
     "no_cmp": {
         "recommendation": (
@@ -124,8 +122,6 @@ _RISK_TABLE = {
         ),
         "article": "LGPD art. 7º, I",
         "description": "Rastreamento sem mecanismo de consentimento na página",
-        "min_fine": 5_000,
-        "max_fine": 50_000,
     },
     "tracking_before_consent": {
         "recommendation": (
@@ -133,8 +129,6 @@ _RISK_TABLE = {
         ),
         "article": "LGPD art. 8º, §1º",
         "description": "Tag de rastreamento disparando antes da manifestação do titular",
-        "min_fine": 10_000,
-        "max_fine": 50_000,
     },
     "critical_tracker": {
         "recommendation": (
@@ -142,8 +136,6 @@ _RISK_TABLE = {
         ),
         "article": "LGPD art. 6º, VII e art. 46",
         "description": "Ferramenta de alto impacto — gravação de sessão ou identificação persistente",
-        "min_fine": 15_000,
-        "max_fine": 50_000,
     },
     "advertising_tracker": {
         "recommendation": (
@@ -151,8 +143,6 @@ _RISK_TABLE = {
         ),
         "article": "LGPD art. 7º, I e art. 33",
         "description": "Compartilhamento com plataforma de publicidade sem consentimento",
-        "min_fine": 10_000,
-        "max_fine": 40_000,
     },
     "server_side_tagging": {
         "recommendation": (
@@ -163,8 +153,6 @@ _RISK_TABLE = {
         ),
         "article": "LGPD art. 37 e art. 39",
         "description": "Encaminhamento de dados a partir do servidor do site (tagueamento server-side)",
-        "min_fine": 8_000,
-        "max_fine": 40_000,
     },
     "obsolete_ua": {
         "recommendation": (
@@ -172,8 +160,6 @@ _RISK_TABLE = {
         ),
         "article": "LGPD art. 46",
         "description": "Tecnologia descontinuada em uso (Universal Analytics)",
-        "min_fine": 5_000,
-        "max_fine": 20_000,
     },
 }
 
@@ -214,8 +200,6 @@ def analyze_privacy(
     require_consent_first = jurisdiction.get("require_consent_first", True)
 
     violations: List[PrivacyViolation] = []
-    total_min = 0
-    total_max = 0
     consent_risks: List[str] = []
     disclosure_gaps: List[str] = []
 
@@ -258,8 +242,6 @@ def analyze_privacy(
         ))
         if evidencias:
             disclosure_gaps.append(f"Tagueamento server-side: {evidencias[0][:120]}")
-        total_min += r["min_fine"]
-        total_max += r["max_fine"]
 
     # ── No CMP ────────────────────────────────────────────────────────────────
     if not has_consent_tool:
@@ -283,8 +265,6 @@ def analyze_privacy(
                 recommendation=r.get("recommendation"),
             ))
             disclosure_gaps.append("Sem controle de consentimento na página")
-            total_min += r["min_fine"]
-            total_max += r["max_fine"]
 
     # ── Tags before consent ────────────────────────────────────────────────────
     for tag in tags_before_consent:
@@ -337,8 +317,6 @@ def analyze_privacy(
                 tag_id=tag.tag_id,
             ))
             consent_risks.append(f"{tag.name} firing before consent")
-            total_min += r["min_fine"]
-            total_max += r["max_fine"]
 
     # ── Cookies e storage gravados sem aceite ─────────────────────────────────
     # O scanner nunca clica em "aceitar": o que estiver gravado foi gravado sem
@@ -360,8 +338,6 @@ def analyze_privacy(
                 recommendation=r.get("recommendation"),
             ))
             consent_risks.append(f"Cookie {achado.nome} gravado sem consentimento")
-            total_min += r["min_fine"]
-            total_max += r["max_fine"]
 
         for achado in list(getattr(storage, "storage_sem_consentimento", []) or []):
             violations.append(PrivacyViolation(
@@ -376,8 +352,6 @@ def analyze_privacy(
                 confidence=CONFIDENCE_HIGH,
                 recommendation=r.get("recommendation"),
             ))
-            total_min += r["min_fine"]
-            total_max += r["max_fine"]
 
         # Rastreamento após recusa é a violação mais grave que este produto
         # consegue provar: não é configuração errada, é a decisão do titular
@@ -394,12 +368,6 @@ def analyze_privacy(
                 confidence=CONFIDENCE_HIGH,
             ))
             consent_risks.append(achado["label"])
-            if achado.get("check") == "tracking_after_rejection":
-                total_min += 20_000
-                total_max += 150_000
-            else:
-                total_min += _RISK_TABLE["no_cmp"]["min_fine"]
-                total_max += _RISK_TABLE["no_cmp"]["max_fine"]
 
         for problema in list(getattr(storage, "problemas_de_ordem", []) or []):
             violations.append(PrivacyViolation(
@@ -410,8 +378,6 @@ def analyze_privacy(
                 severity="critical" if problema["status"] == "critical" else "high",
                 confidence=CONFIDENCE_HIGH,
             ))
-            total_min += _RISK_TABLE["tracking_before_consent"]["min_fine"]
-            total_max += _RISK_TABLE["tracking_before_consent"]["max_fine"]
 
     # ── Universal Analytics ────────────────────────────────────────────────────
     if has_ua:
@@ -430,8 +396,6 @@ def analyze_privacy(
             confidence=CONFIDENCE_HIGH,
                 recommendation=r.get("recommendation"),
         ))
-        total_min += r["min_fine"]
-        total_max += r["max_fine"]
 
     # ── Critical trackers without consent ─────────────────────────────────────
     critical_no_consent = [
@@ -458,8 +422,6 @@ def analyze_privacy(
                 recommendation=r.get("recommendation"),
             data_collected=tag.data_collected,
         ))
-        total_min += r["min_fine"]
-        total_max += r["max_fine"]
 
     # ── Score ──────────────────────────────────────────────────────────────────
     # `100 - violações × 12` chegava a zero na nona violação e ficava lá. Um

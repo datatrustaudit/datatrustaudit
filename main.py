@@ -882,7 +882,29 @@ def analyze_privacy_compliance(tags: List[Dict], jurisdiction: Dict) -> Dict[str
             })
             total_max_fine += 5000
     
-    estimated_risk_exposure = f"Exposição Potencial (apenas ref.): USD ${int(total_min_fine/5):,} - USD ${int(total_max_fine/5):,}" if violations else "Baixo Risco"
+    # A versão anterior somava valores fixos inventados, dividia por 5 — um
+    # câmbio que ninguém consultou — e publicava o resultado em DÓLAR, num
+    # laudo de LGPD entregue a cliente brasileiro. Três fabricações numa linha.
+    #
+    # A LGPD não tem tabela de multa por tipo de violação: o art. 52 fala em até
+    # 2% do faturamento no Brasil, limitado a R$ 50 milhões por infração. Sem
+    # saber o faturamento, o honesto é publicar o critério e a gravidade — não
+    # um número. Cifra fabricada é o primeiro ponto que a outra parte ataca, e
+    # derruba junto o que o laudo tem de correto.
+    #
+    # Mesmo texto que `audit_engine/privacy_analyzer.py` já usa: o motor legado
+    # não pode contradizer o principal sobre o mesmo site.
+    if violations:
+        criticas = sum(1 for v in violations if v.get("severity") == "critical")
+        estimated_risk_exposure = (
+            f"{len(violations)} não conformidade(s) observada(s)"
+            + (f", {criticas} de gravidade crítica" if criticas else "")
+            + ". A LGPD (art. 52) prevê multa de até 2% do faturamento no Brasil, "
+            "limitada a R$ 50 milhões por infração — o valor efetivo depende do "
+            "faturamento, da abrangência e dos agravantes do caso concreto."
+        )
+    else:
+        estimated_risk_exposure = "Nenhuma não conformidade observada nesta varredura."
     
     return {
         "jurisdiction": jurisdiction["region"],
