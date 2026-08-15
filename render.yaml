@@ -1,0 +1,90 @@
+# Blueprint do Render — sobe o backend a partir do Dockerfile.
+#
+# Por que o backend não vai junto do frontend na Vercel: ele abre um Chromium de
+# verdade por varredura (o do Playwright passa dos 250 MB de limite de função),
+# leva perto de um minuto para responder (o teto é 10s no plano gratuito da
+# Vercel), grava banco em disco e manda e-mail depois da resposta — em
+# serverless a função é congelada nesse ponto e a tarefa nunca roda.
+#
+# Como usar: no Render, New → Blueprint → aponte para este repositório. Ele lê
+# este arquivo e cria o serviço. Só as variáveis marcadas `sync: false` ficam
+# para você preencher no painel — são as que não podem entrar no repositório.
+services:
+  - type: web
+    name: datatrust-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    region: oregon
+    plan: starter
+
+    # `/health` consulta o banco de verdade (SELECT 1). NÃO aponte para `/`:
+    # nesta imagem o frontend não existe (está na Vercel), e o catch-all de
+    # main.py tentaria servir um index.html ausente — 500 com traceback numa
+    # rota que a sonda usa para decidir se o serviço está vivo.
+    healthCheckPath: /health
+
+    # O banco em uso foi criado por `create_all` antes do Alembic e não tem a
+    # tabela `alembic_version`; `alembic upgrade head` direto tentaria recriar
+    # tudo e falharia com "table already exists". O script detecta isso,
+    # carimba a revisão inicial e aplica só o que falta.
+    preDeployCommand: python scripts/setup_db.py
+
+    envVars:
+      # ── Preencher no painel (não entram no repositório) ──
+      - key: SECRET_KEY
+        # `generateValue` faz o Render sortear uma chave forte na criação.
+        # Trocar depois desloga todo mundo: os tokens são assinados com ela.
+        generateValue: true
+
+      - key: DATABASE_URL
+        sync: false
+        # Postgres do Supabase. Use o prefixo `postgresql+psycopg://`
+        # (psycopg 3) — com `postgresql://` o SQLAlchemy procura o psycopg2,
+        # que não está instalado, e o contêiner morre no import com um
+        # ModuleNotFoundError que não menciona banco nem URL.
+
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+        # Sem ela o backend recusa o token do Supabase, e quem entra pelo
+        # frontend não é reconhecido aqui.
+
+      - key: FRONTEND_URL
+        sync: false
+        # A URL da Vercel. Vira o destino dos links de e-mail e a origem
+        # autorizada no CORS.
+
+      - key: GOOGLE_API_KEY
+        sync: false
+
+      - key: RESEND_API_KEY
+        sync: false
+        # Vazia: nada é enviado, o pedido continua no painel e o log registra
+        # que o e-mail não saiu. Falha de e-mail nunca derruba um pagamento.
+
+      - key: PIX_CHAVE
+        sync: false
+        # Vazia: a opção some da tela em vez de mostrar um pagamento sem para
+        # onde pagar.
+
+      - key: EMAIL_DO_DONO
+        sync: false
+
+      - key: ADMIN_EMAILS
+        sync: false
+        # Vazia = ninguém é promovido. Falha fechada de propósito.
+
+      # ── Fixas ──
+      - key: ENVIRONMENT
+        value: production
+        # Diferente de "development" é o que FECHA a rota de troca de plano.
+        # Ela é um botão de virar premium de graça.
+
+      - key: CHROMIUM_NO_SANDBOX
+        value: "1"
+        # O contêiner já isola o processo. Sem isso o Chromium não sobe como
+        # usuário sem privilégio.
+
+      - key: PYTHONUNBUFFERED
+        value: "1"
+        # Sem isto o log só aparece quando o buffer enche — e um erro no
+        # meio de uma varredura de 60s fica invisível até lá.
