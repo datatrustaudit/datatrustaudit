@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
+from .tempo import agora_utc_iso
+
 
 # ─── Tracking endpoint patterns for network interception ─────────────────────
 TRACKING_DOMAINS = [
@@ -543,9 +545,10 @@ def browser_scan(
     rastreamento com o consentimento negado.
     """
     import concurrent.futures
-    from datetime import datetime
 
-    started_at = datetime.now().isoformat()
+    # UTC, e não `datetime.now()`: `started_at`/`finished_at` são o carimbo que
+    # o cabeçalho do laudo publica, e a tela lê essa string como UTC.
+    started_at = agora_utc_iso()
 
     def _run_in_thread() -> BrowserScanResult:
         """Run inside a new thread with its own fresh event loop."""
@@ -569,7 +572,7 @@ def browser_scan(
                 result = future.result(timeout=(timeout_ms / 1000) + 15)
                 result.browser_attempts = attempt
                 result.started_at = started_at
-                result.finished_at = datetime.now().isoformat()
+                result.finished_at = agora_utc_iso()
 
                 # If we got HTML content, scan succeeded (even if partial)
                 if result.html and len(result.html) > 100:
@@ -601,7 +604,7 @@ def browser_scan(
     result.browser_attempts = max_browser_attempts
     result.static_fallback_attempted = True
     result.started_at = started_at
-    result.finished_at = datetime.now().isoformat()
+    result.finished_at = agora_utc_iso()
 
     # Determine scan_status based on what static got
     if result.html and len(result.html) > 100:

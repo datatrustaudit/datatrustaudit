@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -11,6 +11,7 @@ import { SiteNavigationService, NavigationPage, NavigationSummary } from '@/serv
 import { Globe, Search, ShoppingCart, CheckCircle, AlertTriangle, Timer, BarChart3 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/context/AuthContext';
+import { horaLegivel } from '@/lib/datas';
 
 interface SiteNavigationAnalysisProps {
   url: string;
@@ -27,6 +28,20 @@ const SiteNavigationAnalysis = ({ url, onComplete, gatilho = 0 }: SiteNavigation
   const [pages, setPages] = useState<NavigationPage[]>([]);
   const [summary, setSummary] = useState<NavigationSummary | null>(null);
   const [ga4PropertyId, setGa4PropertyId] = useState('');
+  /* O timer da barra de progresso vive fora da função que o cria: ele precisa
+     morrer também quando a varredura falha e quando o usuário sai da tela no
+     meio dela. Só no caminho de sucesso, ele continuava batendo no serviço a
+     cada meio segundo pelo resto da sessão. */
+  const timerDoProgressoRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const pararOTimerDoProgresso = () => {
+    if (timerDoProgressoRef.current !== null) {
+      clearInterval(timerDoProgressoRef.current);
+      timerDoProgressoRef.current = null;
+    }
+  };
+
+  useEffect(() => pararOTimerDoProgresso, []);
 
   const startNavigation = async () => {
     if (!url) {
@@ -47,7 +62,7 @@ const SiteNavigationAnalysis = ({ url, onComplete, gatilho = 0 }: SiteNavigation
       const navigationService = SiteNavigationService.getInstance();
 
       // Monitorar progresso
-      const progressInterval = setInterval(() => {
+      timerDoProgressoRef.current = setInterval(() => {
         const progressData = navigationService.getCurrentProgress();
         setProgress((progressData.current / progressData.total) * 100);
         setCurrentPage(progressData.currentPage || '');
@@ -57,7 +72,7 @@ const SiteNavigationAnalysis = ({ url, onComplete, gatilho = 0 }: SiteNavigation
       // o laudo do plano gratuito a quem pagou pelo Deep Scan.
       const results = await navigationService.startFullNavigation(url, token);
 
-      clearInterval(progressInterval);
+      pararOTimerDoProgresso();
       setProgress(100);
       setPages(results.pages);
       setSummary(results.summary);
@@ -80,6 +95,7 @@ const SiteNavigationAnalysis = ({ url, onComplete, gatilho = 0 }: SiteNavigation
         variant: "destructive"
       });
     } finally {
+      pararOTimerDoProgresso();
       setIsNavigating(false);
     }
   };
@@ -272,8 +288,24 @@ const SiteNavigationAnalysis = ({ url, onComplete, gatilho = 0 }: SiteNavigation
                               </div>
                             </TableCell>
                             <TableCell>{getSeverityBadge(event.beforeConsent)}</TableCell>
+                            {/* Lido como UTC quando existir: a string do backend
+                                não traz fuso, e sem o sufixo o navegador a
+                                tomava como hora local — três horas à frente
+                                numa coluna cuja única serventia é dizer quando
+                                o evento saiu.
+
+                                Hoje ela nunca existe: o `/deep-analyze` monta
+                                cada página com a resposta de `/api/audit`, que
+                                manda `finished_at`/`started_at` e não
+                                `timestamp` — o mapeamento em
+                                `siteNavigationService` lê a chave que não vem.
+                                A coluna declara a ausência em vez de mostrar
+                                "Invalid Date", e não é preenchida com o fim da
+                                varredura da página: esse é o horário do
+                                scanner, não o do disparo, e carimbá-lo aqui
+                                seria inventar precisão que ninguém mediu. */}
                             <TableCell className="text-xs">
-                              {new Date(event.timestamp).toLocaleTimeString()}
+                              {horaLegivel(event.timestamp) ?? 'não registrado'}
                             </TableCell>
                           </TableRow>
                         ))

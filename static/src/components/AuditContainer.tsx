@@ -29,7 +29,9 @@ interface Tag {
 
 interface NewAuditResult {
     url: string;
-    timestamp: string;
+    /* `null` quando a resposta não trouxe nenhum marco de tempo — a tela diz
+       que a data não veio em vez de carimbar o relógio de quem abriu. */
+    timestamp: string | null;
     tags: Tag[];
     tagCount: number;
     typeCounts: Record<string, number>;
@@ -248,8 +250,13 @@ export const normalizeAuditResult = (raw: any): NewAuditResult => {
        o cabeçalho do laudo carimbava o relógio do visitante. Num laudo que se
        propõe a provar o que o site fez e quando, a data do exame não pode ser
        a hora em que alguém abriu a página — ainda mais ao reabrir um laudo
-       antigo pelo histórico, onde o carimbo passava a ser de hoje. */
-    timestamp: safeRaw.finished_at || safeRaw.started_at || safeRaw.timestamp || new Date().toISOString(),
+       antigo pelo histórico, onde o carimbo passava a ser de hoje.
+
+       Sem nenhum dos três, o valor é `null` e o cabeçalho declara a falta. O
+       fallback para `new Date()` que existia aqui nunca falhava: ele
+       reintroduzia o mesmo defeito por baixo, e ainda deixava a tela sem meio
+       de saber que a data era inventada. */
+    timestamp: safeRaw.finished_at || safeRaw.started_at || safeRaw.timestamp || null,
 
     /* O veredito e o nível de detalhe vêm do servidor.
        Estavam declarados no tipo e nunca eram copiados para cá: o plano

@@ -10,12 +10,20 @@ humano clicar. Um `GET` que libera plano seria disparado por eles, e o acesso
 sairia de graça sem ninguém ter apertado nada. Por isso o link do e-mail leva a
 uma página que só lê, e quem libera é um `POST`.
 """
+import json
 import os
+import re
+import shutil
+import subprocess
 import uuid
+from pathlib import Path
 
 import pytest
 
 os.environ.setdefault("SECRET_KEY", "x" * 40)
+
+#: A regra de prazo da tela, exercitada no Node — ver `TestOPrazoDaTelaDePix`.
+PIX_TS = Path(__file__).resolve().parents[1] / "static" / "src" / "lib" / "pix.ts"
 
 
 @pytest.fixture(autouse=True)
@@ -258,6 +266,378 @@ class TestOLinkDoEmail:
             db.close()
         assert token not in guardados
         assert all(len(h) == 64 for h in guardados), "esperava SHA-256 em hexadecimal"
+
+
+class TestMeuPedido:
+    """A rota que a tela de checkout consulta — inclusive enquanto espera.
+
+    Ela devolvia só `aguardando` e `avisado`. Pedido confirmado não casava com o
+    filtro e saía como `{"pedido": null}`, indistinguível de "nunca houve
+    pedido": quem avisou que pagou via "aguardando a conferência" para sempre, e
+    recarregar a página não mudava nada, porque a liberação era exatamente o que
+    fazia o pedido sumir da resposta.
+    """
+
+    def _confirmar(self, client, headers, enviados, plano="premium"):
+        """Percorre o caminho real até o acesso liberado e devolve o pedido."""
+        pedido = _criar_pedido(client, headers, plano=plano)
+        client.post("/api/payments/pix/avisei", json={"pedidoId": pedido["id"]}, headers=headers)
+        token = _token_do_ultimo_email(enviados)
+        r = client.post("/api/payments/pix/confirmar", json={"token": token})
+        assert r.status_code == 200, r.text
+        return pedido
+
+    def _recuar_no_tempo(self, txid, horas):
+        """Envelhece o pedido no banco — não há como esperar seis horas."""
+        from datetime import timedelta
+
+        from db.database import SessionLocal
+        from db.models import PedidoPix
+
+        db = SessionLocal()
+        try:
+            p = db.query(PedidoPix).filter(PedidoPix.txid == txid).first()
+            assert p is not None
+            recuo = timedelta(hours=horas)
+            if p.confirmado_em:
+                p.confirmado_em -= recuo
+            p.criado_em -= recuo
+            p.expira_em -= recuo
+            db.commit()
+        finally:
+            db.close()
+
+    def test_sem_pedido_nenhum_o_formato_e_pedido_nulo(self, client):
+        headers, _ = _cadastrar(client)
+        r = client.get("/api/payments/pix/meu-pedido", headers=headers)
+        assert r.status_code == 200
+        corpo = r.json()
+        assert "pedido" in corpo, "a tela lê `pedido`; outra chave vira tela vazia em silêncio"
+        assert corpo["pedido"] is None
+
+    def test_cobranca_aguardando_volta_com_o_codigo(self, client):
+        """Sem `brcode` a tela não tem o que mostrar e emite outra cobrança."""
+        headers, _ = _cadastrar(client)
+        pedido = _criar_pedido(client, headers)
+
+        atual = client.get("/api/payments/pix/meu-pedido", headers=headers).json()["pedido"]
+        assert atual["id"] == pedido["id"]
+        assert atual["status"] == "aguardando"
+        assert atual["chave"] == "digitalfistpower@gmail.com"
+        assert atual["brcode"] == pedido["brcode"]
+
+    def test_cobranca_avisada_continua_voltando(self, client):
+        headers, _ = _cadastrar(client)
+        pedido = _criar_pedido(client, headers)
+        client.post("/api/payments/pix/avisei", json={"pedidoId": pedido["id"]}, headers=headers)
+
+        atual = client.get("/api/payments/pix/meu-pedido", headers=headers).json()["pedido"]
+        assert atual["id"] == pedido["id"]
+        assert atual["status"] == "avisado"
+        assert atual["brcode"], "o cliente pode querer rever o código depois de avisar"
+
+    def test_pedido_confirmado_ha_pouco_volta(self, client, _email_falso):
+        """O bug: liberar o acesso fazia o pedido sumir da rota, e a tela do
+        cliente ficava em "aguardando" para sempre."""
+        headers, _ = _cadastrar(client)
+        pedido = self._confirmar(client, headers, _email_falso)
+
+        corpo = client.get("/api/payments/pix/meu-pedido", headers=headers).json()
+        assert corpo["pedido"] is not None, "confirmado saía como null, igual a 'nunca houve pedido'"
+        assert corpo["pedido"]["id"] == pedido["id"]
+        assert corpo["pedido"]["status"] == "confirmado"
+        assert corpo["pedido"]["confirmadoEm"]
+
+    def test_pedido_confirmado_nao_volta_com_codigo_pagavel(self, client, _email_falso):
+        """Código ao lado de "acesso liberado" convida a um segundo PIX."""
+        headers, _ = _cadastrar(client)
+        self._confirmar(client, headers, _email_falso)
+
+        atual = client.get("/api/payments/pix/meu-pedido", headers=headers).json()["pedido"]
+        assert not atual.get("brcode")
+        assert not atual.get("chave")
+
+    def test_pedido_confirmado_ha_muito_tempo_nao_volta(self, client, _email_falso):
+        """Senão o checkout vira aviso permanente: quem pagou ontem e hoje quer
+        contratar outro plano encontraria a liberação velha no lugar da
+        cobrança nova."""
+        headers, _ = _cadastrar(client)
+        pedido = self._confirmar(client, headers, _email_falso)
+        self._recuar_no_tempo(pedido["txid"], horas=24)
+
+        corpo = client.get("/api/payments/pix/meu-pedido", headers=headers).json()
+        assert corpo["pedido"] is None
+
+    def test_codigo_vencido_nao_volta_como_cobranca_em_aberto(self, client):
+        headers, _ = _cadastrar(client)
+        pedido = _criar_pedido(client, headers)
+        self._recuar_no_tempo(pedido["txid"], horas=2)
+
+        assert client.get("/api/payments/pix/meu-pedido", headers=headers).json()["pedido"] is None
+
+    def test_cobranca_nova_vence_a_confirmacao_recente(self, client, _email_falso):
+        """O que o cliente está tentando pagar agora vale mais que a notícia do
+        pedido anterior — senão a tela do plano novo anunciaria acesso liberado
+        e nunca mostraria o código a pagar."""
+        headers, _ = _cadastrar(client)
+        self._confirmar(client, headers, _email_falso, plano="pro")
+        novo = _criar_pedido(client, headers, plano="premium")
+
+        atual = client.get("/api/payments/pix/meu-pedido", headers=headers).json()["pedido"]
+        assert atual["id"] == novo["id"]
+        assert atual["status"] == "aguardando"
+
+    def test_a_sequencia_que_a_tela_percorre(self, client, _email_falso):
+        """O contrato que a verificação periódica consome, na ordem real:
+        avisado enquanto espera, confirmado quando o acesso sai — sempre com o
+        mesmo `id`, que é como a tela reconhece que a novidade é do pedido dela.
+        """
+        headers, _ = _cadastrar(client)
+        pedido = _criar_pedido(client, headers)
+        client.post("/api/payments/pix/avisei", json={"pedidoId": pedido["id"]}, headers=headers)
+
+        durante = client.get("/api/payments/pix/meu-pedido", headers=headers).json()["pedido"]
+        assert durante["id"] == pedido["id"] and durante["status"] == "avisado"
+
+        client.post(
+            "/api/payments/pix/confirmar",
+            json={"token": _token_do_ultimo_email(_email_falso)},
+        )
+
+        depois = client.get("/api/payments/pix/meu-pedido", headers=headers).json()["pedido"]
+        assert depois["id"] == pedido["id"], "id diferente faria a tela ignorar a confirmação"
+        assert depois["status"] == "confirmado"
+
+    def test_conferencia_demorada_ainda_chega_na_tela(self, client, _email_falso):
+        """O caso comum: a conferência é manual e sai depois dos 30 minutos do
+        código. O prazo vale para pagar, não para receber a resposta — se o
+        pedido vencido deixasse de voltar mesmo confirmado, a tela de quem já
+        pagou continuaria em "aguardando" para sempre."""
+        headers, _ = _cadastrar(client)
+        pedido = _criar_pedido(client, headers)
+        client.post("/api/payments/pix/avisei", json={"pedidoId": pedido["id"]}, headers=headers)
+        self._recuar_no_tempo(pedido["txid"], horas=1)  # o código venceu
+        client.post(
+            "/api/payments/pix/confirmar",
+            json={"token": _token_do_ultimo_email(_email_falso)},
+        )
+
+        atual = client.get("/api/payments/pix/meu-pedido", headers=headers).json()["pedido"]
+        assert atual is not None and atual["status"] == "confirmado"
+
+    def test_aviso_pendente_sobrevive_ao_vencimento_do_codigo(self, client):
+        """O prazo vale para o código, não para o aviso já dado.
+
+        Quem paga no minuto 29 e clica "já fiz o PIX" fica com um pedido
+        `avisado` cujo `expira_em` vence minutos depois — a conferência é
+        humana e sai muito além disso. Enquanto `/meu-pedido` descartava
+        qualquer pedido vencido, esse cliente recarregava a página e recebia
+        `{"pedido": null}`: a tela não reconhecia o aviso, emitia uma cobrança
+        nova com outro txid e o convidava a pagar de novo pelo mesmo acesso —
+        exatamente o segundo PIX que o resto deste módulo evita.
+
+        `_publico` já concordava com isto: ele só carimba "expirado" em pedido
+        `aguardando`. Era a rota que discordava.
+        """
+        headers, _ = _cadastrar(client)
+        pedido = _criar_pedido(client, headers)
+        client.post("/api/payments/pix/avisei", json={"pedidoId": pedido["id"]}, headers=headers)
+        self._recuar_no_tempo(pedido["txid"], horas=2)
+
+        atual = client.get("/api/payments/pix/meu-pedido", headers=headers).json()["pedido"]
+        assert atual is not None, "o aviso sumiu com o prazo do código e a tela emitiria outra cobrança"
+        assert atual["id"] == pedido["id"]
+        assert atual["status"] == "avisado", "aviso pendente não vira 'expirado'"
+
+    def test_aviso_pendente_nao_ganha_segunda_cobranca(self, client):
+        """A outra porta para o mesmo defeito, esta em `POST /pedido`.
+
+        Voltar ao checkout do mesmo plano depois do prazo (o que acontece ao
+        trocar de plano e voltar, quando a comparação de plano do frontend
+        manda emitir) abria uma cobrança nova enquanto a que o cliente pagou
+        ficava `avisado` no banco, invisível para ele: `/meu-pedido` devolve o
+        pedido mais recente, e o mais recente passava a ser a cobrança nova.
+        """
+        headers, _ = _cadastrar(client)
+        pedido = _criar_pedido(client, headers)
+        client.post("/api/payments/pix/avisei", json={"pedidoId": pedido["id"]}, headers=headers)
+        self._recuar_no_tempo(pedido["txid"], horas=2)
+
+        de_novo = _criar_pedido(client, headers)
+        assert de_novo["id"] == pedido["id"], "abriu uma segunda cobrança por cima de um PIX já avisado"
+        assert de_novo["txid"] == pedido["txid"]
+
+    def test_codigo_vencido_sem_aviso_ainda_gera_cobranca_nova(self, client):
+        """O contrapeso do teste acima — sem ele a correção compraria silêncio.
+
+        Quem deixou o prazo passar SEM avisar continua precisando de um código
+        novo. Se o reaproveitamento passasse a valer para todo pedido em
+        aberto, este cliente receberia de volta um código vencido e não teria
+        como pagar.
+        """
+        headers, _ = _cadastrar(client)
+        pedido = _criar_pedido(client, headers)
+        self._recuar_no_tempo(pedido["txid"], horas=2)
+
+        outro = _criar_pedido(client, headers)
+        assert outro["id"] != pedido["id"], "o código venceu sem aviso: tinha de sair cobrança nova"
+        assert outro["status"] == "aguardando"
+
+    def test_aviso_orfao_de_outro_plano_nao_esconde_a_liberacao(self, client, _email_falso):
+        """Cobrar de novo um plano que já está pago e ativo.
+
+        Quem clica "já fiz o PIX" e nunca paga deixa um pedido `avisado` que
+        fica em aberto para sempre — e o reaproveitamento do pedido avisado o
+        torna permanente. Enquanto a rota entregava "cobrança em aberto antes
+        de tudo", esse órfão era devolvido no lugar da liberação do plano
+        comprado depois. A tela compara o plano, não reconhecia o órfão como
+        dela e emitia cobrança nova: segundo PIX por um acesso já liberado.
+        """
+        headers, _ = _cadastrar(client)
+        orfao = _criar_pedido(client, headers, plano="pro")
+        client.post("/api/payments/pix/avisei", json={"pedidoId": orfao["id"]}, headers=headers)
+
+        pago = self._confirmar(client, headers, _email_falso, plano="premium")
+
+        atual = client.get("/api/payments/pix/meu-pedido", headers=headers).json()["pedido"]
+        assert atual["id"] == pago["id"], "o aviso órfão escondeu a liberação do plano pago"
+        assert atual["status"] == "confirmado"
+        assert atual["plano"] == "premium"
+
+    def test_aviso_pendente_vencido_ainda_traz_o_codigo(self, client):
+        """A tela reexibe o código deste pedido, então ele precisa vir aqui.
+
+        Depois de `avisei`, a tela esconde o código e oferece "avisei sem
+        querer — mostrar o código de novo". Enquanto o vencimento também
+        desligava esse botão, quem clicou por engano ficava sem forma nenhuma
+        de pagar: `POST /pedido` reaproveita o pedido avisado, então recarregar
+        devolvia a mesma tela sem código. O botão voltou a valer para pedido
+        avisado, e ele mostra o `brcode` desta resposta — se a rota parar de
+        mandá-lo, a tela fica com o aviso e sem o que exibir.
+
+        Vale porque o BR Code não carrega validade: o payload leva chave, valor
+        e txid (ver `api/pix_brcode.py`), então o mesmo código continua pagável
+        e continua caindo no mesmo pedido na hora da conferência.
+        """
+        headers, _ = _cadastrar(client)
+        pedido = _criar_pedido(client, headers)
+        client.post("/api/payments/pix/avisei", json={"pedidoId": pedido["id"]}, headers=headers)
+        self._recuar_no_tempo(pedido["txid"], horas=2)
+
+        atual = client.get("/api/payments/pix/meu-pedido", headers=headers).json()["pedido"]
+        assert atual["brcode"] == pedido["brcode"], "sem código a tela não tem o que reexibir"
+        assert atual["chave"] == "digitalfistpower@gmail.com"
+        assert atual["txid"] == pedido["txid"], "outro txid quebraria a conciliação do que já foi pago"
+
+    def test_liberacao_pelo_painel_tambem_chega_na_tela_do_cliente(self, client):
+        """O outro caminho de confirmação — e ele depende de um carimbo.
+
+        A janela de seis horas é medida por `confirmado_em`, e sem data
+        `_confirmado_ha_pouco` responde "não". Se a confirmação pelo painel
+        deixasse de carimbar o campo, a rota voltaria a devolver `null` para
+        quem acabou de ser liberado: a tela do cliente ficaria em "aguardando a
+        conferência" outra vez, e por um motivo invisível — o acesso está ativo
+        e nada estoura.
+        """
+        cliente, _ = _cadastrar(client)
+        pedido = _criar_pedido(client, cliente)
+        client.post("/api/payments/pix/avisei", json={"pedidoId": pedido["id"]}, headers=cliente)
+
+        admin, _ = _cadastrar(client, admin=True)
+        r = client.post(f"/api/admin/pedidos-pix/{pedido['id']}/confirmar", json={}, headers=admin)
+        assert r.status_code == 200, r.text
+
+        atual = client.get("/api/payments/pix/meu-pedido", headers=cliente).json()["pedido"]
+        assert atual is not None, "liberado pelo painel, o cliente via a tela de espera para sempre"
+        assert atual["id"] == pedido["id"]
+        assert atual["status"] == "confirmado"
+        assert atual["confirmadoEm"], "sem carimbo a janela de exibição não tem como ser medida"
+
+    def test_ninguem_ve_o_pedido_de_outro(self, client, _email_falso):
+        headers, _ = _cadastrar(client)
+        self._confirmar(client, headers, _email_falso)
+
+        intruso, _ = _cadastrar(client)
+        assert client.get("/api/payments/pix/meu-pedido", headers=intruso).json()["pedido"] is None
+
+    def test_exige_login(self, client):
+        r = client.get("/api/payments/pix/meu-pedido")
+        assert r.status_code in (401, 403)
+
+
+def _rodar_codigo_vencido(casos):
+    """Executa o `pix.ts` do frontend no Node e devolve o que ele respondeu.
+
+    O Node 22+ remove as anotações de tipo sozinho, então o arquivo publicado
+    roda sem build — é ele que responde, não uma tradução dele para Python.
+    Mesma técnica de `tests/test_fuso_do_laudo.py`.
+    """
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node não encontrado no PATH — a regra de prazo da tela não foi exercitada")
+
+    versao = subprocess.run([node, "--version"], capture_output=True, text=True, timeout=60)
+    maior = int(re.sub(r"^v", "", versao.stdout.strip()).split(".")[0] or 0)
+    if maior < 22:
+        pytest.skip(f"Node {versao.stdout.strip()} não remove tipos de .ts (precisa de 22+)")
+
+    driver = f"""
+    import {{ codigoVencido }} from {json.dumps(PIX_TS.as_uri())};
+    const saida = {json.dumps(casos)}.map(([status, restante]) => codigoVencido(status, restante));
+    process.stdout.write(JSON.stringify(saida));
+    """
+    r = subprocess.run(
+        [node, "--input-type=module", "-e", driver],
+        capture_output=True, text=True, encoding="utf-8", timeout=120,
+    )
+    # Falha do Node é falha do teste, nunca lista vazia: erro engolido aqui
+    # transformaria "a tela não foi verificada" em "a tela passou".
+    assert r.returncode == 0, f"o Node não conseguiu executar {PIX_TS.name}:\n{r.stderr}"
+    return json.loads(r.stdout)
+
+
+class TestOPrazoDaTelaDePix:
+    """Quem decide se a tela ainda oferece um código pagável.
+
+    A resposta da API sozinha não fecha esta questão: o contador local vence
+    entre uma resposta e outra, e é a combinação dos dois que a tela usa. Como a
+    regra decide entre "pague por aqui" e "não há mais o que pagar", ela é
+    exercitada de verdade, no arquivo que o navegador carrega.
+    """
+
+    def test_cobranca_em_dia_oferece_o_codigo(self):
+        assert _rodar_codigo_vencido([["aguardando", 900_000]]) == [False]
+
+    def test_o_contador_local_derruba_o_codigo(self):
+        """Sem este juiz, a tela ofereceria por minutos um código já vencido —
+        até a próxima resposta do servidor."""
+        assert _rodar_codigo_vencido([["aguardando", 0], ["aguardando", -1]]) == [True, True]
+
+    def test_o_carimbo_do_servidor_derruba_o_codigo(self):
+        """E sem ESTE, um relógio local adiantado esconderia o vencimento."""
+        assert _rodar_codigo_vencido([["expirado", 900_000]]) == [True]
+
+    def test_contador_ainda_sem_leitura_nao_e_vencimento(self):
+        """`null` é "ainda não sei": a cobrança acabou de chegar e o contador
+        não rodou. Tratar como vencido esconderia o código de uma cobrança boa
+        no primeiro quadro."""
+        assert _rodar_codigo_vencido([["aguardando", None]]) == [False]
+
+    def test_aviso_ja_dado_nao_vence(self):
+        """A regressão que custa dinheiro.
+
+        Quem clicou "já fiz o PIX" — inclusive por engano — via o botão de
+        rever o código sumir no minuto 30. E `POST /pedido` reaproveita o
+        pedido avisado, então recarregar a página devolvia a mesma tela sem
+        código: nenhuma forma de pagar, para sempre. O prazo é do código, não
+        do aviso; o servidor concorda e continua mandando o mesmo `brcode`.
+        """
+        assert _rodar_codigo_vencido([["avisado", -7_200_000], ["avisado", None]]) == [False, False]
+
+    def test_pagamento_conferido_nao_vence(self):
+        """"Expirou, gere outro" para quem já foi liberado convida ao segundo
+        PIX pelo mesmo acesso."""
+        assert _rodar_codigo_vencido([["confirmado", -1]]) == [False]
 
 
 class TestPainelAdmin:

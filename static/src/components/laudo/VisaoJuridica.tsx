@@ -10,6 +10,7 @@
  */
 import { Card, CardContent } from '@/components/ui/card';
 import { Scale, FileText } from 'lucide-react';
+import { comoInstanteUtc } from '@/lib/datas';
 
 interface Violacao {
     severity?: string;
@@ -76,13 +77,14 @@ const VisaoJuridica = ({
     });
 
     /* Data inválida vira "Invalid Date" na tela — num documento que se propõe
-       a ser apresentável a uma autoridade, isso é pior que omitir o campo. */
-    const dataDaVarredura = (() => {
-        if (!timestamp) return null;
-        const d = new Date(timestamp);
-        if (Number.isNaN(d.getTime())) return null;
-        return d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
-    })();
+       a ser apresentável a uma autoridade, isso é pior que omitir o campo.
+       E ler a string do backend sem fuso jogava a varredura três horas para
+       frente, trocando o dia declarado: é justamente o "quando" que esta peça
+       serve para provar. `comoInstanteUtc` resolve as duas coisas; o formato
+       curto continua aqui porque o cabeçalho é uma ficha, não uma linha do
+       tempo. */
+    const dataDaVarredura = comoInstanteUtc(timestamp)
+        ?.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) ?? null;
 
     return (
         <div className="space-y-5">

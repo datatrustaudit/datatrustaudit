@@ -50,6 +50,23 @@ router = APIRouter(prefix="/api/payments/pix", tags=["PIX"])
 #: ficaria impossível de liberar.
 MINUTOS_ATE_EXPIRAR = int(os.getenv("PIX_MINUTOS_VALIDADE", "30"))
 
+#: Por quanto tempo um pedido já confirmado continua aparecendo em
+#: `/meu-pedido`.
+#:
+#: Existe por causa da tela de checkout: entre o cliente avisar que pagou e
+#: alguém conferir o extrato passam-se horas, e a tela precisa conseguir
+#: distinguir "ainda em conferência" de "o acesso saiu". Sem a janela, o pedido
+#: confirmado deixava de casar com o filtro e a rota devolvia o mesmo `null` de
+#: "nunca houve pedido" — a tela ficava em "aguardando a conferência" para
+#: sempre, inclusive depois de recarregar.
+#:
+#: E é uma janela, não "para sempre", porque a tela de checkout tem de voltar a
+#: ser uma tela de checkout: quem foi confirmado ontem e hoje quer contratar
+#: outro plano não pode encontrar o aviso de liberação de um pedido velho no
+#: lugar da cobrança nova. Seis horas cobrem a conferência manual do mesmo dia,
+#: que é o caso que esta rota precisa atender.
+HORAS_MOSTRANDO_CONFIRMADO = 6
+
 
 def _chave_pix() -> str:
     return (os.getenv("PIX_CHAVE") or "").strip()
@@ -59,16 +76,52 @@ def _hash_do_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def _sem_fuso(momento):
+    """Normaliza para naive, para poder comparar com `utcnow()`.
+
+    SQLite devolve naive; `utcnow()` também é naive de propósito. Comparar aware
+    com naive levanta TypeError e derrubaria justamente as rotas que tratam
+    acesso já pago.
+    """
+    if momento is None:
+        return None
+    return momento.replace(tzinfo=None) if momento.tzinfo is not None else momento
+
+
 def _expirado(pedido: PedidoPix) -> bool:
-    fim = pedido.expira_em
+    fim = _sem_fuso(pedido.expira_em)
     if fim is None:
         return False
-    # SQLite devolve naive; `utcnow()` também é naive de propósito. Comparar
-    # aware com naive levanta TypeError e derrubaria justamente a rota que
-    # libera acesso já pago.
-    if fim.tzinfo is not None:
-        fim = fim.replace(tzinfo=None)
     return utcnow() > fim
+
+
+def _codigo_vencido_sem_aviso(pedido: PedidoPix) -> bool:
+    """O prazo acabou e o cliente nunca disse ter pago — só então some da tela.
+
+    `_expirado` responde outra pergunta: se o **código** ainda pode ser pago.
+    As duas se confundem em `aguardando`, e divergem em `avisado`: quem paga no
+    minuto 29 e clica "já fiz o PIX" fica com um pedido cujo `expira_em` vence
+    em seguida, enquanto a conferência humana leva horas. Tratar esse pedido
+    como vencido fazia `/meu-pedido` devolver `null`, a tela não reconhecia o
+    aviso e emitia outra cobrança — segundo PIX pelo mesmo acesso.
+
+    `_publico` também decide o rótulo por aqui: duas leituras do mesmo prazo em
+    lugares diferentes é como o rótulo "expirado" e o filtro da rota passaram a
+    discordar sem ninguém notar.
+    """
+    return pedido.status == "aguardando" and _expirado(pedido)
+
+
+def _confirmado_ha_pouco(pedido: PedidoPix) -> bool:
+    quando = _sem_fuso(pedido.confirmado_em)
+    if quando is None:
+        # Sem data não há como limitar a janela. Os dois caminhos de confirmação
+        # (link do e-mail e painel) carimbam `confirmado_em`; se algum dia um
+        # deixar de carimbar, o pedido some da tela em vez de fixar-se nela para
+        # sempre — falha visível e limitada, em vez de checkout que virou aviso
+        # permanente.
+        return False
+    return utcnow() - quando <= timedelta(hours=HORAS_MOSTRANDO_CONFIRMADO)
 
 
 def _publico(pedido: PedidoPix) -> Dict[str, Any]:
@@ -78,7 +131,7 @@ def _publico(pedido: PedidoPix) -> Dict[str, Any]:
         "txid": pedido.txid,
         "plano": pedido.plano,
         "valor": round(pedido.valor, 2),
-        "status": "expirado" if (pedido.status == "aguardando" and _expirado(pedido)) else pedido.status,
+        "status": "expirado" if _codigo_vencido_sem_aviso(pedido) else pedido.status,
         "criadoEm": pedido.criado_em.isoformat() if pedido.criado_em else None,
         "expiraEm": pedido.expira_em.isoformat() if pedido.expira_em else None,
         "avisadoEm": pedido.avisado_em.isoformat() if pedido.avisado_em else None,
@@ -116,6 +169,13 @@ def criar_pedido(
     # Reaproveita um pedido ainda válido do mesmo usuário e plano: recarregar a
     # página não pode gerar cobrança nova, senão o cliente paga duas vezes e o
     # painel enche de pedidos órfãos.
+    #
+    # Mesma regra de `/meu-pedido` (`_codigo_vencido_sem_aviso`), e não o prazo
+    # cru: um pedido com aviso pendente continua sendo a compra em curso mesmo
+    # depois do prazo do código. Com `_expirado` aqui, o cliente que avisou e
+    # voltou ao checkout do mesmo plano ganhava uma cobrança nova, e a que ele
+    # tinha pago sumia da tela para sempre — enterrada atrás do pedido mais
+    # recente.
     existente = (
         db.query(PedidoPix)
         .filter(
@@ -126,7 +186,7 @@ def criar_pedido(
         .order_by(PedidoPix.id.desc())
         .first()
     )
-    if existente is not None and not _expirado(existente):
+    if existente is not None and not _codigo_vencido_sem_aviso(existente):
         pedido = existente
     else:
         agora = utcnow()
@@ -220,11 +280,24 @@ def meu_pedido_atual(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    """Devolve o pedido em aberto do usuário, se houver.
+    """Devolve o pedido que a tela de checkout precisa mostrar, se houver.
 
-    É o que faz a tela sobreviver a um F5 sem criar cobrança nova.
+    São três situações, e elas exigem respostas diferentes: `aguardando`/
+    `avisado` (mostrar a cobrança), `confirmado` há pouco (o acesso já saiu) e
+    nenhum pedido (`null`). Só as duas primeiras entravam no filtro, então o
+    pedido confirmado devolvia o mesmo `null` de "nunca houve pedido" — quem
+    tinha avisado ficava em "aguardando a conferência" para sempre, e recarregar
+    a página não adiantava.
+
+    O aviso pendente também sobrevive ao prazo do código: ver
+    `_codigo_vencido_sem_aviso`.
+
+    Entre uma cobrança em aberto e uma liberação recente, ganha a **mais
+    recente** — o comentário na escolha explica por quê.
+
+    É também o que faz a tela sobreviver a um F5 sem criar cobrança nova.
     """
-    pedido = (
+    em_aberto = (
         db.query(PedidoPix)
         .filter(
             PedidoPix.user_id == current_user.id,
@@ -233,22 +306,54 @@ def meu_pedido_atual(
         .order_by(PedidoPix.id.desc())
         .first()
     )
-    if pedido is None or _expirado(pedido):
+    if em_aberto is not None and _codigo_vencido_sem_aviso(em_aberto):
+        em_aberto = None
+
+    confirmado = (
+        db.query(PedidoPix)
+        .filter(
+            PedidoPix.user_id == current_user.id,
+            PedidoPix.status == "confirmado",
+        )
+        .order_by(PedidoPix.id.desc())
+        .first()
+    )
+    if confirmado is not None and not _confirmado_ha_pouco(confirmado):
+        confirmado = None
+
+    # Entre os dois, manda o mais recente — e não "cobrança em aberto sempre
+    # primeiro". A diferença aparece quando o pedido em aberto é o mais VELHO:
+    # um aviso abandonado (o cliente clicou "já fiz o PIX" num plano e nunca
+    # pagou) fica em aberto para sempre e escondia a liberação do plano que ele
+    # comprou depois. A tela, vendo plano diferente do seu, emitia cobrança
+    # nova — segunda cobrança de um plano já pago e ativo.
+    #
+    # No caso comum a ordem não muda: quem já foi confirmado e abre uma cobrança
+    # nova tem o pedido novo com id maior, e é ele que a tela precisa mostrar.
+    candidatos = [p for p in (em_aberto, confirmado) if p is not None]
+    if not candidatos:
         return {"pedido": None}
+    escolhido = max(candidatos, key=lambda p: p.id)
+
+    if escolhido.status == "confirmado":
+        # Sem `chave` e sem `brcode`: esta cobrança está paga, e devolver um
+        # código pagável junto com "acesso liberado" convida a um segundo PIX
+        # pelo mesmo acesso.
+        return {"pedido": _publico(escolhido)}
 
     chave = _chave_pix()
     brcode = (
         gerar_brcode(
             chave=chave,
-            valor=pedido.valor,
+            valor=escolhido.valor,
             nome_recebedor=os.getenv("PIX_NOME_RECEBEDOR") or "DataTrust Audit",
             cidade=os.getenv("PIX_CIDADE") or "Sao Paulo",
-            txid=pedido.txid,
+            txid=escolhido.txid,
         )
         if chave
         else None
     )
-    return {"pedido": {**_publico(pedido), "chave": chave, "brcode": brcode}}
+    return {"pedido": {**_publico(escolhido), "chave": chave, "brcode": brcode}}
 
 
 @router.get("/confirmacao/{token}")

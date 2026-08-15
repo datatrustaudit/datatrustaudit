@@ -23,7 +23,6 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
 from typing import Dict, List, Any, Optional
 from urllib.parse import urlparse, urljoin
 from contextlib import asynccontextmanager
@@ -57,6 +56,7 @@ from db.models import Base, User, Scan, Payment
 from api import admin, auth, payments, pix, scans, audit, exports, trajeto
 from api.auth import get_current_user, get_current_active_user, resolve_effective_plan
 from audit_engine.url_guard import validate_public_url, UnsafeURLError
+from audit_engine.tempo import agora_utc_iso
 
 # Rate limiting — cada scan sobe um Chromium (sem teto, um punhado de
 # requisições simultâneas derruba o servidor por memória) e /chat gasta cota
@@ -1337,7 +1337,9 @@ def generate_audit_report(scan_results: Dict[str, Any]) -> Dict[str, Any]:
     
     return {
         "url": url,
-        "timestamp": datetime.now().isoformat(),
+        # UTC como todo o resto da API: a tela lê carimbo sem sufixo como UTC,
+        # e hora local do servidor chegava três horas adiantada no Brasil.
+        "timestamp": agora_utc_iso(),
         "tags": tags,
         "tagCount": len(tags),
         "typeCounts": type_counts,
@@ -1712,7 +1714,7 @@ async def deep_analyze(
 
         deep_report = {
             "url": base_url,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": agora_utc_iso(),
             "pagesAudited": len(sub_reports),
             "pagesFailed": falhas,
             "urls": [r.get("url") for r in sub_reports],

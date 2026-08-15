@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Clock, ExternalLink, GitCompare, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import ComparadorDeVarreduras from '@/components/laudo/ComparadorDeVarreduras';
+import { comoInstanteUtc } from '@/lib/datas';
 
 interface ItemDoHistorico {
     id: number;
@@ -26,13 +27,14 @@ interface ItemDoHistorico {
     score: number | null;
 }
 
-const dataLonga = (iso: string | null) => {
-    if (!iso) return 'data não registrada';
-    const d = new Date(iso);
-    return Number.isNaN(d.getTime())
-        ? 'data não registrada'
-        : d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
-};
+/* O backend serializa o instante sem fuso e o navegador o lia como hora local:
+   cada varredura aparecia três horas adiantada, e a rodada da madrugada
+   constava do dia seguinte — o histórico é justamente a tela onde a data é a
+   única coisa que distingue duas linhas iguais. */
+const dataLonga = (iso: string | null) =>
+    comoInstanteUtc(iso)?.toLocaleString('pt-BR', {
+        dateStyle: 'short', timeStyle: 'short',
+    }) ?? 'data não registrada';
 
 const Historico = () => {
     const { token, isAuthenticated } = useAuth();

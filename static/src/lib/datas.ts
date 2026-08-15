@@ -16,16 +16,24 @@
  * e numa conferência de caixa que casa pagamento com extrato bancário, isso não
  * é arredondamento: é a informação errada, escrita com confiança.
  *
- * O 'Z' só é acrescentado quando a string realmente não traz fuso, para não
- * estragar uma resposta que um dia passe a mandá-lo.
+ * O 'Z' só é acrescentado quando a string tem hora e realmente não traz fuso:
+ * assim não se estraga uma resposta que um dia passe a mandar o offset, nem uma
+ * data sem hora, que a especificação já manda ler como UTC.
  */
+
+const TEM_FUSO = /(?:Z|[+-]\d{2}:?\d{2})$/i;
+/* Só há o que corrigir quando a string traz hora: "2026-08-13" sem hora já é
+   lida como UTC pela especificação, e "2026-08-13Z" não é formato válido de
+   Date — motor estrito (Safari) devolve Invalid Date e uma data legítima
+   sumiria da tela. */
+const TEM_HORA = /\d{2}:\d{2}/;
 
 /** O instante, ou `null` se a entrada não for uma data utilizável. */
 export function comoInstanteUtc(iso: string | null | undefined): Date | null {
     if (!iso || typeof iso !== 'string') return null;
 
-    const jaTemFuso = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso);
-    const data = new Date(jaTemFuso ? iso : `${iso}Z`);
+    const precisaDoZ = TEM_HORA.test(iso) && !TEM_FUSO.test(iso);
+    const data = new Date(precisaDoZ ? `${iso}Z` : iso);
 
     /* `new Date('lixo')` não estoura: devolve um Date inválido, cujo
        `toLocaleString()` produz a string "Invalid Date" — que vai para a tela

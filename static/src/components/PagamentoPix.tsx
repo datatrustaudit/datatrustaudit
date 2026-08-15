@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { apiRequest, ApiClientError } from '@/lib/apiClient';
+import { codigoVencido } from '@/lib/pix';
 import { Button } from '@/components/ui/button';
 
 /** O que `_publico()` de `api/pix.py` devolve, mais o que só sai na criação. */
@@ -49,6 +50,25 @@ interface Props {
 }
 
 const MOEDA = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+/**
+ * De quanto em quanto tempo a tela pergunta se o pagamento já foi conferido.
+ * Generoso de propósito: do outro lado há uma pessoa olhando o extrato, não um
+ * gateway — a resposta muda em minutos ou horas, nunca em segundos.
+ */
+const INTERVALO_DA_VERIFICACAO_MS = 15_000;
+
+/**
+ * Teto do tempo total de verificação. A conferência é manual e pode demorar
+ * mais que isto; o teto não existe para dizer que ela terminou, e sim para que
+ * uma aba esquecida aberta a noite inteira não fique batendo na API para
+ * sempre. Quando ele estoura, a tela **diz** que parou de olhar sozinha — o
+ * cliente ainda recebe o e-mail da liberação.
+ */
+const TETO_DA_VERIFICACAO_MS = 30 * 60_000;
+
+/** Nenhum destes estados é silencioso — cada um tem uma frase na tela. */
+type SituacaoDaVerificacao = 'ok' | 'falhando' | 'encerrada' | 'sessao-perdida';
 
 /**
  * Devolve `null` em vez de "R$ NaN". `Intl.format(undefined)` não estoura — ele
@@ -190,6 +210,11 @@ const PagamentoPix = ({ plano, onConfirmado }: Props) => {
     const [avisando, setAvisando] = useState(false);
     const [erroDoAviso, setErroDoAviso] = useState<string | null>(null);
 
+    /* Situação da verificação periódica. Vai para a tela em todos os casos que
+       não são "ok": verificação que morre calada deixa o cliente olhando uma
+       atualização que nunca vai chegar. */
+    const [verificacao, setVerificacao] = useState<SituacaoDaVerificacao>('ok');
+
     /* Quem clicou "já fiz o PIX" por engano precisa do código de volta — sem
        isso a única saída seria recarregar a página. */
     const [reexibirCodigo, setReexibirCodigo] = useState(false);
@@ -232,6 +257,7 @@ const PagamentoPix = ({ plano, onConfirmado }: Props) => {
         setIndisponivel(false);
         setSessaoPerdida(false);
         setReexibirCodigo(false);
+        setVerificacao('ok');
 
         try {
             if (!forcarNovo) {
@@ -239,14 +265,20 @@ const PagamentoPix = ({ plano, onConfirmado }: Props) => {
                     '/api/payments/pix/meu-pedido',
                     { token, context: 'pix/meu-pedido' },
                 );
-                const emAberto = resposta?.pedido ?? null;
-                /* Um pedido em aberto de OUTRO plano não serve: o valor e o
-                   código são de outra compra, e pagar por ele daria acesso ao
-                   plano errado. `/meu-pedido` devolve o mais recente, seja qual
-                   for o plano — a comparação é aqui. */
-                if (ehPedido(emAberto) && emAberto.plano === plano && emAberto.brcode) {
-                    setPedido(emAberto);
-                    return;
+                const anterior = resposta?.pedido ?? null;
+                /* Um pedido de OUTRO plano não serve: o valor e o código são de
+                   outra compra, e pagar por ele daria acesso ao plano errado.
+                   `/meu-pedido` devolve o mais recente, seja qual for o plano —
+                   a comparação é aqui. */
+                if (ehPedido(anterior) && anterior.plano === plano) {
+                    /* Confirmado não vem com código, e não deve mesmo: a
+                       cobrança está paga. Exigir `brcode` aqui mandava a tela
+                       emitir uma cobrança nova para quem acabou de ser liberado
+                       — segundo PIX pelo mesmo acesso. */
+                    if (anterior.status === 'confirmado' || anterior.brcode) {
+                        setPedido(anterior);
+                        return;
+                    }
                 }
             }
 
@@ -345,6 +377,83 @@ const PagamentoPix = ({ plano, onConfirmado }: Props) => {
         const id = window.setTimeout(() => setCopiado(null), 2500);
         return () => window.clearTimeout(id);
     }, [copiado]);
+
+    /* ─── Verificação periódica enquanto o pagamento espera conferência ──────
+       Quem libera é uma pessoa olhando o extrato, em outro momento e em outra
+       tela. Sem perguntar de tempos em tempos, o cliente que avisou ficava em
+       "aguardando" até desistir: a liberação acontecia e ele nunca via. */
+    const pedidoId = pedido?.id ?? null;
+    const esperandoConferencia = pedido?.status === 'avisado';
+
+    useEffect(() => {
+        if (!token || !esperandoConferencia || pedidoId === null) return;
+
+        let vivo = true;
+        /* Uma consulta pode estar em voo quando o intervalo para. Sem esta
+           trava, a resposta atrasada reescrevia a situação para 'ok' e a tela
+           voltava a prometer que confere sozinha — depois de ter parado. */
+        let parado = false;
+        let id = 0;
+        const comecouEm = Date.now();
+        setVerificacao('ok');
+
+        const verificar = async () => {
+            try {
+                const resposta = await apiRequest<{ pedido: PedidoPix | null }>(
+                    '/api/payments/pix/meu-pedido',
+                    { token, context: 'pix/meu-pedido' },
+                );
+                if (!vivo || parado) return;
+                setVerificacao('ok');
+
+                const atual = resposta?.pedido ?? null;
+                /* `null` aqui é "sem novidade", NUNCA "o pedido sumiu" — a rota
+                   também devolve null quando o código venceu e a conferência
+                   ainda não saiu. Apagar a cobrança da tela por causa disso
+                   diria a quem já transferiu que o pagamento se perdeu. Pelo
+                   mesmo motivo um pedido de outro `id` é ignorado: é de outra
+                   compra e trocaria a tela debaixo do cliente. */
+                if (!ehPedido(atual) || atual.id !== pedidoId) return;
+                /* A resposta do pedido confirmado não traz `chave` nem
+                   `brcode`; o espalhamento por cima preserva o que já estava. */
+                setPedido((anterior) => ({ ...(anterior ?? atual), ...atual }));
+            } catch (e) {
+                if (!vivo || parado) return;
+                console.error('[PagamentoPix] falha ao verificar a conferência:', e);
+                const info = e instanceof ApiClientError ? e.info : null;
+                if (info?.status === 401 || info?.status === 403) {
+                    /* Sem sessão nenhuma tentativa vai funcionar — insistir por
+                       meia hora seria bater na porta errada. A tela não é
+                       trocada pelo aviso de sessão expirada de propósito: quem
+                       está aqui já transferiu, e sumir com a cobrança da frente
+                       dele para anunciar login é a pior hora possível. */
+                    parado = true;
+                    window.clearInterval(id);
+                    setVerificacao('sessao-perdida');
+                    return;
+                }
+                setVerificacao('falhando');
+            }
+        };
+
+        id = window.setInterval(() => {
+            if (Date.now() - comecouEm >= TETO_DA_VERIFICACAO_MS) {
+                parado = true;
+                window.clearInterval(id);
+                setVerificacao('encerrada');
+                return;
+            }
+            void verificar();
+        }, INTERVALO_DA_VERIFICACAO_MS);
+
+        /* Confirmar, trocar de pedido ou desmontar param o intervalo: timer
+           solto continua batendo na API depois de a tela sumir. */
+        return () => {
+            vivo = false;
+            parado = true;
+            window.clearInterval(id);
+        };
+    }, [token, esperandoConferencia, pedidoId]);
 
     /* Dispara uma vez por pedido: o callback do pai pode ser recriado a cada
        render e não deve reabrir a mesma comemoração. */
@@ -503,10 +612,10 @@ const PagamentoPix = ({ plano, onConfirmado }: Props) => {
 
     const confirmado = pedido.status === 'confirmado';
     const avisado = pedido.status === 'avisado';
-    /* Dois juízes: o servidor já pode ter carimbado "expirado", e o contador
-       local vence entre uma resposta e outra. */
-    const expirado = !confirmado
-        && (pedido.status === 'expirado' || (restanteMs !== null && restanteMs <= 0));
+    /* A regra mora em `lib/pix.ts` para poder ser exercitada sem React — é ela
+       que decide se a tela ainda oferece um código pagável, e o porquê de cada
+       caso está lá. */
+    const expirado = codigoVencido(pedido.status, restanteMs);
 
     const mostrarCodigo = !confirmado && !expirado && (!avisado || reexibirCodigo);
     const valorFormatado = comoDinheiro(pedido.valor);
@@ -515,7 +624,10 @@ const PagamentoPix = ({ plano, onConfirmado }: Props) => {
 
     if (confirmado) {
         return (
-            <section className="cartao p-6 sm:p-8">
+            /* `status`: esta tela pode aparecer sozinha, no meio da espera, sem
+               nenhum clique — quem usa leitor de tela não tem como perceber a
+               troca se ela não for anunciada. */
+            <section className="cartao p-6 sm:p-8" role="status">
                 <div className="flex items-start gap-3">
                     <ShieldCheck className="w-5 h-5 mt-0.5 shrink-0" style={{ color: 'var(--laudo-conforme)' }} aria-hidden />
                     <div className="min-w-0">
@@ -651,6 +763,17 @@ const PagamentoPix = ({ plano, onConfirmado }: Props) => {
                             <p className="mt-2">
                                 Guarde o identificador <span className="voz-evidencia">{pedido.txid}</span> — é
                                 por ele que a cobrança é encontrada.
+                            </p>
+                            {/* O que a verificação automática está fazendo. Só
+                                a primeira frase promete atualização sozinha —
+                                nos outros casos ela parou, e dizer isso é o que
+                                impede o cliente de esperar uma tela que não vai
+                                mais mudar. */}
+                            <p className="mt-2">
+                                {verificacao === 'ok' && 'Esta tela confere sozinha de tempos em tempos: quando o pagamento for localizado, ela muda aqui mesmo, sem precisar recarregar.'}
+                                {verificacao === 'falhando' && 'A conferência automática desta tela não conseguiu falar com o servidor agora — seguimos tentando. O e-mail da liberação não depende dela.'}
+                                {verificacao === 'encerrada' && 'Esta tela parou de conferir sozinha depois de um tempo aberta. Recarregue a página para ver a situação atual — a liberação chega por e-mail de qualquer forma.'}
+                                {verificacao === 'sessao-perdida' && 'Sua sessão expirou e esta tela parou de conferir sozinha. Entre de novo para acompanhar por aqui; o pagamento e a conferência seguem valendo.'}
                             </p>
                         </Recado>
                         {!reexibirCodigo && !expirado && (

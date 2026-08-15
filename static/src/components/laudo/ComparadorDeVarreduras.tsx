@@ -18,6 +18,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CheckCircle, AlertTriangle, Minus, RefreshCw, ArrowRight } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { comoInstanteUtc } from '@/lib/datas';
 
 interface Violacao {
     article?: string;
@@ -54,13 +55,13 @@ const corDaGravidade = (nivel?: string) =>
         : nivel === 'high' ? 'var(--laudo-alto)'
             : nivel === 'medium' ? 'var(--laudo-medio)' : 'var(--laudo-baixo)';
 
-const dataCurta = (iso: string | null) => {
-    if (!iso) return '—';
-    const d = new Date(iso);
-    return Number.isNaN(d.getTime())
-        ? '—'
-        : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' });
-};
+/* A data vem do backend sem fuso e o navegador a lia como hora local — três
+   horas adiantada aqui no Brasil. Numa comparação "antes × agora", varredura
+   feita à noite passava a constar do dia seguinte e a ordem virava mentira. */
+const dataCurta = (iso: string | null) =>
+    comoInstanteUtc(iso)?.toLocaleDateString('pt-BR', {
+        day: '2-digit', month: '2-digit', year: '2-digit',
+    }) ?? '—';
 
 const ListaDeAchados = ({ titulo, itens, cor, vazio }: {
     titulo: string;

@@ -37,6 +37,7 @@ import { useI18n } from '@/context/I18nContext';
 import { usePlan } from '@/context/PlanContext';
 import { useAuth } from '@/context/AuthContext';
 import { toast } from '@/hooks/use-toast';
+import { dataHoraLegivel } from '@/lib/datas';
 
 interface Tag {
     id: string;
@@ -208,14 +209,12 @@ const NewAuditResults = ({ result, scanId }: { result: NewAuditResult, scanId?: 
     const gravidade = (nivel?: string) =>
         GRAVIDADE[String(nivel || '').toLowerCase()] ?? { rotulo: 'Baixo', cor: 'var(--laudo-baixo)' };
 
-    /* `new Date(undefined).toLocaleString()` devolve a string "Invalid Date", e
-       era isso que o cabeçalho do laudo mostrava — a API não manda `timestamp`,
-       manda `finished_at`. Data ruim vira ausência declarada: um campo vazio o
-       leitor cobra, "Invalid Date" ele lê como defeito do produto inteiro. */
-    const dataDoExame = (() => {
-        const d = new Date(result.timestamp);
-        return Number.isNaN(d.getTime()) ? null : d.toLocaleString('pt-BR');
-    })();
+    /* O instante vem de `finished_at`, que o backend serializa naive em UTC
+       ("2026-08-13T02:40:00"). Lido com `new Date()` cru, o navegador o trata
+       como hora local e o laudo carimbava três horas a mais — o suficiente para
+       trocar o DIA do exame. `dataHoraLegivel` acrescenta o fuso antes de ler e
+       devolve null no lixo, em vez da string "Invalid Date". */
+    const dataDoExame = dataHoraLegivel(result.timestamp);
 
     const handleCopyReport = () => {
         // Free users get a summary-only copy (no violation details)
@@ -231,7 +230,7 @@ const NewAuditResults = ({ result, scanId }: { result: NewAuditResult, scanId?: 
 DataTrust Audit Report
 ================
 URL: ${result.url}
-Data: ${new Date(result.timestamp).toLocaleString('pt-BR')}
+Data: ${dataDoExame || 'não registrada'}
 
 Score de Conformidade: ${result.score}%
 Total de Tags: ${result.tagCount}
@@ -376,7 +375,11 @@ ${violationsText}
                             {result.url}
                         </p>
                         <p className="mt-2 text-xs" style={{ color: 'var(--laudo-texto-suave)' }}>
-                            {dataDoExame && <>Examinado em {dataDoExame}{' · '}</>}
+                            {/* Sem data, o cabeçalho diz que ela não veio: some
+                                sem avisar é o leitor supor que esqueceu de ler. */}
+                            {dataDoExame
+                                ? <>Examinado em {dataDoExame}{' · '}</>
+                                : <>Data do exame não registrada{' · '}</>}
                             {/* Sem clicar em "aceitar" — é essa a condição que
                                 dá valor a tudo que vem depois, e ela precisa
                                 estar escrita no cabeçalho, não numa nota de

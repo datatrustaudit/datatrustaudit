@@ -1,0 +1,110 @@
+# Contexto de build do backend. Tudo que está aqui NÃO é enviado ao Docker.
+# Regra geral: o que não é executado pelo servidor em produção fica de fora —
+# contexto grande é upload lento a cada build e imagem maior em disco.
+
+# ─── Segredos ────────────────────────────────────────────────────────────────
+# Crítico: .env dentro da imagem é segredo distribuído junto com ela — qualquer
+# um com acesso ao registro lê SECRET_KEY, token do Mercado Pago e credencial do
+# banco. Em produção as variáveis vêm do painel da plataforma; load_dotenv()
+# simplesmente não encontra arquivo e usa o ambiente, que é o comportamento certo.
+.env
+.env.*
+*.pem
+*.key
+client_secret*.json
+*client_secret*.json
+*.apps.googleusercontent.com.json
+service-account*.json
+gcp-*.json
+credentials.json
+
+# ─── Ambiente virtual ────────────────────────────────────────────────────────
+# Centenas de MB de binários compilados para Windows — inúteis no Linux da
+# imagem e capazes de sozinhos inviabilizar o build. As dependências são
+# instaladas dentro do contêiner, a partir do requirements.txt.
+.venv/
+venv/
+env/
+ENV/
+
+# ─── Frontend ────────────────────────────────────────────────────────────────
+# O frontend é publicado na Vercel; esta imagem serve API. O código-fonte de
+# static/ não é lido por nenhum módulo Python, e static/dist é build de saída.
+# O Dockerfile recria static/dist/assets vazio, porque main.py monta StaticFiles
+# ali no import e o Starlette quebra se o diretório não existir.
+static/
+node_modules/
+**/node_modules/
+.npm
+.eslintcache
+
+# ─── Banco de dados ──────────────────────────────────────────────────────────
+# gtmaudit.db tem usuários reais, hashes de senha e pagamentos. Nunca entra na
+# imagem. Em produção o DATABASE_URL aponta para o Postgres.
+*.db
+*.sqlite
+*.sqlite3
+db/*.db
+
+# ─── Git e metadados de repositório ──────────────────────────────────────────
+.git/
+.gitignore
+.gitattributes
+.github/
+
+# ─── Testes ──────────────────────────────────────────────────────────────────
+# Não rodam em produção. Cuidado ao mudar isto: se um dia o build passar a
+# rodar pytest, tests/ precisa voltar para o contexto.
+tests/
+.pytest_cache/
+pytest.ini
+
+# ─── Python: artefatos locais ────────────────────────────────────────────────
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+
+# ─── Sobras de recuperação e código morto ────────────────────────────────────
+# Pastas mantidas no disco fora do controle de versão (ver CLAUDE.md). Não são
+# importadas por nada em execução.
+legacy_attic/
+static_broken/
+db_broken/
+audit_engine_old/
+main_broken.py
+run_backup.py
+response.html
+db_check.py
+db_schema.py
+req.txt
+# arquivos restaurados da Lixeira do Windows
+$R*
+
+# ─── Logs ────────────────────────────────────────────────────────────────────
+*.log
+logs/
+playwright-report/
+test-results/
+
+# ─── Ferramentas de desenvolvimento e plataforma ─────────────────────────────
+.claude/
+.vercel/
+.vscode/
+.idea/
+*.bat
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# ─── Sistema operacional ─────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~

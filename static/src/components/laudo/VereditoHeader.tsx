@@ -1,4 +1,5 @@
 import { ShieldAlert, ShieldCheck, ShieldX, Clock, Link2 } from 'lucide-react';
+import { comoInstanteUtc } from '@/lib/datas';
 
 /**
  * Topo do laudo.
@@ -86,6 +87,16 @@ const VereditoHeader = ({
         return 'Nenhuma não conformidade observada nesta varredura.';
     })();
 
+    /* A string do backend não traz fuso ("2026-08-13T02:40:00") e o navegador a
+       lia como hora local: o topo do laudo — a linha que diz quando o site foi
+       examinado — aparecia três horas adiantada, e perto da meia-noite mudava o
+       dia. Sem data legível, o cabeçalho declara a falta; nunca carimba o
+       relógio de quem abriu a página. */
+    const dataDoExame = comoInstanteUtc(timestamp)?.toLocaleString('pt-BR', {
+        day: '2-digit', month: 'short', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+    });
+
     let situacaoConsentimento: string;
     if (consentimentoSemInterface) situacaoConsentimento = 'instalado, sem exibir aviso';
     else if (temConsentimento) situacaoConsentimento = 'presente';
@@ -114,10 +125,7 @@ const VereditoHeader = ({
                             </span>
                             <span className="inline-flex items-center gap-1.5">
                                 <Clock className="h-4 w-4 shrink-0" aria-hidden />
-                                {new Date(timestamp).toLocaleString('pt-BR', {
-                                    day: '2-digit', month: 'short', year: 'numeric',
-                                    hour: '2-digit', minute: '2-digit',
-                                })}
+                                {dataDoExame ?? 'data do exame não registrada'}
                             </span>
                         </div>
                     </div>

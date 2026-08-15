@@ -5,9 +5,9 @@ Coordinates all analyzers and assembles the final AuditResult.
 Accepts a BrowserScanResult (from browser_fetcher) so every analyzer
 can use both rendered HTML and runtime data (network requests, dataLayer, etc.).
 """
-from datetime import datetime
 from typing import List, Optional
 
+from .tempo import agora_utc_iso
 from .models import AuditResult, DataQualityNote, TagFinding, ConsentFinding, CONFIDENCE_HIGH
 from .browser_fetcher import BrowserScanResult
 from .tag_detector import detect_tags
@@ -200,7 +200,9 @@ def run_audit(
         scan = BSR(url=url, html=html_str, scan_method="html_fallback", fallback_used=True)
 
     html = scan.html
-    timestamp = datetime.now().isoformat()
+    # Vai para `raw_data.timestamp` e, ao reabrir um laudo pelo histórico, pode
+    # virar a data do cabeçalho: precisa ser o mesmo UTC do resto da resposta.
+    timestamp = agora_utc_iso()
 
     # ── 1. Tag detection ──────────────────────────────────────────────────────
     try:
