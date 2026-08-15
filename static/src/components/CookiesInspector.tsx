@@ -60,10 +60,22 @@ const CookiesInspector = ({ url, storage }: Props) => {
     const outroArmazenamento = storage?.storageWithoutConsent ?? [];
     const total = storage?.totalCookiesWithoutConsent ?? cookies.length;
 
+    /* "Veio vazio" e "não veio" são afirmações diferentes, e só a primeira
+       autoriza o escudo verde lá embaixo.
+
+       Enquanto `GET /api/scans/{id}` devolvia `scan.raw_data` cru, a chave
+       chegava com outro nome (`cookies_sem_consentimento`), o `??` acima
+       transformava a ausência em lista vazia, e esta tela DECLARAVA
+       conformidade sobre uma varredura que tinha gravado oito cookies. A causa
+       está corrigida no backend — a rota devolve a mesma forma de `/api/audit`
+       —, e esta checagem é o que impede a próxima forma de dado de reeditar a
+       afirmação sem ninguém perceber. */
+    const trouxeALeitura = Array.isArray(storage?.cookiesWithoutConsent);
+
     /* Sem o bloco `storage` não há o que mostrar — e dizer isso é melhor do
        que preencher a tela com suposição. A varredura pode ter falhado, o
        plano pode não dar direito, ou o laudo pode ser antigo. */
-    if (!storage) {
+    if (!storage || !trouxeALeitura) {
         return (
             <Card style={{ borderColor: 'var(--laudo-linha)', background: 'var(--laudo-superficie)' }}>
                 <CardContent className="pt-6 flex items-start gap-3">

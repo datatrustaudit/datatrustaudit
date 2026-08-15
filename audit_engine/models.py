@@ -427,14 +427,58 @@ class DataQualityNote:
 # Score Model
 # ─────────────────────────────────────────────
 
+def privacy_protection_from_risk(risk: Optional[int]) -> Optional[int]:
+    """Converte risco de privacidade (maior = pior) no eixo exibido (maior = melhor).
+
+    Ponto único da inversão. Ela já existiu em dois lugares com resultados
+    diferentes: `compute_scores` invertia para a média ponderada, e a resposta
+    publicava o risco CRU sob `privacyRiskScore` — que o painel desenhava na
+    mesma escala dos outros cinco eixos, onde acima de 80 é verde e "Adequado".
+    Um site com risco 74 (11 violações críticas) aparecia como "Privacidade
+    74%", e um com risco máximo apareceria como "100% — Adequado", em verde.
+
+    Um número cujo significado depende de quem lê é armadilha que volta: quem
+    exibe deve ler `privacyProtectionScore`, cujo nome já diz a direção.
+
+    Risco ausente devolve `None` — nunca 100. Reabrir um laudo gravado sem o
+    eixo (`scores` truncado no banco) reconstrói `privacy_risk=None`, e aí
+    `100 - None` levantava `TypeError` dentro do `to_dict()`, derrubando a rota
+    inteira; tratar o ausente como risco zero seria pior ainda, porque publica
+    "Privacidade 100% — Adequado" sobre uma varredura que não mediu nada. A
+    tela imprime "Não medido" quando recebe `None`.
+    """
+    if isinstance(risk, bool) or not isinstance(risk, (int, float)):
+        return None
+    if risk != risk:            # NaN não é comparável: não é medida, é lixo
+        return None
+    return max(0, min(100, 100 - int(risk)))
+
+
 @dataclass
 class AuditScores:
+    """Os seis eixos do laudo. `None` em um eixo significa NÃO MEDIDO.
+
+    Não medido não é zero: página sem nenhum evento não tem "arquitetura de
+    eventos 0% — nada conforme", ela não tem o que avaliar. Achatar isso para
+    zero enchia o painel de vermelho inventado e ainda fazia o eixo não medido
+    ganhar o "Comece por X", que aponta o menor valor. `compute_scores` já
+    deixava o ausente fora da média ponderada — era só na serialização que ele
+    virava zero.
+    """
     overall: int
-    tracking_quality: int
-    event_architecture: int
-    datalayer_quality: int
-    consent_integrity: int
-    privacy_risk: int       # 0=low risk (good), 100=high risk (bad) – stored as risk, displayed inverted
+    tracking_quality: Optional[int]
+    event_architecture: Optional[int]
+    datalayer_quality: Optional[int]
+    consent_integrity: Optional[int]
+    #: Risco CRU: 0 = seguro, 100 = risco máximo. É o único eixo guardado na
+    #: direção "maior = pior" — não exiba direto ao lado dos outros cinco.
+    #: Para tela, relatório ou gráfico use `privacy_protection`.
+    privacy_risk: Optional[int]
+
+    @property
+    def privacy_protection(self) -> Optional[int]:
+        """Eixo de privacidade na mesma direção dos outros cinco: maior = melhor."""
+        return privacy_protection_from_risk(self.privacy_risk)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -443,6 +487,11 @@ class AuditScores:
             "eventArchitectureScore": self.event_architecture,
             "datalayerQualityScore": self.datalayer_quality,
             "consentIntegrityScore": self.consent_integrity,
+            # Eixo pronto para exibição, na direção dos demais (100 = nada
+            # exposto sem base legal).
+            "privacyProtectionScore": self.privacy_protection,
+            # Legado, mantido para quem já lia esta chave: risco CRU, invertido
+            # em relação a todos os outros campos deste dicionário.
             "privacyRiskScore": self.privacy_risk,
         }
 

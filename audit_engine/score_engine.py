@@ -29,6 +29,7 @@ from typing import List, Optional, Tuple
 from .models import (
     AuditScores, TagFinding, GTMQualityResult, EventAuditResult,
     DataLayerFinding, ConsentAuditResult, PrivacyAnalysisResult, DuplicateFinding,
+    privacy_protection_from_risk,
     VALIDITY_VALID, VALIDITY_PARTIAL, VALIDITY_MALFORMED, VALIDITY_NO_PARAMS,
 )
 
@@ -183,10 +184,31 @@ def compute_consent_integrity(consent: Optional[ConsentAuditResult]) -> Optional
     return _clamp(int(round(score)))
 
 
-def compute_privacy_risk(privacy: Optional[PrivacyAnalysisResult]) -> int:
-    """Quanto maior, pior. Exibido invertido na tela."""
-    if not privacy:
-        return 0
+def compute_privacy_risk(privacy: Optional[PrivacyAnalysisResult]) -> Optional[int]:
+    """Devolve RISCO: quanto maior, pior — ao contrário dos outros cinco eixos.
+
+    O docstring anterior dizia "exibido invertido na tela", e a tela não
+    invertia: `privacyRiskScore` ia cru para o painel, que pinta acima de 80 de
+    verde. Nunca confie em uma inversão que mora do outro lado da rede — quem
+    exibe lê `privacyProtectionScore`, produzido por
+    `models.privacy_protection_from_risk`.
+
+    **Análise ausente devolve `None`, não risco zero.** `privacy` só chega
+    `None` quando `analyze_privacy` levantou exceção — o orchestrator engole o
+    erro para não derrubar a varredura inteira e segue com `privacy_result =
+    None`. Risco zero ali era lido como medição: a inversão publicava
+    `privacyProtectionScore: 100` e o painel estampava "Privacidade 100% —
+    Adequado", em verde, sobre o eixo que ninguém conseguiu apurar. Pior, o 100
+    entrava na média ponderada com peso 0,25 e levantava o score geral (medido:
+    87 numa varredura em que só rastreamento e dataLayer foram medidos).
+
+    Afirmar conformidade que não foi apurada é o defeito mais caro deste
+    produto: erro para mais o cliente confere e reclama; "conforme" por engano
+    ele publica. Os outros eixos já devolviam `None` nesse caso — este era o
+    único que respondia com um número.
+    """
+    if privacy is None:
+        return None
 
     pontos = 0.0
     for v in privacy.violations:
@@ -250,16 +272,21 @@ def compute_scores(
         ("eventos", event_arch),
         ("datalayer", dl_quality),
         ("consentimento", consent_s),
-        ("privacidade", 100 - priv_risk),
+        # Mesma inversão que a resposta publica: uma implementação só, senão as
+        # duas divergem e a média deixa de bater com o eixo exibido.
+        ("privacidade", privacy_protection_from_risk(priv_risk)),
     ])
 
     return AuditScores(
         overall=overall,
         tracking_quality=tracking,
-        # Os campos do modelo são int: eixo não medido vira 0 na serialização,
-        # mas já ficou de fora da média — é o número geral que o cliente lê.
-        event_architecture=event_arch if event_arch is not None else 0,
+        # Eixo não medido segue como `None` até a tela, que imprime "Não
+        # medido". Aqui ele virava 0 — e 0 na escala do painel é "Nada
+        # conforme", em vermelho, com direito a "Comece por Eventos": um
+        # achado crítico fabricado a partir de página que simplesmente não
+        # disparou evento nenhum. A média ponderada já o excluía.
+        event_architecture=event_arch,
         datalayer_quality=dl_quality,
-        consent_integrity=consent_s if consent_s is not None else 0,
+        consent_integrity=consent_s,
         privacy_risk=priv_risk,
     )

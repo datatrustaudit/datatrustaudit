@@ -158,8 +158,15 @@ class TestOrdenacao:
 
 
 class TestSemDados:
-    def test_privacy_ausente_nao_quebra(self):
-        assert compute_privacy_risk(None) == 0
+    def test_privacy_ausente_devolve_none(self):
+        """Antes devolvia 0 — e 0 de RISCO vira 100 de proteção na tela.
+
+        A varredura sem análise de privacidade (o analisador levantou exceção)
+        passava a estampar "Privacidade 100% — Adequado", em verde. Ausência de
+        medição é `None`, como nos outros eixos. Ver
+        `tests/test_eixo_de_privacidade.py::TestEixoNaoMedidoNaoViraConformidade`.
+        """
+        assert compute_privacy_risk(None) is None
 
     def test_consent_ausente_devolve_none(self):
         assert compute_consent_integrity(None) is None

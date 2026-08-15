@@ -6,7 +6,7 @@
   "framework": null,
   "rewrites": [
     {
-      "source": "/((?!api/|analyze|chat|assets/|favicon|robots).*)",
+      "source": "/((?!api/|analyze|chat|deep-analyze|history|upload|health|assets/|favicon|robots).*)",
       "destination": "/index.html"
     }
   ]

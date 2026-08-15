@@ -13,7 +13,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import CookiesInspector from './CookiesInspector';
 import DataLayerAnalyzer from './DataLayerAnalyzer';
-import ConsentModeChecker from './ConsentModeChecker';
+import ConsentModeChecker, { type AuditoriaDeConsentimento } from './ConsentModeChecker';
 import TagHealthMonitor from './TagHealthMonitor';
 import SecurityScanner from './SecurityScanner';
 
@@ -30,11 +30,18 @@ interface DeepAnalysisPanelProps {
     storage?: any;
     eventos?: any[];
     datalayerFindings?: any[];
+    /* Bloco `consent` do motor (`ConsentAuditResult`). A aba de Consent Mode
+       recebia só `hasConsentTool` e fabricava o resto: versão "v2", padrão
+       "denied" e uma tabela de sete sinais, tudo derivado de um booleano sobre
+       banner. No laudo de exemplo isso afirmava o contrário da medição —
+       `consentModeV2` era false e o motor tinha emitido `consent_mode_missing`
+       como crítico. */
+    consent?: AuditoriaDeConsentimento | null;
 }
 
 const DeepAnalysisPanel = ({
     url, detectedTags, hasConsentTool, pages, ga4PropertyId,
-    storage, eventos, datalayerFindings,
+    storage, eventos, datalayerFindings, consent,
 }: DeepAnalysisPanelProps) => {
     return (
         <div className="space-y-6">
@@ -123,6 +130,7 @@ const DeepAnalysisPanel = ({
                         url={url}
                         detectedTags={detectedTags}
                         hasConsentTool={hasConsentTool}
+                        consent={consent}
                     />
                 </TabsContent>
 
@@ -142,9 +150,15 @@ const DeepAnalysisPanel = ({
                 </TabsContent>
 
                 <TabsContent value="health" className="mt-6">
+                    {/* A linha do tempo de rede é a única medição de tempo que
+                        existe: sem ela a aba exibia por tag um valor de
+                        `Math.random()` com ícone de relógio, que mudava a cada
+                        re-render. Quando `storage` não vem, a aba declara a
+                        ausência em vez de estimar. */}
                     <TagHealthMonitor
                         detectedTags={detectedTags}
                         hasConsentTool={hasConsentTool}
+                        linhaDoTempo={storage?.firingTimeline}
                     />
                 </TabsContent>
             </Tabs>

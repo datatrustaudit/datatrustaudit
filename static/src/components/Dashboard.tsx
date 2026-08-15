@@ -56,13 +56,21 @@ interface DashboardProps {
             compliance_score: number;
         };
         score: number;
+        /* Todo eixo é opcional: o motor devolve `null` no que não mediu
+           (página sem evento não tem "arquitetura de eventos"), e o painel
+           imprime "Não medido" em vez de 0%. */
         scores?: {
-            auditScore: number;
-            trackingQualityScore: number;
-            eventArchitectureScore: number;
-            datalayerQualityScore: number;
-            consentIntegrityScore: number;
-            privacyRiskScore: number;
+            auditScore?: number;
+            trackingQualityScore?: number;
+            eventArchitectureScore?: number;
+            datalayerQualityScore?: number;
+            consentIntegrityScore?: number;
+            /* Cinco eixos "maior é melhor" e um invertido: `privacyRiskScore` é
+               RISCO (100 = risco máximo). Quem exibe usa
+               `privacyProtectionScore`, já na direção dos outros — ver
+               PainelDeScores.tsx. */
+            privacyProtectionScore?: number;
+            privacyRiskScore?: number;
         };
         loadingOrder: any[];
         summary: {

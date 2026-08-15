@@ -75,13 +75,19 @@ interface NewAuditResult {
         compliance_score: number;
     };
     score: number;
+    /* Eixo ausente é "não medido", não zero — o normalizador de
+       `AuditContainer` deixa de fora o que a varredura não trouxe, e
+       `laudo/PainelDeScores.tsx` imprime isso em vez de chutar 0%. */
     scores?: {
-        auditScore: number;
-        trackingQualityScore: number;
-        eventArchitectureScore: number;
-        datalayerQualityScore: number;
-        consentIntegrityScore: number;
-        privacyRiskScore: number;
+        auditScore?: number;
+        trackingQualityScore?: number;
+        eventArchitectureScore?: number;
+        datalayerQualityScore?: number;
+        consentIntegrityScore?: number;
+        /** Privacidade já na direção dos outros eixos: 100 = nada exposto sem base legal. */
+        privacyProtectionScore?: number;
+        /** Legado: RISCO cru, 100 = risco máximo. O painel inverte antes de exibir. */
+        privacyRiskScore?: number;
         tagDuplicationRisk?: number;
         estimatedBusinessImpact?: string;
     };
@@ -722,6 +728,7 @@ ${violationsText}
                             storage={(result as any).storage}
                             eventos={(result.events as any)?.events ?? []}
                             datalayerFindings={(result as any).datalayerFindings ?? []}
+                            consent={result.consentAudit}
                         />
                     </FeatureGate>
                 </TabsContent>
@@ -767,6 +774,7 @@ ${violationsText}
                                 storage={(result as any).storage}
                                 eventos={(result.events as any)?.events ?? []}
                                 datalayerFindings={(result as any).datalayerFindings ?? []}
+                                consent={result.consentAudit}
                             />
                         </FeatureGate>
                     </TabsContent>

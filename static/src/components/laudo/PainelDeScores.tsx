@@ -9,6 +9,20 @@
  * Além do contraste, faltava o principal: "DataLayer 60%" não informa nada a
  * quem vai corrigir. Cada eixo agora diz o que mede e o que aquela faixa
  * significa, e o pior deles vem marcado — é por onde começar.
+ *
+ * **Todos os seis eixos são "maior é melhor".** O motor guarda privacidade ao
+ * contrário — `privacyRiskScore` é RISCO, 100 = risco máximo — e este painel
+ * exibia esse número cru na mesma escala dos outros, onde acima de 80 é verde e
+ * "Adequado". O laudo de exemplo, com 11 violações críticas e 4 altas, estampava
+ * "Privacidade 74%" em âmbar quando o correto era 26% em vermelho; um site com
+ * risco máximo apareceria como "Privacidade 100% — Adequado", em verde. Pior
+ * ainda: o "Comece por X" escolhe o MENOR valor, então o eixo mais perigoso
+ * virava o de melhor aparência e a recomendação apontava para o lado errado.
+ *
+ * A resposta agora publica `privacyProtectionScore` já invertido (ver
+ * `audit_engine/models.privacy_protection_from_risk`). O campo legado só é lido
+ * como fallback, e nesse caminho a inversão é explícita aqui — nunca desenhe
+ * `privacyRiskScore` direto.
  */
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -23,20 +37,74 @@ import {
 import { Shield, ArrowRight } from 'lucide-react';
 import { CORES, TooltipEscuro, corDoScore } from './tema-dos-graficos';
 
+/**
+ * Todo eixo é opcional porque "não medido" é uma resposta possível do motor —
+ * `compute_event_architecture` devolve `None` para página que não disparou
+ * evento nenhum, e `compute_consent_integrity` idem quando o auditor de
+ * consentimento não rodou. Exigir número aqui obrigaria quem chama a inventar
+ * um: seria 0%, que nesta escala significa "Nada conforme", em vermelho.
+ */
 export interface ScoresDaAuditoria {
-    auditScore: number;
-    trackingQualityScore: number;
-    eventArchitectureScore: number;
-    datalayerQualityScore: number;
-    consentIntegrityScore: number;
-    privacyRiskScore: number;
+    auditScore?: number;
+    trackingQualityScore?: number;
+    eventArchitectureScore?: number;
+    datalayerQualityScore?: number;
+    consentIntegrityScore?: number;
+    /** Privacidade na direção dos outros eixos: 100 = nada exposto sem base legal. */
+    privacyProtectionScore?: number;
+    /** Legado: RISCO cru, 100 = risco máximo. Invertido antes de ir para a tela. */
+    privacyRiskScore?: number;
 }
 
+type ChaveDeEixo =
+    | 'trackingQualityScore'
+    | 'eventArchitectureScore'
+    | 'datalayerQualityScore'
+    | 'consentIntegrityScore'
+    | 'privacyProtectionScore'
+    | 'auditScore';
+
 interface Eixo {
-    chave: keyof ScoresDaAuditoria;
+    chave: ChaveDeEixo;
     titulo: string;
     mede: string;
+    /** `null` quando a varredura não trouxe o eixo — a tela diz isso, não chuta 0. */
+    leitura: (scores: ScoresDaAuditoria) => number | null;
 }
+
+/**
+ * Aceita só número (ou string numérica) e prende em 0–100.
+ *
+ * `Number(undefined)` é `NaN` e `Number(null)` é 0: tratar campo ausente como
+ * zero inventaria um achado crítico ("Nada conforme") a partir de dado que
+ * ninguém mediu — e ainda faria esse eixo vencer o "Comece por X".
+ */
+const numeroNaFaixa = (bruto: unknown): number | null => {
+    if (typeof bruto !== 'number' && typeof bruto !== 'string') return null;
+    if (typeof bruto === 'string' && bruto.trim() === '') return null;
+    const n = Number(bruto);
+    if (!Number.isFinite(n)) return null;
+    return Math.min(100, Math.max(0, Math.round(n)));
+};
+
+const leituraDireta =
+    (chave: keyof ScoresDaAuditoria) =>
+    (scores: ScoresDaAuditoria): number | null =>
+        numeroNaFaixa(scores[chave]);
+
+/**
+ * Privacidade tem duas fontes possíveis, e elas apontam para lados OPOSTOS.
+ * Prefere o campo já invertido; só cai no risco cru quando ele não veio, e aí
+ * inverte na hora. Sem fallback silencioso: sem nenhuma das duas chaves, o eixo
+ * é "não medido".
+ */
+const leituraDePrivacidade = (scores: ScoresDaAuditoria): number | null => {
+    const protecao = numeroNaFaixa(scores.privacyProtectionScore);
+    if (protecao !== null) return protecao;
+
+    const risco = numeroNaFaixa(scores.privacyRiskScore);
+    return risco === null ? null : 100 - risco;
+};
 
 /** O que cada número quer dizer, em uma linha que o cliente entende. */
 const EIXOS: Eixo[] = [
@@ -44,31 +112,37 @@ const EIXOS: Eixo[] = [
         chave: 'trackingQualityScore',
         titulo: 'Rastreamento',
         mede: 'Tags instaladas de forma correta, sem duplicata nem ID trocado',
+        leitura: leituraDireta('trackingQualityScore'),
     },
     {
         chave: 'eventArchitectureScore',
         titulo: 'Eventos',
         mede: 'Nomenclatura e disparo dos eventos de conversão',
+        leitura: leituraDireta('eventArchitectureScore'),
     },
     {
         chave: 'datalayerQualityScore',
         titulo: 'DataLayer',
         mede: 'Estrutura e consistência dos dados enviados ao GTM',
+        leitura: leituraDireta('datalayerQualityScore'),
     },
     {
         chave: 'consentIntegrityScore',
         titulo: 'Consentimento',
         mede: 'Se o rastreio espera a decisão do visitante antes de coletar',
+        leitura: leituraDireta('consentIntegrityScore'),
     },
     {
-        chave: 'privacyRiskScore',
+        chave: 'privacyProtectionScore',
         titulo: 'Privacidade',
-        mede: 'Cookies, storage e dados pessoais expostos sem base legal',
+        mede: 'Proteção dos dados pessoais — quanto menor, mais cookies e dados expostos sem base legal',
+        leitura: leituraDePrivacidade,
     },
     {
         chave: 'auditScore',
         titulo: 'Geral',
         mede: 'Média ponderada dos cinco eixos acima',
+        leitura: leituraDireta('auditScore'),
     },
 ];
 
@@ -79,8 +153,13 @@ const faixaDe = (valor: number): string => {
     return 'Nada conforme';
 };
 
-const LinhaDoEixo = ({ eixo, valor, ePior }: { eixo: Eixo; valor: number; ePior: boolean }) => {
-    const cor = corDoScore(valor);
+interface EixoNaTela extends Eixo {
+    valor: number | null;
+}
+
+const LinhaDoEixo = ({ eixo, valor, ePior }: { eixo: Eixo; valor: number | null; ePior: boolean }) => {
+    const naoMedido = valor === null;
+    const cor = naoMedido ? 'var(--laudo-texto-fraco)' : corDoScore(valor);
     return (
         <div
             className="rounded-md border p-3 transition-colors"
@@ -97,55 +176,61 @@ const LinhaDoEixo = ({ eixo, valor, ePior }: { eixo: Eixo; valor: number; ePior:
                 </span>
                 <span className="flex items-baseline gap-2">
                     <span className="text-xs" style={{ color: 'var(--laudo-texto-fraco)' }}>
-                        {faixaDe(valor)}
+                        {naoMedido ? 'Não medido' : faixaDe(valor)}
                     </span>
                     <span className="voz-evidencia text-base font-bold" style={{ color: cor }}>
-                        {valor}%
+                        {naoMedido ? '—' : `${valor}%`}
                     </span>
                 </span>
             </div>
 
             {/* Trilho neutro. O `min-width` garante que 0% ainda desenhe um
                 traço — barra sem pixel algum lê como falha de renderização, e
-                zero aqui é um achado, não um dado ausente. */}
+                zero aqui é um achado, não um dado ausente. Eixo não medido é o
+                único que fica sem preenchimento, e vem rotulado como tal: o
+                trilho vazio não pode passar por nota zero. */}
             <div
                 className="mt-2 h-1.5 w-full overflow-hidden rounded-full"
                 style={{ background: 'color-mix(in srgb, var(--laudo-linha) 70%, transparent)' }}
             >
-                <div
-                    className="h-full rounded-full transition-all duration-700"
-                    style={{
-                        width: `${Math.max(valor, 0)}%`,
-                        minWidth: '3px',
-                        backgroundColor: cor,
-                    }}
-                />
+                {!naoMedido && (
+                    <div
+                        className="h-full rounded-full transition-all duration-700"
+                        style={{
+                            width: `${Math.max(valor, 0)}%`,
+                            minWidth: '3px',
+                            backgroundColor: cor,
+                        }}
+                    />
+                )}
             </div>
 
             <p className="mt-2 text-xs leading-snug" style={{ color: 'var(--laudo-texto-fraco)' }}>
-                {eixo.mede}
+                {naoMedido ? 'Esta varredura não trouxe este eixo.' : eixo.mede}
             </p>
         </div>
     );
 };
 
 const PainelDeScores = ({ scores }: { scores: ScoresDaAuditoria }) => {
-    // Clamp em 0–100: score fora da faixa (ou `NaN` de campo ausente) esticava
-    // a barra além do trilho e imprimia "NaN%" ao lado.
-    const dados = EIXOS.map((eixo) => {
-        const bruto = Number(scores[eixo.chave]);
-        return {
-            ...eixo,
-            valor: Number.isFinite(bruto) ? Math.min(100, Math.max(0, Math.round(bruto))) : 0,
-        };
-    });
+    const dados: EixoNaTela[] = EIXOS.map((eixo) => ({ ...eixo, valor: eixo.leitura(scores) }));
 
     // O eixo geral é média dos outros: destacar ele como "o pior" mandaria o
-    // cliente corrigir um agregado, não uma causa.
-    const especificos = dados.filter((d) => d.chave !== 'auditScore');
-    const pior = especificos.reduce((a, b) => (b.valor < a.valor ? b : a), especificos[0]);
+    // cliente corrigir um agregado, não uma causa. Eixo não medido também sai
+    // da disputa — "comece pelo que não foi medido" não é recomendação.
+    const candidatos = dados.filter(
+        (d): d is EixoNaTela & { valor: number } => d.chave !== 'auditScore' && d.valor !== null,
+    );
+    const pior = candidatos.length
+        ? candidatos.reduce((a, b) => (b.valor < a.valor ? b : a))
+        : null;
 
-    const radar = dados.map((d) => ({ axis: d.titulo, value: d.valor, fullMark: 100 }));
+    // Só os eixos medidos entram no radar: um vértice em 0 para dado ausente
+    // desenharia conformidade que ninguém apurou. Faltando o eixo, falta o
+    // rótulo — a ausência fica visível.
+    const radar = dados
+        .filter((d) => d.valor !== null)
+        .map((d) => ({ axis: d.titulo, value: d.valor, fullMark: 100 }));
 
     return (
         <Card
@@ -159,7 +244,8 @@ const PainelDeScores = ({ scores }: { scores: ScoresDaAuditoria }) => {
                     Scores de auditoria
                 </CardTitle>
                 <CardDescription style={{ color: 'var(--laudo-texto-fraco)' }}>
-                    Seis dimensões avaliadas separadamente — cada uma se corrige de um jeito
+                    Seis dimensões avaliadas separadamente — cada uma se corrige de um jeito. Em
+                    todas, quanto maior o número, melhor.
                 </CardDescription>
             </CardHeader>
             <CardContent>
@@ -188,7 +274,7 @@ const PainelDeScores = ({ scores }: { scores: ScoresDaAuditoria }) => {
                                 key={d.chave}
                                 eixo={d}
                                 valor={d.valor}
-                                ePior={pior?.chave === d.chave && d.valor < 80}
+                                ePior={pior?.chave === d.chave && d.valor !== null && d.valor < 80}
                             />
                         ))}
                     </div>

@@ -51,13 +51,19 @@ interface NewAuditResult {
         compliance_score: number;
     };
     score: number;
+    /* Todo eixo é opcional porque "não medido" é uma resposta possível — e
+       diferente de zero, que aqui significa "medido e péssimo". Ver o
+       normalizador e `laudo/PainelDeScores.tsx`. */
     scores?: {
-        auditScore: number;
-        trackingQualityScore: number;
-        eventArchitectureScore: number;
-        datalayerQualityScore: number;
-        consentIntegrityScore: number;
-        privacyRiskScore: number;
+        auditScore?: number;
+        trackingQualityScore?: number;
+        eventArchitectureScore?: number;
+        datalayerQualityScore?: number;
+        consentIntegrityScore?: number;
+        /** Privacidade na direção dos outros eixos: 100 = nada exposto sem base legal. */
+        privacyProtectionScore?: number;
+        /** Legado: RISCO cru, 100 = risco máximo. O painel inverte antes de exibir. */
+        privacyRiskScore?: number;
         tagDuplicationRisk?: number;
         estimatedBusinessImpact?: string;
     };
@@ -126,14 +132,43 @@ export const normalizeAuditResult = (raw: any): NewAuditResult => {
 
   // Calculate score & scores
   const score = safeRaw.score ?? safeRaw.scores?.overall ?? safeRaw.scores?.auditScore ?? null;
-  const scores = {
-    auditScore: safeRaw.scores?.auditScore ?? safeRaw.scores?.overall ?? score ?? 0,
-    trackingQualityScore: safeRaw.scores?.trackingQualityScore ?? safeRaw.scores?.tracking_quality ?? 0,
-    eventArchitectureScore: safeRaw.scores?.eventArchitectureScore ?? safeRaw.scores?.event_architecture ?? 0,
-    datalayerQualityScore: safeRaw.scores?.datalayerQualityScore ?? safeRaw.scores?.datalayer_quality ?? 0,
-    consentIntegrityScore: safeRaw.scores?.consentIntegrityScore ?? safeRaw.scores?.consent_integrity ?? 0,
-    privacyRiskScore: safeRaw.scores?.privacyRiskScore ?? safeRaw.scores?.privacy_risk ?? 0,
+
+  /* Primeiro candidato que é número de verdade; `undefined` quando nenhum é.
+     O `?? 0` que estava aqui parecia inofensivo e era o contrário: zero é um
+     valor legítimo da escala, então eixo NÃO MEDIDO chegava ao painel como
+     "0% — Nada conforme", em vermelho, e ainda ganhava o "Comece por X", que
+     aponta o menor número. Na privacidade era pior: o campo cru é RISCO, e
+     risco 0 o painel desenha como "Privacidade 100% — Adequado", em verde,
+     sobre uma varredura que não mediu nada. O painel sabe imprimir "Não
+     medido" — quem apagava a diferença era este normalizador. */
+  const lerEixo = (...candidatos: unknown[]): number | undefined => {
+    for (const bruto of candidatos) {
+      if (typeof bruto === 'number' && Number.isFinite(bruto)) return bruto;
+      if (typeof bruto === 'string' && bruto.trim() !== '' && Number.isFinite(Number(bruto))) {
+        return Number(bruto);
+      }
+    }
+    return undefined;
   };
+
+  const rawScores = safeRaw.scores;
+  const eixos = {
+    auditScore: lerEixo(rawScores?.auditScore, rawScores?.overall, score),
+    trackingQualityScore: lerEixo(rawScores?.trackingQualityScore, rawScores?.tracking_quality),
+    eventArchitectureScore: lerEixo(rawScores?.eventArchitectureScore, rawScores?.event_architecture),
+    datalayerQualityScore: lerEixo(rawScores?.datalayerQualityScore, rawScores?.datalayer_quality),
+    consentIntegrityScore: lerEixo(rawScores?.consentIntegrityScore, rawScores?.consent_integrity),
+    /* Privacidade tem duas chaves apontando para lados OPOSTOS: a nova já vem
+       na direção "maior é melhor", a legada é risco cru. As duas viajam para o
+       painel, que prefere a primeira e só inverte a segunda quando precisa —
+       inverter aqui e lá dá duas implementações que divergem. */
+    privacyProtectionScore: lerEixo(rawScores?.privacyProtectionScore, rawScores?.privacy_protection),
+    privacyRiskScore: lerEixo(rawScores?.privacyRiskScore, rawScores?.privacy_risk),
+  };
+
+  /* Nenhum eixo medido: `scores` não existe, e o Dashboard mostra o medidor
+     único em vez de um painel de seis "Não medido". */
+  const scores = Object.values(eixos).some((v) => v !== undefined) ? eixos : undefined;
 
   // Privacy info
   const privacy = {

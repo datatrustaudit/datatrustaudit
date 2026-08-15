@@ -18,6 +18,7 @@ import { Clock, ExternalLink, GitCompare, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import ComparadorDeVarreduras from '@/components/laudo/ComparadorDeVarreduras';
 import { comoInstanteUtc } from '@/lib/datas';
+import { buscarJson } from '@/lib/api';
 
 interface ItemDoHistorico {
     id: number;
@@ -49,12 +50,18 @@ const Historico = () => {
             setCarregando(true);
             setErro(null);
             try {
-                const r = await fetch('/history', {
+                /* `/history` mora FORA do prefixo `/api` — é uma das poucas
+                   rotas herdadas assim. Isso a deixa de fora das listas de
+                   exceção do proxy do Vite e do `rewrites` da Vercel, e
+                   qualquer lacuna ali faz o catch-all do SPA responder o
+                   index.html com status 200. Foi assim que esta tela exibiu
+                   "Unexpected token '<'" ao usuário: para o `fetch`, tinha
+                   dado certo. `buscarJson` reconhece esse caso e diz o que
+                   houve. */
+                const dados = await buscarJson<{ history?: ItemDoHistorico[] }>('/history', {
                     headers: token ? { Authorization: `Bearer ${token}` } : {},
                 });
-                if (!r.ok) throw new Error(`O servidor respondeu ${r.status}.`);
-                const dados = await r.json();
-                if (!cancelado) setItens(dados.history || []);
+                if (!cancelado) setItens(dados?.history || []);
             } catch (e) {
                 if (!cancelado) setErro((e as Error).message);
             } finally {
