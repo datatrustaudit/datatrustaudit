@@ -97,6 +97,23 @@ GA4_EVENT_SCHEMAS: Dict[str, Dict[str, List[str]]] = {
     },
 }
 
+# ─────────────────────────────────────────────
+# Parâmetros do protocolo de coleta do GA4
+# ─────────────────────────────────────────────
+# Na requisição de coleta os parâmetros padrão NÃO viajam como `ep.*`: têm
+# chave curta própria. Validar só o que veio em `ep.*` fazia o laudo cobrar
+# `page_location` e `page_title` de um hit que carregava os dois — alarme falso
+# sobre implementação correta, e o cliente perde a confiança no resto.
+# Referência: parâmetros do Measurement Protocol do GA4 (gtag/collect).
+_PARAMS_RESERVADOS_GA4: Dict[str, str] = {
+    "dl": "page_location",
+    "dt": "page_title",
+    "dr": "page_referrer",
+    "cu": "currency",
+    "sr": "screen_resolution",
+    "ul": "language",
+}
+
 ECOMMERCE_EVENTS = {
     "purchase", "begin_checkout", "add_to_cart", "remove_from_cart",
     "view_item", "view_item_list", "select_item", "add_payment_info",
@@ -304,7 +321,21 @@ def audit_events(html: str, scan=None) -> EventAuditResult:
                     if k.startswith("ep.") or k.startswith("epn."):
                         clean_key = k.split(".", 1)[1]
                         ep_params.append(EventParameter(name=clean_key, value=v, actual_type="string"))
+                    elif k in _PARAMS_RESERVADOS_GA4 and v:
+                        # Mesmo parâmetro, nome do protocolo. O valor é o
+                        # observado na requisição — não há derivação aqui.
+                        ep_params.append(EventParameter(
+                            name=_PARAMS_RESERVADOS_GA4[k],
+                            value=str(v)[:120],
+                            actual_type="string",
+                        ))
                 validity, missing_req, missing_rec = _validate_event(event_name, ep_params)
+                # `page_path` não existe no protocolo de coleta: o GA4 o deriva
+                # do caminho de `dl`. Cobrá-lo de um hit que trouxe
+                # `page_location` é apontar ausência de algo que nunca é
+                # enviado por ninguém.
+                if any(p.name == "page_location" for p in ep_params):
+                    missing_rec = [p for p in missing_rec if p != "page_path"]
                 _add_event(EventFinding(
                     name=event_name,
                     source="GA4 network hit",

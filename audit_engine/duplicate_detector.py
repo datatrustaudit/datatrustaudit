@@ -9,7 +9,7 @@ Identifies:
 """
 import re
 from collections import Counter
-from typing import List
+from typing import Dict, List
 from .models import DuplicateFinding, TagFinding, EventFinding, CONFIDENCE_HIGH, CONFIDENCE_MEDIUM
 
 _GA4_CONFIG_RE  = re.compile(r"gtag\s*\(\s*['\"]config['\"]\s*,\s*['\"]G-[A-Z0-9]+['\"]", re.IGNORECASE)
@@ -17,6 +17,45 @@ _GA4_SCRIPT_RE  = re.compile(r"googletagmanager\.com/gtag/js\?id=G-([A-Z0-9]+)",
 _GTM_SNIPPET_RE = re.compile(r"googletagmanager\.com/gtm\.js", re.IGNORECASE)
 _META_INIT_RE   = re.compile(r"fbq\s*\(\s*['\"]init['\"]", re.IGNORECASE)
 _HOTJAR_RE      = re.compile(r"static\.hotjar\.com", re.IGNORECASE)
+# `tid` é a propriedade GA4 de destino na requisição de coleta. É o que separa
+# "o mesmo evento disparou duas vezes" de "o evento foi enviado a duas
+# propriedades" — dois achados diferentes, com correções opostas.
+_TID_RE         = re.compile(r"[?&]tid=([^&\s]+)", re.IGNORECASE)
+
+
+def _destinos_ga4(ocorrencias: List[EventFinding]) -> List[str]:
+    """Propriedades GA4 que receberam o evento, lidas da URL observada.
+
+    Só olha o que a varredura capturou: o `tid` da requisição interceptada.
+    Evento sem URL (dataLayer, HTML) não tem destino conhecido e devolve lista
+    vazia — o que mantém o caminho normal de duplicata.
+    """
+    destinos: List[str] = []
+    for ev in ocorrencias:
+        alvo = _TID_RE.search(str(getattr(ev, "source_snippet", "") or ""))
+        if alvo and alvo.group(1) not in destinos:
+            destinos.append(alvo.group(1))
+    return destinos
+
+
+def _procedencia(ocorrencias: List[EventFinding]) -> str:
+    """De onde veio a prova da repetição.
+
+    O texto era fixo — "Detected in static HTML source only" — e ia junto com
+    todo achado de evento duplicado, inclusive os observados na rede. Num laudo,
+    afirmar o método de coleta errado derruba o achado inteiro: quem confere o
+    HTML não acha nada e conclui que a varredura inventou.
+    """
+    metodos = {str(getattr(ev, "detection_method", "") or "") for ev in ocorrencias}
+    if metodos == {"network_request"}:
+        return ("Observado em requisição de rede durante a visita — cada disparo "
+                "corresponde a uma chamada capturada.")
+    if "network_request" in metodos:
+        return ("Observado em parte por requisição de rede, em parte no conteúdo "
+                "servido da página.")
+    return ("Detectado no conteúdo servido da página. Disparo duplicado gerado no "
+            "servidor ou por aplicação de página única não é observável por esta "
+            "varredura.")
 
 
 def detect_duplicates(
@@ -123,29 +162,63 @@ def detect_duplicates(
         "gtm.dom", "gtm.load", "gtm.js", "gtm.init", "gtm.init_consent",
     }
 
-    event_counts = Counter(ev.name for ev in events)
-    for event_name, count in event_counts.items():
-        if event_name in EVENTOS_REPETIDOS_POR_DESIGN:
+    por_nome: Dict[str, List[EventFinding]] = {}
+    for ev in events:
+        por_nome.setdefault(ev.name, []).append(ev)
+
+    for event_name, ocorrencias in por_nome.items():
+        count = len(ocorrencias)
+        if event_name in EVENTOS_REPETIDOS_POR_DESIGN or count <= 1:
             continue
-        if count > 1:
-            severity = "critical" if event_name in ("purchase", "begin_checkout") else "warning"
+
+        destinos = _destinos_ga4(ocorrencias)
+        procedencia = _procedencia(ocorrencias)
+
+        # Um disparo por propriedade GA4 não é disparo duplicado: é o mesmo
+        # evento enviado a dois destinos — tagueamento duplo, comum em site que
+        # mantém a propriedade antiga no ar. Foi o que aconteceu com o
+        # `page_view` da terra.com.br: dois hits, `G-7Y8JPEF9M3` e
+        # `G-FJBH1GT2QG`, e o laudo mandava procurar um `dataLayer.push()`
+        # repetido que não existe. Alarme falso faz o cliente duvidar dos
+        # achados verdadeiros — o fato continua no laudo, com o nome certo e a
+        # pergunta que de fato importa para a LGPD: por que dois destinos
+        # recebem o dado do mesmo titular.
+        if len(destinos) > 1 and len(destinos) == count:
             findings.append(DuplicateFinding(
                 entity_type="event",
                 name=event_name,
                 occurrence_count=count,
-                severity=severity,
+                severity="low",
                 recommendation=(
-                    f"Event '{event_name}' fires {count} times in source. "
-                    + (
-                        "For purchase/checkout events, duplicate fires cause inflated conversion reporting "
-                        "and potential billing errors — this is a critical data quality issue."
-                        if event_name in ("purchase", "begin_checkout") else
-                        "Check for duplicate dataLayer.push() or gtag() calls triggering the same event."
-                    )
+                    f"'{event_name}' foi enviado {count} vezes, uma para cada propriedade GA4 "
+                    f"({', '.join(destinos)}). Não é disparo duplicado — cada propriedade recebeu "
+                    "um evento. Confirme se todas ainda são necessárias: cada uma recebe os dados "
+                    "do mesmo titular e precisa constar do registro de tratamento."
                 ),
                 confidence=CONFIDENCE_HIGH,
-                note="Detected in static HTML source only. Server-side or SPA-triggered duplicates are not observable.",
+                note=procedencia,
             ))
+            continue
+
+        severity = "critical" if event_name in ("purchase", "begin_checkout") else "warning"
+        findings.append(DuplicateFinding(
+            entity_type="event",
+            name=event_name,
+            occurrence_count=count,
+            severity=severity,
+            recommendation=(
+                f"'{event_name}' disparou {count} vezes nesta varredura. "
+                + (
+                    "Em evento de compra ou de início de checkout, disparo repetido infla a "
+                    "conversão e distorce o faturamento apurado — é problema crítico de "
+                    "qualidade de dado."
+                    if event_name in ("purchase", "begin_checkout") else
+                    "Verifique se há mais de um dataLayer.push() ou gtag() disparando o mesmo evento."
+                )
+            ),
+            confidence=CONFIDENCE_HIGH,
+            note=procedencia,
+        ))
 
     # ── 8. Hardcoded + GTM overlap inference ─────────────────────────────────
     # If both a hardcoded GA4 script AND GTM are present, likely loading GA4 twice

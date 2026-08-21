@@ -19,6 +19,8 @@ import {
     Lock,
     Activity,
     Box,
+    Cookie,
+    Wrench,
 } from 'lucide-react';
 import ScriptTimeline from './ScriptTimeline';
 import LGPDReport from './LGPDReport';
@@ -33,6 +35,11 @@ import DataQualityNotes from './DataQualityNotes';
 import VisaoExecutiva from './laudo/VisaoExecutiva';
 import VisaoJuridica from './laudo/VisaoJuridica';
 import Veredito from './laudo/Veredito';
+import InventarioDeColeta from './laudo/InventarioDeColeta';
+import InventarioDeArmazenamento from './laudo/InventarioDeArmazenamento';
+import InventarioDeEventos from './laudo/InventarioDeEventos';
+import InventarioDeImplementacao from './laudo/InventarioDeImplementacao';
+import PlanoDeCorrecao from './laudo/PlanoDeCorrecao';
 import { useI18n } from '@/context/I18nContext';
 import { usePlan } from '@/context/PlanContext';
 import { useAuth } from '@/context/AuthContext';
@@ -51,6 +58,15 @@ interface Tag {
     lgpdRisk: string;
     context: string;
     isBeforeConsent: boolean;
+    /** Empresa por trás da tag — é por ela que o inventário agrupa. */
+    vendor?: string;
+    /** `network_request` prova ENVIO; `source` prova só presença no código. */
+    detectionMethod?: string;
+    occurrenceCount?: number;
+    confidence?: string;
+    privacyRisk?: string;
+    /** `null` = não verificado, diferente de `false`. */
+    isHardcoded?: boolean | null;
 }
 
 interface NewAuditResult {
@@ -573,6 +589,20 @@ ${violationsText}
                         {!isFeatureAvailable('showLineNumbers') && <Lock className="w-3 h-3 opacity-50" />}
                     </TabsTrigger>
 
+                    {/* As duas perguntas que o cliente realmente faz: "quem
+                        está pegando o quê?" e "o que eu faço agora?". Os dados
+                        das duas já vinham na resposta e não tinham onde
+                        aparecer. */}
+                    <TabsTrigger value="coleta" className="flex items-center gap-1.5 text-xs">
+                        <Cookie className="w-3.5 h-3.5" />
+                        Coleta
+                    </TabsTrigger>
+
+                    <TabsTrigger value="correcao" className="flex items-center gap-1.5 text-xs">
+                        <Wrench className="w-3.5 h-3.5" />
+                        Correção
+                    </TabsTrigger>
+
                     <TabsTrigger value="lgpd" className="flex items-center gap-1.5 text-xs">
                         <Shield className="w-3.5 h-3.5" />
                         Privacidade
@@ -709,13 +739,27 @@ ${violationsText}
                 </TabsContent>
 
                 {/* Events */}
-                <TabsContent value="events" className="mt-6">
+                <TabsContent value="events" className="mt-6 space-y-6">
+                    {/* O painel antigo dá o panorama; o inventário abre cada
+                        evento com seus parâmetros — tipo esperado contra tipo
+                        recebido, e o que falta. É onde mora o "poderia estar
+                        melhor" que o motor já calcula e a tela calava. */}
                     <EventAuditPanel data={result.events || null} />
+                    <InventarioDeEventos
+                        eventos={(result.events as any)?.events ?? []}
+                        duplicatas={result.duplicates ?? []}
+                        resumo={result.summary as any}
+                    />
                 </TabsContent>
 
                 {/* GTM Quality */}
-                <TabsContent value="gtm-quality" className="mt-6">
+                <TabsContent value="gtm-quality" className="mt-6 space-y-6">
                     <GTMQualityPanel data={result.gtmQuality || null} />
+                    <InventarioDeImplementacao
+                        gtm={result.gtmQuality ?? null}
+                        consentimento={(result as any).consent ?? null}
+                        storage={(result as any).storage ?? null}
+                    />
                 </TabsContent>
 
                 {/* AI Deep Analysis — Premium only */}
@@ -731,6 +775,36 @@ ${violationsText}
                             consent={result.consentAudit}
                         />
                     </FeatureGate>
+                </TabsContent>
+
+                <TabsContent value="coleta" className="mt-6 space-y-6">
+                    <InventarioDeColeta
+                        tags={result.tags ?? []}
+                        resumo={result.summary as any}
+                        mostraDetalhe={mostraDetalhe}
+                        avisoDePlano={(result as any).planLimitNotice ?? null}
+                        notasDeQualidade={result.dataQualityNotes ?? []}
+                        metodoDaVarredura={(result as any).scanMethod ?? null}
+                    />
+                    <InventarioDeArmazenamento
+                        url={result.url}
+                        storage={(result as any).storage ?? null}
+                        metodoDaVarredura={(result as any).scanMethod ?? null}
+                        mostraDetalhe={mostraDetalhe}
+                    />
+                </TabsContent>
+
+                <TabsContent value="correcao" className="mt-6">
+                    <PlanoDeCorrecao
+                        recomendacoes={result.recommendations ?? null}
+                        achadosDeGtm={(result.gtmQuality as any)?.findings ?? null}
+                        achadosDeConsentimento={(result as any).consent?.findings ?? null}
+                        achadosDeDataLayer={(result as any).datalayerFindings ?? null}
+                        problemasDeOrdem={(result as any).storage?.orderIssues ?? null}
+                        achadosDaRecusa={(result as any).storage?.rejectionFindings ?? null}
+                        guiasBloqueados={(result as any).storage?.guidesLocked ?? false}
+                        detalheCortadoPeloPlano={!mostraDetalhe}
+                    />
                 </TabsContent>
 
                 {/* Timeline — Premium only */}

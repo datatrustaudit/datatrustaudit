@@ -25,6 +25,15 @@ interface Tag {
     lgpdRisk: string;
     context: string;
     isBeforeConsent: boolean;
+    /** Empresa por trás da tag — o agrupamento que o cliente lê. */
+    vendor?: string;
+    /** `network_request` prova ENVIO; `source` prova apenas presença no código. */
+    detectionMethod?: string;
+    occurrenceCount?: number;
+    confidence?: string;
+    privacyRisk?: string;
+    /** `null` = não verificado, diferente de `false`. */
+    isHardcoded?: boolean | null;
 }
 
 interface NewAuditResult {
@@ -121,6 +130,26 @@ export const normalizeAuditResult = (raw: any): NewAuditResult => {
     lgpdRisk: t.lgpdRisk || t.privacy_risk || t.lgpd_risk || 'medium',
     context: t.context || t.source_block || '',
     isBeforeConsent: t.isBeforeConsent || t.is_before_consent || false,
+
+    /* Campos que este `map` descartava, e que sustentam a seção "o que estão
+       coletando".
+
+       `detectionMethod` é o mais importante dos seis: ele distingue
+       `network_request` — a tag REALMENTE enviou dados durante a visita — de
+       `source`, que prova apenas que o código está na página. Não é a mesma
+       acusação, e sem o campo a tela não conseguia dizer qual das duas tem.
+
+       `vendor` some junto: sem ele o agrupamento por empresa cai inteiro num
+       balde "fornecedor não informado", e o cliente perde a única leitura que
+       ele realmente quer — quem está levando os dados dele. */
+    vendor: t.vendor || '',
+    detectionMethod: t.detectionMethod || t.detection_method || '',
+    occurrenceCount: t.occurrenceCount ?? t.occurrence_count ?? 1,
+    confidence: t.confidence || '',
+    privacyRisk: t.privacyRisk || t.privacy_risk || '',
+    /* `null` e `false` são respostas diferentes: uma é "não verificado", a
+       outra é "verificado e não está fixo no HTML". */
+    isHardcoded: t.isHardcoded ?? t.is_hardcoded ?? null,
   }));
 
   // Calculate typeCounts
@@ -217,29 +246,39 @@ export const normalizeAuditResult = (raw: any): NewAuditResult => {
     duplicatesDetected: safeRaw.summary?.duplicatesDetected ?? (safeRaw.duplicates || []).length,
   };
 
-  // Safe Events mapping
+  /* Eventos.
+     Cada `||` aqui era um campo inventado quando a resposta não trazia o dado:
+     origem "dataLayer" para evento sem origem declarada, validade
+     "no_parameters" (que a tela lê como "disparo sem nenhum parâmetro") para
+     evento não classificado, confiança "média" que ninguém atribuiu, e —
+     o pior — `isValid: true` em parâmetro que o motor jamais avaliou, exibido
+     na coluna Situação como aprovação. Campo ausente é dito pela tela, não
+     preenchido aqui. */
   const events = {
     events: (rawEvents.events || []).map((e: any) => ({
       name: e.name || '',
-      source: e.source || 'dataLayer',
-      validity: e.validity || 'no_parameters',
-      confidence: e.confidence || 'medium',
+      source: e.source || '',
+      validity: e.validity || '',
+      confidence: e.confidence || '',
       detectionMethod: e.detectionMethod || e.detection_method || '',
       parametersFound: (e.parametersFound || e.parameters_found || []).map((p: any) => ({
         name: p.name || '',
         value: p.value !== undefined ? p.value : null,
         expectedType: p.expectedType || p.expected_type || null,
         actualType: p.actualType || p.actual_type || null,
-        isValid: p.isValid !== undefined ? p.isValid : true,
+        // Só `true` e `false` viajam; qualquer outra coisa é "não avaliado".
+        isValid: typeof (p.isValid ?? p.is_valid) === 'boolean' ? (p.isValid ?? p.is_valid) : undefined,
         issue: p.issue || null,
       })),
-      parameterCount: e.parameterCount || e.parameter_count || 0,
+      // `??` e não `||`: zero parâmetro é medição, e vira "0"; campo ausente
+      // fica `undefined` para a tela dizer que não veio.
+      parameterCount: e.parameterCount ?? e.parameter_count ?? undefined,
       missingRequiredParams: e.missingRequiredParams || e.missing_required_params || [],
       missingRecommendedParams: e.missingRecommendedParams || e.missing_recommended_params || [],
-      occurrenceCount: e.occurrenceCount || e.occurrence_count || 1,
-      lineNumber: e.lineNumber || e.line_number || null,
+      occurrenceCount: e.occurrenceCount ?? e.occurrence_count ?? undefined,
+      lineNumber: e.lineNumber ?? e.line_number ?? null,
       sourceSnippet: e.sourceSnippet || e.source_snippet || null,
-      isDuplicate: e.isDuplicate || e.is_duplicate || false,
+      isDuplicate: e.isDuplicate ?? e.is_duplicate ?? false,
     })),
     /* Os agregados vêm de `summary`, como os de violação — a chave `events` da
        resposta é a lista pura, então ler os contadores dela devolvia zero em
@@ -247,10 +286,21 @@ export const normalizeAuditResult = (raw: any): NewAuditResult => {
        problemas": os dois primeiros não podem coexistir, e o último afirmava
        conformidade sem medição. O `??` (e não `||`) importa: zero é uma
        resposta legítima e não pode cair para o fallback. */
-    totalEvents: rawEvents.totalEvents ?? rawEvents.total_events ?? safeRaw.summary?.eventsDetected ?? 0,
-    uniqueEventNames: safeRaw.summary?.uniqueEventNames ?? rawEvents.uniqueEventNames ?? rawEvents.unique_event_names ?? 0,
-    duplicatedEventNames: safeRaw.summary?.duplicatedEventNames ?? rawEvents.duplicatedEventNames ?? rawEvents.duplicated_event_names ?? 0,
-    eventsWithIssues: safeRaw.summary?.eventsWithIssues ?? rawEvents.eventsWithIssues ?? rawEvents.events_with_issues ?? 0,
+    /* `summary` primeiro, e não o tamanho da lista: no plano free a resposta
+       traz `events: []` com o contador cheio, e ler a lista fazia a aba Eventos
+       anunciar "nenhum evento detectado" ao lado do cartão de resumo dizendo
+       13 — na mesma tela. Lista cortada não é ausência de evento.
+
+       Sem `?? 0` no fim: contador que não veio é "não informado", não zero.
+       Zerar aqui é o mesmo defeito que derrubava o eixo não medido para
+       "0% — nada conforme" no painel de scores. */
+    totalEvents: safeRaw.summary?.totalEvents
+      ?? safeRaw.summary?.eventsDetected
+      ?? rawEvents.totalEvents
+      ?? rawEvents.total_events,
+    uniqueEventNames: safeRaw.summary?.uniqueEventNames ?? rawEvents.uniqueEventNames ?? rawEvents.unique_event_names,
+    duplicatedEventNames: safeRaw.summary?.duplicatedEventNames ?? rawEvents.duplicatedEventNames ?? rawEvents.duplicated_event_names,
+    eventsWithIssues: safeRaw.summary?.eventsWithIssues ?? rawEvents.eventsWithIssues ?? rawEvents.events_with_issues,
     ecommerceEventsDetected: safeRaw.summary?.ecommerceEventsDetected ?? rawEvents.ecommerceEventsDetected ?? rawEvents.ecommerce_events_detected ?? [],
   };
 

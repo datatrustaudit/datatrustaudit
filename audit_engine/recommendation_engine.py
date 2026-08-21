@@ -70,7 +70,18 @@ def generate_recommendations(
                 confidence=CONFIDENCE_HIGH,
             ))
 
-        if consent.cmp_detected and not consent.has_default_denied:
+        # A condição era `cmp_detected`, e o título afirma "Consent Mode
+        # detected". CMP detectada não prova Consent Mode nenhum: em
+        # terra.com.br a resposta trazia consentModeV2=False e
+        # consentModeVersion=None, e o laudo listava, na mesma página, "CMv2
+        # not configured" e "Google Consent Mode is configured but the default
+        # state allows data collection". Duas afirmações opostas sobre o mesmo
+        # fato derrubam o laudo inteiro diante de quem confere.
+        #
+        # A ausência total de Consent Mode já é apontada pelo achado
+        # `consent_mode_missing` do consent_auditor e pela recomendação de GA4
+        # acima; aqui trata-se só do caso em que ele existe e o padrão libera.
+        if consent.consent_mode_version and not consent.has_default_denied:
             recs.append(Recommendation(
                 severity="high",
                 category="consent_mode",

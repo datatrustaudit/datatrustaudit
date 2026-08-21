@@ -16,12 +16,15 @@ import {
 } from 'lucide-react';
 import ConfidenceBadge from './ConfidenceBadge';
 
+/* Campos opcionais de propósito: a resposta é cortada por plano e o painel
+   precisa dizer "não veio" em vez de exibir o valor mais otimista. */
 interface EventParameter {
     name: string;
     value: string | null;
     expectedType: string | null;
     actualType: string | null;
-    isValid: boolean;
+    /** `undefined` quando o motor não avaliou — diferente de aprovado. */
+    isValid?: boolean;
     issue: string | null;
 }
 
@@ -32,10 +35,10 @@ interface EventFinding {
     confidence: string;
     detectionMethod: string;
     parametersFound: EventParameter[];
-    parameterCount: number;
+    parameterCount?: number;
     missingRequiredParams: string[];
     missingRecommendedParams: string[];
-    occurrenceCount: number;
+    occurrenceCount?: number;
     lineNumber: number | null;
     sourceSnippet: string | null;
     isDuplicate: boolean;
@@ -43,11 +46,11 @@ interface EventFinding {
 
 interface EventAuditData {
     events: EventFinding[];
-    totalEvents: number;
-    uniqueEventNames: number;
-    duplicatedEventNames: number;
-    eventsWithIssues: number;
-    ecommerceEventsDetected: string[];
+    totalEvents?: number;
+    uniqueEventNames?: number;
+    duplicatedEventNames?: number;
+    eventsWithIssues?: number;
+    ecommerceEventsDetected?: string[];
 }
 
 interface EventAuditPanelProps {
@@ -55,20 +58,43 @@ interface EventAuditPanelProps {
 }
 
 const VALIDITY_CONFIG: Record<string, { icon: React.ElementType; label: string; color: string }> = {
-    valid: { icon: CheckCircle, label: 'Válido', color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
+    /* "Válido" prometia mais do que a varredura mediu: `_validate_event`
+       devolve `valid` também quando o evento não está no catálogo GA4 e não
+       havia obrigatório a exigir — o caso de `gtm.scrollDepth` e de todo
+       `page_view` de rede. "Sem apontamento" descreve os dois casos sem
+       carimbar conformidade que ninguém apurou. */
+    valid: { icon: CheckCircle, label: 'Sem apontamento', color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
     partial: { icon: AlertTriangle, label: 'Parcial', color: 'text-amber-600 bg-amber-50 border-amber-200' },
     malformed: { icon: XCircle, label: 'Malformado', color: 'text-red-600 bg-red-50 border-red-200' },
     no_parameters: { icon: Info, label: 'Sem parâmetros', color: 'text-gray-500 bg-gray-50 border-gray-200' },
 };
 
+/** Contador que o motor mediu, ou `null` quando o campo não veio. */
+const medido = (bruto: unknown): number | null =>
+    typeof bruto === 'number' && Number.isFinite(bruto) ? bruto : null;
+
+/** Agregado ausente não vira zero: zero é medição, ausência é ausência. */
+const exibeContador = (valor: number | null) => (valor === null ? 'não informado' : valor);
+
 const EventAuditPanel = ({ data }: EventAuditPanelProps) => {
-    if (!data || data.totalEvents === 0) {
+    const total = medido(data?.totalEvents);
+    const listaVazia = !data?.events?.length;
+
+    /* "Nenhum evento detectado" só quando a varredura mediu zero. No plano free
+       a resposta traz a lista vazia com o contador cheio, e esta tela anunciava
+       ausência de evento ao lado do cartão de resumo dizendo 13 — na mesma
+       página. Lista cortada por plano não é ausência de evento. */
+    if (!data || (listaVazia && (total === null || total === 0))) {
         return (
             <Card className="shadow-lg border-0">
                 <CardContent className="pt-6">
                     <div className="text-center py-12 text-gray-500">
                         <Activity className="w-12 h-12 mx-auto mb-4 opacity-30" />
-                        <p className="text-lg font-medium">Nenhum evento GA4 detectado</p>
+                        <p className="text-lg font-medium">
+                            {total === 0
+                                ? 'Nenhum evento GA4 detectado'
+                                : 'Esta resposta não trouxe medição de eventos'}
+                        </p>
                         <p className="text-sm mt-2 max-w-md mx-auto">
                             Eventos disparados via SPA, backend ou GTM server-side não são observáveis
                             através da análise do código-fonte HTML.
@@ -79,6 +105,10 @@ const EventAuditPanel = ({ data }: EventAuditPanelProps) => {
         );
     }
 
+    const unicos = medido(data.uniqueEventNames);
+    const duplicados = medido(data.duplicatedEventNames);
+    const comProblema = medido(data.eventsWithIssues);
+
     return (
         <div className="space-y-6">
             {/* Summary stats */}
@@ -86,31 +116,34 @@ const EventAuditPanel = ({ data }: EventAuditPanelProps) => {
                 <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white">
                     <CardContent className="pt-5 pb-4">
                         <p className="text-blue-100 text-xs uppercase tracking-wide">Total Eventos</p>
-                        <p className="text-3xl font-bold mt-1">{data.totalEvents}</p>
+                        <p className="text-3xl font-bold mt-1">{exibeContador(total)}</p>
                     </CardContent>
                 </Card>
                 <Card className="bg-gradient-to-br from-teal-500 to-teal-600 text-white">
                     <CardContent className="pt-5 pb-4">
                         <p className="text-teal-100 text-xs uppercase tracking-wide">Únicos</p>
-                        <p className="text-3xl font-bold mt-1">{data.uniqueEventNames}</p>
+                        <p className="text-3xl font-bold mt-1">{exibeContador(unicos)}</p>
                     </CardContent>
                 </Card>
-                <Card className={`bg-gradient-to-br ${data.duplicatedEventNames > 0 ? 'from-amber-500 to-amber-600' : 'from-gray-400 to-gray-500'} text-white`}>
+                <Card className={`bg-gradient-to-br ${duplicados ? 'from-amber-500 to-amber-600' : 'from-gray-400 to-gray-500'} text-white`}>
                     <CardContent className="pt-5 pb-4">
                         <p className="text-white/80 text-xs uppercase tracking-wide">Duplicados</p>
-                        <p className="text-3xl font-bold mt-1">{data.duplicatedEventNames}</p>
+                        <p className="text-3xl font-bold mt-1">{exibeContador(duplicados)}</p>
                     </CardContent>
                 </Card>
-                <Card className={`bg-gradient-to-br ${data.eventsWithIssues > 0 ? 'from-red-500 to-red-600' : 'from-emerald-500 to-emerald-600'} text-white`}>
+                {/* Verde só quando a varredura mediu zero problema. Sem medição
+                    o cartão fica neutro: escudo verde sobre dado ausente já fez
+                    este laudo declarar conformidade que ninguém apurou. */}
+                <Card className={`bg-gradient-to-br ${comProblema === null ? 'from-gray-400 to-gray-500' : comProblema > 0 ? 'from-red-500 to-red-600' : 'from-emerald-500 to-emerald-600'} text-white`}>
                     <CardContent className="pt-5 pb-4">
                         <p className="text-white/80 text-xs uppercase tracking-wide">Com Problemas</p>
-                        <p className="text-3xl font-bold mt-1">{data.eventsWithIssues}</p>
+                        <p className="text-3xl font-bold mt-1">{exibeContador(comProblema)}</p>
                     </CardContent>
                 </Card>
             </div>
 
             {/* E-commerce events highlight */}
-            {data.ecommerceEventsDetected.length > 0 && (
+            {(data.ecommerceEventsDetected?.length ?? 0) > 0 && (
                 <Card className="border-l-4 border-l-teal-500 shadow-md">
                     <CardContent className="pt-5 pb-4">
                         <div className="flex items-center gap-2 mb-3">
@@ -118,7 +151,7 @@ const EventAuditPanel = ({ data }: EventAuditPanelProps) => {
                             <span className="font-semibold text-teal-700">Eventos E-commerce Detectados</span>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                            {data.ecommerceEventsDetected.map((name) => (
+                            {(data.ecommerceEventsDetected ?? []).map((name) => (
                                 <Badge key={name} className="bg-teal-100 text-teal-800 border-teal-200">
                                     {name}
                                 </Badge>
@@ -136,12 +169,24 @@ const EventAuditPanel = ({ data }: EventAuditPanelProps) => {
                         Eventos Detectados
                     </CardTitle>
                     <CardDescription>
-                        Eventos GA4 encontrados no código-fonte (dataLayer.push / gtag)
+                        {/* A descrição dizia "encontrados no código-fonte" para todos, inclusive
+                            os que só existem na rede — método de coleta errado no laudo derruba
+                            o achado. Cada linha traz o método real que a varredura usou. */}
+                        Eventos observados na varredura: dataLayer da página, chamadas gtag no
+                        código servido e requisições de coleta interceptadas
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
+                    {/* Chegar aqui com a lista vazia é o corte por plano agindo:
+                        o contador veio, o detalhe não. Dizer isso é melhor do
+                        que uma área em branco sob o título. */}
+                    {listaVazia && (
+                        <p className="text-sm text-gray-500">
+                            Esta resposta trouxe os contadores, mas não a lista detalhada dos eventos.
+                        </p>
+                    )}
                     <div className="space-y-3">
-                        {data.events.map((event, i) => {
+                        {(data.events || []).map((event, i) => {
                             const validity = VALIDITY_CONFIG[event.validity] || VALIDITY_CONFIG.no_parameters;
                             const ValidityIcon = validity.icon;
 
@@ -156,11 +201,21 @@ const EventAuditPanel = ({ data }: EventAuditPanelProps) => {
                                                         <code className="font-mono text-sm font-semibold truncate">
                                                             {event.name}
                                                         </code>
-                                                        {event.isDuplicate && (
-                                                            <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-600 border-amber-200">
-                                                                DUP ×{event.occurrenceCount}
+                                                        {/* Repetir não é duplicar. `isDuplicate` marca
+                                                            todo nome com mais de um disparo, inclusive
+                                                            `gtm.scrollDepth` (25/50/75/100%) e
+                                                            `gtm.dom` (um por container) — que repetem
+                                                            por design. O selo âmbar "DUP" acusava os
+                                                            dois, contradizendo a lista `duplicates`,
+                                                            que já exclui esses casos. O selo passa a
+                                                            dizer o fato medido: quantas vezes disparou.
+                                                            O veredito de duplicidade sai da lista de
+                                                            achados, não daqui. */}
+                                                        {event.isDuplicate && event.occurrenceCount ? (
+                                                            <Badge variant="outline" className="text-[10px] bg-gray-50 text-gray-600 border-gray-200">
+                                                                ×{event.occurrenceCount} disparos
                                                             </Badge>
-                                                        )}
+                                                        ) : null}
                                                     </div>
                                                     <p className="text-xs text-gray-500 mt-0.5">
                                                         via {event.source}
@@ -170,16 +225,21 @@ const EventAuditPanel = ({ data }: EventAuditPanelProps) => {
                                             </div>
                                             <div className="flex items-center gap-2 flex-shrink-0">
                                                 <Badge variant="outline" className="text-[11px]">
-                                                    {event.parameterCount} params
+                                                    {event.parameterCount ?? '—'} params
                                                 </Badge>
                                                 <Badge variant="outline" className={`text-[11px] gap-1 ${validity.color}`}>
                                                     <ValidityIcon className="w-3 h-3" />
                                                     {validity.label}
                                                 </Badge>
-                                                <ConfidenceBadge
-                                                    level={event.confidence as 'high' | 'medium' | 'low'}
-                                                    detectionMethod={event.detectionMethod}
-                                                />
+                                                {/* Sem confiança declarada o selo não aparece: o
+                                                    padrão do componente é "Baixa", e afirmar
+                                                    confiança baixa é uma medição que ninguém fez. */}
+                                                {event.confidence && (
+                                                    <ConfidenceBadge
+                                                        level={event.confidence as 'high' | 'medium' | 'low'}
+                                                        detectionMethod={event.detectionMethod}
+                                                    />
+                                                )}
                                             </div>
                                         </div>
                                     </CollapsibleTrigger>
@@ -223,10 +283,16 @@ const EventAuditPanel = ({ data }: EventAuditPanelProps) => {
                                                     <div className="grid grid-cols-2 md:grid-cols-3 gap-1">
                                                         {event.parametersFound.map((p) => (
                                                             <div key={p.name} className="flex items-center gap-1 text-[11px]">
-                                                                {p.isValid ? (
+                                                                {/* Três estados. O ícone verde só sai
+                                                                    quando o motor comparou com um tipo
+                                                                    esperado; sem catálogo não há
+                                                                    aprovação a dar. */}
+                                                                {p.isValid === false || p.issue ? (
+                                                                    <XCircle className="w-3 h-3 text-red-500 flex-shrink-0" />
+                                                                ) : p.isValid === true && p.expectedType ? (
                                                                     <CheckCircle className="w-3 h-3 text-emerald-500 flex-shrink-0" />
                                                                 ) : (
-                                                                    <XCircle className="w-3 h-3 text-red-500 flex-shrink-0" />
+                                                                    <Info className="w-3 h-3 text-gray-400 flex-shrink-0" />
                                                                 )}
                                                                 <code className="font-mono truncate">{p.name}</code>
                                                                 {p.issue && (
