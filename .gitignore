@@ -92,3 +92,6 @@ desktop.ini
 
 .vercel
 .env*
+
+# Videos de demonstracao: gerados por scripts/gravar_demonstracao.py
+demonstracao/

@@ -11,8 +11,9 @@ import amostra from '@/dev/laudo-de-exemplo.json';
  * typecheck e build — que provam que compila, não que a tela está certa. Esta
  * rota abre o laudo completo em um segundo, quantas vezes for preciso.
  *
- * **A amostra é um laudo real**, capturado de `auditar_pagina('terra.com.br',
- * 'premium')` e congelado em `src/dev/laudo-de-exemplo.json`. Isso é
+ * **A amostra é um laudo real**, capturado por
+ * `scripts/gerar_amostra_do_laudo.py` e congelado em
+ * `src/dev/laudo-de-exemplo.json`. Isso é
  * deliberado: dado inventado é o defeito mais caro que este produto já teve, e
  * uma amostra fabricada aqui acabaria virando referência de "como o laudo
  * deve parecer" sobre números que nunca existiram. Ela foi podada dos campos
@@ -38,7 +39,10 @@ const ConferenciaDoLaudo = () => (
             >
                 <p className="text-sm font-semibold">Amostra de conferência — não é um laudo emitido</p>
                 <p className="mt-1 text-sm" style={{ color: 'var(--laudo-texto-suave)' }}>
-                    Varredura real de <strong>terra.com.br</strong>, congelada em arquivo para
+                    {/* O endereço vem da amostra, não escrito aqui: quem regenera o
+                        arquivo aponta para outro site, e um nome fixo passaria a
+                        anunciar uma varredura que não é a que está na tela. */}
+                    Varredura real de <strong>{(amostra as { url?: string }).url ?? 'um site'}</strong>, congelada em arquivo para
                     conferir a tela sem consumir cota. Rota disponível apenas em desenvolvimento.
                 </p>
             </div>
